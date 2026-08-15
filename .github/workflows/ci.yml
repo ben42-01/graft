@@ -1,0 +1,83 @@
+# Graft — CI (docs/BACKEND.md §7.3)
+#
+# The same gate a developer runs as `npm run verify:full` (docs/WORKFLOW.md §3),
+# on every PR into develop or main and on every push to those branches. This is
+# what the "CI green" precondition in .github/agent-policy.yml checks.
+#
+# No secrets: `npm run setup` runs from postinstall and generates .env.dev,
+# .env.qa and the RS256 keypair on the runner exactly as it does locally. Nothing
+# generated is ever printed — the steps below run scripts, never `cat` an env file.
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, main]
+  push:
+    branches: [develop, main]
+
+# A second push to the same PR cancels the run it supersedes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify:full
+    runs-on: ubuntu-latest
+    # docs/BACKEND.md §7.3 — the gate is a feedback loop; if it stops being fast
+    # it stops being run. Fail loudly rather than drift into a 30-minute pipeline.
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # postinstall → scripts/setup-env.ts --quiet: writes the gitignored .env.dev,
+      # .env.qa and .keys/*.pem this runner will use. Random and per-run.
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Coverage thresholds are enforced from vitest.config.ts — 80% on
+      # src/server/services/**, per docs/BACKEND.md §7.3.
+      - name: Unit tests
+        run: npm run test -- --coverage
+
+      - name: Integration tests
+        run: npm run test:integration
+
+      - name: Build
+        run: npm run qa:build
+
+      - name: QA stack up
+        run: npm run qa:db
+
+      - name: Seed QA fixtures
+        run: npm run qa:seed
+
+      # Serves the build on :3100, waits for /api/health, runs the Bruno suite
+      # against it, then stops the server — see scripts/with-qa-app.ts.
+      - name: Bruno contract tests
+        run: npx dotenv -e .env.qa -- tsx scripts/with-qa-app.ts npm run test:api
+
+      # `down -v` — containers and volumes both. Runs even when an earlier step
+      # failed, so a red run never leaves the stack behind. Skipped only when
+      # install never got far enough to generate .env.qa, in which case there is
+      # no stack to remove.
+      - name: QA stack down
+        if: always() && hashFiles('.env.qa') != ''
+        run: npm run qa:db:down
