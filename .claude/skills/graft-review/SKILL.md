@@ -43,7 +43,9 @@ CI must be green before a review is meaningful. If checks are red or missing, po
 - If cross-tenant isolation was required: the test attempts access with a *different* tenant's token and asserts 403/404. Its absence is an automatic CHANGES REQUESTED — this is the most important test in the codebase.
 - No test was deleted, skipped, `.only`'d, or weakened to make the gate pass. Check the diff for removed assertions, not just added ones.
 
-**c. Scope audit.** Diff every changed file against the contract's Scope and Constraints. Anything outside declared scope gets flagged even if it's an improvement. Cross-check `protected_paths` in `.github/agent-policy.yml` — a diff touching one of those requires human co-review and you must say so explicitly in the verdict.
+**c. Scope audit.** Diff every changed file against the contract's Scope and Constraints. Anything outside declared scope gets flagged even if it's an improvement.
+
+Cross-check `protected_paths` in `.github/agent-policy.yml`. A diff touching one is acceptable **only** when the issue carries `agent:co-review-approved` and that exact path is listed in the issue's Constraints. A protected path touched outside the approved list is an automatic CHANGES REQUESTED — no exceptions for "it was necessary". Say in the verdict which protected paths were touched and that each was pre-approved.
 
 **d. Security pass.** Run the `security_checklist` from `.github/agent-policy.yml` against every new query, endpoint, and gated feature. Concretely, for each new code path ask:
 

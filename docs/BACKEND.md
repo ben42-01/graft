@@ -134,8 +134,18 @@ Rules:
 - Feature flags for risky rollouts.
 - Runbooks: rate-limit storm, quota bug, token-family revocation, connector credential leak.
 
-## 9. Open Questions
+## 9. Decisions & Open Questions
 
-- tRPC internally + REST publicly, or REST everywhere? (Bruno favors REST-everywhere.)
+**Decided — auth (2026-08-15):** hand-rolled RS256 exactly as specified in §3.1 — no
+Auth.js, no Clerk. Rationale: §3.1's refresh rotation with reuse detection and
+one-token-one-tenant is the security model we want, the Bruno contract tests already
+assume it (`/auth/refresh-reuse-detection.bru`), and a session vendor would own the
+part of the system we least want to hand over. Cost accepted: Enterprise SSO/SAML in
+Phase 3 is ours to build. Supersedes the open question below.
+
+**Decided — REST everywhere:** no tRPC. Bruno is the API contract, and a public API
+is a Phase 3 deliverable; a second internal protocol would fork the contract surface.
+
+Still open:
+
 - Redis: Upstash (serverless-friendly on Vercel) vs self-managed?
-- Auth: build on Auth.js vs Clerk — Clerk accelerates SSO/SCIM for Enterprise later.
