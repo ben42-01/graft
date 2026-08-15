@@ -10,7 +10,10 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/*.integration.test.ts"],
     coverage: {
       provider: "v8",
-      include: ["src/server/**"],
+      // docs/BACKEND.md §7.3 — "Coverage gate 80% on services". Scoped to the
+      // service layer deliberately: pure data (tiers.ts) and thin driver
+      // wrappers (mongo.ts, redis.ts) are not what the gate is protecting.
+      include: ["src/server/services/**"],
       thresholds: { lines: 80, functions: 80, statements: 80, branches: 70 },
     },
   },
