@@ -37,7 +37,7 @@ For each candidate, verify all of these. This is the whole job — be literal:
 | PASS review | A `## Soft Review` comment on the PR with `Verdict: PASS`. Read it — a CHANGES REQUESTED followed by fixes needs a *new* PASS, not the old comment. |
 | Reviewer ≠ builder | The review was produced by a cold-context agent (`graft-review` step 1). If you cannot establish this, treat it as unmet. |
 | No open threads | `reviewDecision` is not `CHANGES_REQUESTED`; no unresolved conversations. |
-| No protected paths | `gh pr diff <n> --name-only` against `protected_paths` in `.github/agent-policy.yml`. Any hit → skip, and say which path. |
+| Protected paths approved | `gh pr diff <n> --name-only` against `protected_paths` in `.github/agent-policy.yml`. A hit is fine **only** if the linked issue carries `agent:co-review-approved` and lists that exact path in its Constraints — the human approved it there, and does not approve it a second time here. Any protected path outside that list → skip, and name it. |
 | Mergeable | `mergeable == "MERGEABLE"` — a conflicted PR gets skipped, not force-resolved. |
 
 A PR missing any of these is **skipped**, with the specific reason. Never merge one "because it's obviously fine".
@@ -62,7 +62,7 @@ One line per PR, merged and skipped together:
 merged   #12 GRAFT-03: entity builder CRUD → develop (squash, branch deleted)
 merged   #13 GRAFT-04: record list widget → develop (squash, branch deleted)
 skipped  #14 GRAFT-05 — CI pending (2 checks running)
-skipped  #15 GRAFT-06 — touches src/server/auth/** (protected path, needs human co-review)
+skipped  #15 GRAFT-06 — touches src/server/auth/**, not in the issue's approved paths
 ```
 
 Never report a skip as a merge, and never bury skips under a summary line. If everything was skipped, say that plainly — "nothing qualified" is a perfectly good outcome and far cheaper than a bad merge.
@@ -71,5 +71,5 @@ Never report a skip as a merge, and never bury skips under a summary line. If ev
 
 A human can waive a precondition ("merge it anyway, I've looked at it"). Do it, and note in the report that it merged under an explicit override with the precondition that was waived. Two exceptions you don't merge on a plain override, because they need a deliberate second look:
 
-- **Protected paths** — confirm the specific paths with them first.
+- **An *unapproved* protected path** — name the specific paths and confirm before merging. A path already approved on the issue needs no second confirmation; that approval was the deliberate look.
 - **Red CI** — state which checks are failing and get an explicit acknowledgement of those failures.
