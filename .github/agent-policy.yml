@@ -1,0 +1,80 @@
+# Graft — Agent Policy
+# Machine-readable guardrails for the agentic loop (docs/AGENTS.md §2.2, §5).
+# Build and Review skills MUST read this file before acting. It is itself protected:
+# no agent edits this file.
+
+version: 1
+
+limits:
+  # Max concurrent issues labelled agent:building (docs/AGENTS.md §3)
+  wip: 3
+  # Soft ceiling on PR diff size; larger work must be split by the Drafting Agent
+  max_diff_lines: 600
+  # Build <-> Review cycles before ESCALATE (docs/AGENTS.md §2.3)
+  max_review_cycles: 2
+
+# Paths an agent may never touch without explicit human co-review.
+# A Build Agent that needs a change here STOPS, comments the required diff on the
+# issue, and sets agent:blocked. A Review Agent flags any diff touching these.
+protected_paths:
+  # The agent machinery itself
+  - .claude/**
+  - .github/agent-policy.yml
+  - .github/ISSUE_TEMPLATE/**
+  # CI / release config
+  - .github/workflows/**
+  # Auth core (docs/BACKEND.md §3)
+  - src/server/auth/**
+  - src/server/services/tokens.ts
+  - src/app/api/v1/auth/**
+  - src/app/api/.well-known/**
+  # Tenant isolation enforcement — the single most important invariant
+  - src/server/repositories/base.ts
+  - src/server/context.ts
+  # Billing & entitlements (docs/TIERS.md §4)
+  - src/app/api/v1/webhooks/stripe/**
+  - src/server/services/entitlements.ts
+  - src/server/services/meters.ts
+  # Destructive / environment
+  - scripts/reset-db.ts
+  - migrations/**
+  - docker/**
+  - .env*
+  - "*.pem"
+
+# Changes here are allowed but MUST be called out explicitly in the PR body.
+declare_in_pr:
+  - package.json
+  - package-lock.json
+  - tsconfig.json
+  - next.config.*
+  - vitest.config.*
+  - playwright.config.*
+
+forbidden_actions:
+  - Adding a dependency without name + license + reason in the PR body
+  - "Deleting, skipping, or `.only`-ing a test to make CI green"
+  - Lowering a coverage threshold or lint severity
+  - "`eslint-disable` / `@ts-ignore` / `as any` without an adjacent justification comment"
+  - Committing a secret, key, or real credential in any form
+  - Pushing to main, force-pushing, or altering branch protection
+  - Modifying an issue's Acceptance Criteria (propose an amendment instead)
+  - Deploying to production (docs/AGENTS.md §4 — humans only)
+
+# Every new query, endpoint, and gated feature is checked against this
+# (docs/BACKEND.md §§1-6). Review Agent runs it as a checklist.
+security_checklist:
+  - Every Mongo query scoped by ctx.tenantId via the repository layer
+  - Request body / query / params validated with Zod at the boundary
+  - assertPermission() for RBAC and can() / checkQuota() for tier gating
+  - Rate limiting declared for any new endpoint (docs/BACKEND.md §4)
+  - No PII in logs; requestId + tenantId + userId only
+  - Cross-tenant access attempt returns 403/404, proven by a Bruno test
+  - Errors use the standard envelope and a stable machine-readable code
+
+human_gates:
+  - Queue entry (agent:draft -> agent:queued)
+  - Contract amendments
+  - Final merge to main
+  - Releases and tags
+  - Any diff touching protected_paths
