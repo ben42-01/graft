@@ -1,0 +1,345 @@
+/**
+ * QA seed — deterministic fixtures (docs/WORKFLOW.md §5.2).
+ *
+ * Fixed ObjectIds, fixed emails, fixed counts. Bruno assertions reference these
+ * values directly, so nothing here may become random or time-dependent: if an
+ * assertion can flake, this file is the reason. The QA stack is ephemeral, so
+ * this always runs against an empty database.
+ *
+ * Edge-case tenants are deliberate — a tenant AT its quota, and a downgraded
+ * tenant sitting over the free limits with read-only resources.
+ */
+import { ObjectId, type Db } from "mongodb";
+import { connect, COLLECTIONS } from "./lib/db";
+import { TIER_LIMITS } from "../src/server/tiers";
+
+/**
+ * The meter period is the *current* month, not a hardcoded one: the app looks up
+ * meters by the period it computes at request time, so a pinned period would
+ * leave the at-quota tenant looking empty and the hard-stop test would silently
+ * pass for the wrong reason. The counts are what assertions depend on, and those
+ * are fixed.
+ */
+const PERIOD = new Date().toISOString().slice(0, 7);
+
+/** Everything else is pinned — no assertion may depend on the clock. */
+const FIXED_DATE = new Date("2026-01-15T12:00:00.000Z");
+
+const oid = (n: number) => new ObjectId(n.toString(16).padStart(24, "0"));
+
+const IDS = {
+  tenantFree: oid(1),
+  tenantPremium: oid(2),
+  tenantAtQuota: oid(3),
+  tenantDowngraded: oid(4),
+  userFreeOwner: oid(11),
+  userPremiumOwner: oid(12),
+  userPremiumMember: oid(13),
+  userAtQuotaOwner: oid(14),
+  userDowngradedOwner: oid(15),
+  entityFreeCustomers: oid(21),
+  entityPremiumCustomers: oid(22),
+  entityDowngradedExtra: oid(23),
+  formFreePublic: oid(31),
+  formAtQuota: oid(32),
+  formDowngradedUnpublished: oid(33),
+  recordFreeFirst: oid(41),
+} as const;
+
+const CUSTOMER_FIELDS = [
+  { key: "name", label: "Name", type: "text", required: true },
+  { key: "email", label: "Email", type: "email", required: true },
+  { key: "phone", label: "Phone", type: "phone" },
+];
+
+const base = { createdAt: FIXED_DATE, updatedAt: FIXED_DATE, seedBatch: "qa-fixtures" };
+
+async function assertEmpty(db: Db) {
+  for (const name of COLLECTIONS) {
+    const count = await db.collection(name).countDocuments({}, { limit: 1 });
+    if (count > 0) {
+      console.error(
+        `[graft] '${name}' is not empty — the QA stack must be ephemeral.\n` +
+          `        run \`npm run qa:db:down && npm run qa:db\` and reseed.`,
+      );
+      process.exit(1);
+    }
+  }
+}
+
+async function main() {
+  const { client, db } = await connect();
+  try {
+    await assertEmpty(db);
+
+    await db.collection("tenants").insertMany([
+      {
+        _id: IDS.tenantFree,
+        name: "QA Free Tenant",
+        slug: "qa-free",
+        tier: "free",
+        limits: TIER_LIMITS.free,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
+      {
+        _id: IDS.tenantPremium,
+        name: "QA Premium Tenant",
+        slug: "qa-premium",
+        tier: "premium",
+        limits: TIER_LIMITS.premium,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
+      {
+        _id: IDS.tenantAtQuota,
+        name: "QA At Quota Tenant",
+        slug: "qa-at-quota",
+        tier: "free",
+        limits: TIER_LIMITS.free,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
+      {
+        _id: IDS.tenantDowngraded,
+        name: "QA Downgraded Tenant",
+        slug: "qa-downgraded",
+        tier: "free",
+        limits: TIER_LIMITS.free,
+        downgradedAt: FIXED_DATE,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
+    ]);
+
+    await db.collection("users").insertMany([
+      {
+        _id: IDS.userFreeOwner,
+        email: "owner@qa-free.test",
+        name: "QA Free Owner",
+        emailVerifiedAt: FIXED_DATE,
+        memberships: [{ tenantId: IDS.tenantFree, roles: ["owner"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userPremiumOwner,
+        email: "owner@qa-premium.test",
+        name: "QA Premium Owner",
+        emailVerifiedAt: FIXED_DATE,
+        memberships: [{ tenantId: IDS.tenantPremium, roles: ["owner"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userPremiumMember,
+        email: "member@qa-premium.test",
+        name: "QA Premium Member",
+        emailVerifiedAt: FIXED_DATE,
+        memberships: [{ tenantId: IDS.tenantPremium, roles: ["member"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userAtQuotaOwner,
+        email: "owner@qa-at-quota.test",
+        name: "QA At Quota Owner",
+        emailVerifiedAt: FIXED_DATE,
+        memberships: [{ tenantId: IDS.tenantAtQuota, roles: ["owner"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userDowngradedOwner,
+        email: "owner@qa-downgraded.test",
+        name: "QA Downgraded Owner",
+        emailVerifiedAt: FIXED_DATE,
+        memberships: [{ tenantId: IDS.tenantDowngraded, roles: ["owner"] }],
+        ...base,
+      },
+    ]);
+
+    await db.collection("plugins_enabled").insertMany([
+      { _id: oid(51), tenantId: IDS.tenantFree, pluginId: "contacts", config: {}, ...base },
+      { _id: oid(52), tenantId: IDS.tenantFree, pluginId: "forms", config: {}, ...base },
+      { _id: oid(53), tenantId: IDS.tenantPremium, pluginId: "contacts", config: {}, ...base },
+      { _id: oid(54), tenantId: IDS.tenantPremium, pluginId: "forms", config: {}, ...base },
+      { _id: oid(55), tenantId: IDS.tenantPremium, pluginId: "invoicing", config: {}, ...base },
+    ]);
+
+    await db.collection("entity_defs").insertMany([
+      {
+        _id: IDS.entityFreeCustomers,
+        tenantId: IDS.tenantFree,
+        key: "customers",
+        name: "Customers",
+        fields: CUSTOMER_FIELDS,
+        schemaVersion: 1,
+        readOnly: false,
+        ...base,
+      },
+      {
+        _id: IDS.entityPremiumCustomers,
+        tenantId: IDS.tenantPremium,
+        key: "customers",
+        name: "Customers",
+        fields: CUSTOMER_FIELDS,
+        schemaVersion: 1,
+        readOnly: false,
+        ...base,
+      },
+      {
+        // Over the free limit after downgrade — read-only, never deleted
+        _id: IDS.entityDowngradedExtra,
+        tenantId: IDS.tenantDowngraded,
+        key: "legacy_orders",
+        name: "Legacy Orders",
+        fields: CUSTOMER_FIELDS,
+        schemaVersion: 1,
+        readOnly: true,
+        ...base,
+      },
+    ]);
+
+    // Exactly 3 records for the free tenant — assertions count on this.
+    await db.collection("records").insertMany([
+      {
+        _id: IDS.recordFreeFirst,
+        tenantId: IDS.tenantFree,
+        entityDefId: IDS.entityFreeCustomers,
+        schemaVersion: 1,
+        data: { name: "Ada Lovelace", email: "ada@qa-free.test", phone: "+353 1 000 0001" },
+        deletedAt: null,
+        ...base,
+      },
+      {
+        _id: oid(42),
+        tenantId: IDS.tenantFree,
+        entityDefId: IDS.entityFreeCustomers,
+        schemaVersion: 1,
+        data: { name: "Grace Hopper", email: "grace@qa-free.test", phone: "+353 1 000 0002" },
+        deletedAt: null,
+        ...base,
+      },
+      {
+        _id: oid(43),
+        tenantId: IDS.tenantFree,
+        entityDefId: IDS.entityFreeCustomers,
+        schemaVersion: 1,
+        data: { name: "Alan Turing", email: "alan@qa-free.test", phone: "+353 1 000 0003" },
+        deletedAt: null,
+        ...base,
+      },
+      // Premium tenant's record — the target of every cross-tenant access test.
+      {
+        _id: oid(44),
+        tenantId: IDS.tenantPremium,
+        entityDefId: IDS.entityPremiumCustomers,
+        schemaVersion: 1,
+        data: {
+          name: "Do Not Leak",
+          email: "secret@qa-premium.test",
+          phone: "+353 1 999 9999",
+        },
+        deletedAt: null,
+        ...base,
+      },
+    ]);
+
+    await db.collection("forms").insertMany([
+      {
+        _id: IDS.formFreePublic,
+        tenantId: IDS.tenantFree,
+        name: "QA Public Form",
+        slug: "qa-public-form",
+        publicSlug: "qa-free/qa-public-form",
+        visibility: "public",
+        published: true,
+        fields: CUSTOMER_FIELDS,
+        ...base,
+      },
+      {
+        _id: IDS.formAtQuota,
+        tenantId: IDS.tenantAtQuota,
+        name: "QA Quota Form",
+        slug: "qa-quota-form",
+        publicSlug: "qa-at-quota/qa-quota-form",
+        visibility: "public",
+        published: true,
+        fields: CUSTOMER_FIELDS,
+        ...base,
+      },
+      {
+        _id: IDS.formDowngradedUnpublished,
+        tenantId: IDS.tenantDowngraded,
+        name: "QA Unpublished Form",
+        slug: "qa-unpublished-form",
+        publicSlug: "qa-downgraded/qa-unpublished-form",
+        visibility: "public",
+        published: false, // unpublished by downgrade, data retained
+        fields: CUSTOMER_FIELDS,
+        ...base,
+      },
+    ]);
+
+    await db.collection("usage_meters").insertMany([
+      {
+        _id: oid(61),
+        tenantId: IDS.tenantFree,
+        meter: "form_submissions",
+        period: PERIOD,
+        count: 5,
+        ...base,
+      },
+      {
+        _id: oid(62),
+        tenantId: IDS.tenantPremium,
+        meter: "form_submissions",
+        period: PERIOD,
+        count: 500,
+        ...base,
+      },
+      {
+        // AT the free limit exactly — the hard-stop test hits this one
+        _id: oid(63),
+        tenantId: IDS.tenantAtQuota,
+        meter: "form_submissions",
+        period: PERIOD,
+        count: TIER_LIMITS.free.submissionsPerMonth!,
+        ...base,
+      },
+      {
+        _id: oid(64),
+        tenantId: IDS.tenantDowngraded,
+        meter: "form_submissions",
+        period: PERIOD,
+        count: 100,
+        ...base,
+      },
+    ]);
+
+    await db.collection("dashboards").insertOne({
+      _id: oid(71),
+      tenantId: IDS.tenantFree,
+      ownerId: IDS.userFreeOwner,
+      name: "QA Dashboard",
+      widgets: [{ type: "table", title: "Customers", config: { entityKey: "customers" } }],
+      ...base,
+    });
+
+    const counts = await Promise.all(
+      COLLECTIONS.map(
+        async (name) => [name, await db.collection(name).countDocuments()] as const,
+      ),
+    );
+    console.log(`[graft] qa fixtures loaded into '${db.databaseName}' (period ${PERIOD})`);
+    for (const [name, count] of counts)
+      if (count) console.log(`  ${String(count).padStart(4)}  ${name}`);
+    console.log(
+      "        tenants: qa-free · qa-premium · qa-at-quota (at hard stop) · qa-downgraded (read-only over-limit)",
+    );
+  } finally {
+    await client.close();
+  }
+}
+
+main().catch((error) => {
+  console.error("[graft] qa seed failed:", error);
+  process.exit(1);
+});

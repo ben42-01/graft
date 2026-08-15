@@ -1,0 +1,25 @@
+meta {
+  name: Readiness
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/ready
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq ready
+  res.body.data.checks.mongo.ok: eq true
+  res.body.data.checks.redis.ok: eq true
+}
+
+docs {
+  Proves the running stack can actually reach Mongo and Redis. This is the first
+  link in the Bruno contract chain described in docs/BACKEND.md §7.2 — every
+  endpoint that follows gets happy path, validation failure, authz failure and a
+  cross-tenant attempt.
+}

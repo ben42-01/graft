@@ -1,0 +1,49 @@
+# Graft — QA stack (docs/WORKFLOW.md §4.1)
+# Identical to dev except: separate container names, port 27018, DB graft_qa, and
+# NO named volume — the QA stack is ephemeral so every run starts from identical
+# deterministic fixtures. `down -v` wipes it completely.
+name: graft-qa
+
+services:
+  mongo:
+    image: mongo:7
+    container_name: graft-qa-mongo
+    command: ["--auth"]
+    ports:
+      - "${MONGO_PORT:-27018}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set in .env.qa}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set in .env.qa}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:-graft_qa}
+      GRAFT_APP_USER: ${MONGO_APP_USER:-graft_app}
+      GRAFT_APP_PASSWORD: ${MONGO_APP_PASSWORD:?set in .env.qa}
+    volumes:
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mongosh",
+          "--quiet",
+          "-u",
+          "${MONGO_ROOT_USER}",
+          "-p",
+          "${MONGO_ROOT_PASSWORD}",
+          "--eval",
+          "db.adminCommand('ping')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: graft-qa-redis
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20

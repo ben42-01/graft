@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --color-graft-bg: #0b0d10;
+  --color-graft-panel: #14181d;
+  --color-graft-line: #232a32;
+  --color-graft-text: #e8edf2;
+  --color-graft-muted: #93a1b0;
+  --color-graft-accent: #4ade80;
+  --color-graft-warn: #fbbf24;
+  --color-graft-fail: #f87171;
+}
+
+html,
+body {
+  background: var(--color-graft-bg);
+  color: var(--color-graft-text);
+}

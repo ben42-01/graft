@@ -66,9 +66,18 @@ web_modules/
 .yarn-integrity
 
 # dotenv environment variable files
+# NOTHING with credentials is committed — .env.dev/.env.qa are generated per
+# machine by `npm run setup` (docs/WORKFLOW.md §4.3). Only the template is tracked.
 .env
 .env.*
 !.env.example
+
+# Signing keys — generated locally, never committed
+.keys/
+*.pem
+
+# Local scratch
+scratchpad.sh
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache
@@ -141,3 +150,4 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+.scratchpad.sh
