@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Graft">
+
+  <g fill="none" stroke="#4F46E5" stroke-width="18" stroke-linecap="round">
+    <path d="M 97 38 A 42 42 0 1 0 106 64"/>
+    <path d="M 106 64 L 74 64"/>
+  </g>
+  <circle cx="74" cy="64" r="8" fill="#16A34A"/>
+</svg>
