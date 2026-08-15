@@ -17,6 +17,23 @@ You implement **one contract, exactly**. Spec: `docs/AGENTS.md` §2.2. The contr
 
 ## Procedure
 
+### 0. Start cold
+
+**The issue is the context.** A contract that needs the preceding conversation to be understood is a defective contract — that is the whole point of writing it down. So a build never inherits chat history it doesn't need: it wastes tokens, and worse, it lets the build drift toward what was *discussed* instead of what was *agreed*.
+
+Before step 1, pick one:
+
+- **Session is already cold** (fresh window, or the user just ran `/clear`) → carry on inline.
+- **Session carries unrelated context** — a previous build, a long design discussion, another issue → **dispatch a fresh subagent** and let it do the build:
+
+  > Use the Agent tool (`subagent_type: general-purpose`) with a prompt containing only: the issue number, and the instruction to read `.claude/skills/graft-build/SKILL.md` and follow steps 1–8 for that issue. Nothing else. The subagent pulls the issue body, the policy file and the docs itself.
+
+  Relay its report — PR URL, gate results, self-reported drift — verbatim in substance. Never summarise a red gate as green.
+
+If the user asks to build while the current session is deep in something else and you cannot dispatch, say so and suggest `/clear` rather than quietly building on top of a loaded context.
+
+**Token discipline during the build:** read the issue in full, but only the *doc sections it links* — not the whole `docs/` tree. Read files you are about to change, not the whole `src/` tree. If you find yourself needing a lot of unlinked context to proceed, the contract is probably under-specified: that is a `@needs-clarification`, not a reading exercise.
+
 ### 1. Select and claim
 
 If the user named an issue, use it. Otherwise pick from the queue:

@@ -16,7 +16,7 @@ You verify a PR **against its contract**, not against taste. Spec: `docs/AGENTS.
 
 ## 1. Dispatch a fresh reviewer
 
-If this session wrote or modified the code under review — or you're unsure — **do not review it yourself**. Spawn a subagent with a cold context and give it only the contract and the diff:
+If this session wrote or modified the code under review — including via a build subagent it dispatched — or you're unsure, **do not review it yourself**. Spawn a subagent with a cold context and give it only the contract and the diff:
 
 > Use the Agent tool (`subagent_type: general-purpose`) with a prompt containing: the PR number, the full issue body, and the instruction to follow `.claude/skills/graft-review/SKILL.md` steps 2–5 and return the structured verdict. The subagent gathers the diff itself.
 
