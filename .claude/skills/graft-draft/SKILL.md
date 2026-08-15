@@ -28,7 +28,7 @@ Always read `docs/AGENTS.md`. Then read whichever apply to the request:
 | envs, scripts, docker, seeds, CI pipeline | `docs/WORKFLOW.md` |
 | launch readiness, production gates | `docs/GO-LIVE.md` |
 
-Also read `.github/agent-policy.yml` — if the work necessarily touches a protected path, say so in **Constraints** so the Build Agent blocks early instead of late.
+Also read `.github/agent-policy.yml`. If the work necessarily touches a protected path, **list every such path explicitly in Constraints** under `Protected paths:`. That list is what a human approves when they apply `agent:co-review-approved`, and it is the exact set the Build Agent is authorised to touch — so an omission blocks the build, and a padded list grants more than the human intended. Never apply the label yourself.
 
 ### 2. Allocate the ID
 

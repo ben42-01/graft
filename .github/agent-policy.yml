@@ -24,9 +24,10 @@ limits:
   # Build <-> Review cycles before ESCALATE (docs/AGENTS.md §2.3)
   max_review_cycles: 2
 
-# Paths an agent may never touch without explicit human co-review.
-# A Build Agent that needs a change here STOPS, comments the required diff on the
-# issue, and sets agent:blocked. A Review Agent flags any diff touching these.
+# Paths an agent may never touch WITHOUT explicit human co-review — see
+# co_review below for how that approval is granted. "Protected" means a human
+# must knowingly authorise the change, not that the path is unreachable: the
+# foundation issues necessarily create several of these files.
 protected_paths:
   # The agent machinery itself
   - .claude/**
@@ -52,6 +53,25 @@ protected_paths:
   - docker/**
   - .env*
   - "*.pem"
+
+# How a protected path gets unblocked. Without this, an issue whose whole point
+# is to create protected files (CI config, the tenant-isolation repository base,
+# auth core) blocks forever — the loop deadlocks on its own foundation work.
+co_review:
+  label: "agent:co-review-approved"
+  # 1. The Drafting Agent lists the protected paths the contract will touch, in
+  #    the issue's Constraints section, BEFORE the issue is queued.
+  # 2. A human reviews that list and applies the label. Approval is scoped to
+  #    exactly those paths — nothing else is authorised by it.
+  # 3. The Build Agent may then create or modify those paths, and must list each
+  #    one in the PR body under "Protected paths touched", with the reason.
+  # 4. The Review Agent verifies the diff touches no protected path outside the
+  #    approved list. Anything extra is an automatic CHANGES REQUESTED.
+  approval_is_scoped_to: paths listed in the issue Constraints section
+  unlisted_path_touched: changes_requested
+  # An agent never applies this label to its own issue, and never infers approval
+  # from conversation — only the label on the issue counts.
+  self_approval: forbidden
 
 # Changes here are allowed but MUST be called out explicitly in the PR body.
 declare_in_pr:
