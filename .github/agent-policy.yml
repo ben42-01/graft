@@ -126,7 +126,10 @@ merge_policy:
     - A cold-context Soft Review recorded a PASS verdict on this PR
     - The reviewing agent was not the building agent
     - No unresolved change requests or review threads
-    - The diff touches no protected_paths
+    # Approval happens ONCE, when a human applies agent:co-review-approved to the
+    # issue. A protected path already approved there does not need approving
+    # again at merge. A protected path NOT on that list is never mergeable.
+    - The diff touches no protected path outside the set approved on the issue (see co_review)
   # Any precondition that fails: skip that PR, merge the rest, and report exactly
   # what was held back and why. Never silently widen "merge everything".
   on_precondition_failure: skip_and_report
