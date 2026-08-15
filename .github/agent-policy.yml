@@ -84,10 +84,36 @@ security_checklist:
   - Cross-tenant access attempt returns 403/404, proven by a Bruno test
   - Errors use the standard envelope and a stable machine-readable code
 
+# A human decides; an agent may do the clicking. These are decisions that must
+# originate with a human — an agent never takes them on its own initiative.
 human_gates:
   - Queue entry (agent:draft -> agent:queued)
   - Contract amendments
-  - Final merge to develop
-  - Every promotion of develop to main
+  - Authorising a merge into develop
+  - Authorising a promotion of develop to main
   - Releases and tags
   - Any diff touching protected_paths
+
+# Merging is EXECUTION, not a decision. On an explicit human instruction ("merge
+# it", "merge everything"), an agent performs the merge — provided every
+# precondition below holds for that specific PR. An agent never merges unasked,
+# and never merges a PR it cannot verify.
+merge_policy:
+  requires_human_instruction: true
+  preconditions:
+    - PR targets develop (main only under a type:release contract, authorised separately)
+    - All required CI checks pass; no pending or failing checks
+    - A cold-context Soft Review recorded a PASS verdict on this PR
+    - The reviewing agent was not the building agent
+    - No unresolved change requests or review threads
+    - The diff touches no protected_paths
+  # Any precondition that fails: skip that PR, merge the rest, and report exactly
+  # what was held back and why. Never silently widen "merge everything".
+  on_precondition_failure: skip_and_report
+  method:
+    develop: squash # one issue, one commit on develop
+    main: merge # release promotions stay legible in history
+  after_merge:
+    - Delete the work branch
+    - Close the issue if the PR body did not already close it
+    - Report every merge and every skip back to the human

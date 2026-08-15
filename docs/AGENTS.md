@@ -149,7 +149,7 @@ Scope: clean / drift noted: ...
 Security: ✅ tenant scoping, ✅ zod, ⚠️ missing rate limit on X
 ```
 
-- **PASS** → label `agent:done-review`; a **human always performs the final merge** (branch protection: 1 human approval required).
+- **PASS** → label `agent:done-review`; the PR is mergeable but nothing merges until a human says so. On that instruction an agent may perform the merge (`/graft-merge`), skipping any PR that fails a precondition and reporting it.
 - **CHANGES REQUESTED** → back to Build Agent. Max **2 build↔review cycles**; on the 3rd disagreement → `ESCALATE` label, human arbitrates.
 - Review Agent never pushes code. Separation of duties: the building agent and reviewing agent are never the same session/identity.
 
@@ -170,7 +170,7 @@ Security: ✅ tenant scoping, ✅ zod, ⚠️ missing rate limit on X
 
 ## 5. Guardrails Summary (non-negotiable)
 
-1. Humans gate: queue entry, contract amendments, final merge, releases, protected paths.
+1. Humans gate: queue entry, contract amendments, merge authorisation, releases, protected paths. Merging is *execution* — once a human says "merge it", an agent performs the merge under `merge_policy` in `.github/agent-policy.yml`, which still requires green CI and a PASS review from an agent that didn't write the code. Agents never merge unasked.
 2. Agents never modify CI/security config, billing webhooks, or auth core without human co-review.
 3. Every PR maps 1:1 to one issue; no drive-by changes.
 4. All agent actions are comments/commits in GitHub — fully auditable, no side channels.

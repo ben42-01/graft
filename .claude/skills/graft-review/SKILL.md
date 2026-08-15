@@ -78,7 +78,7 @@ Post with `gh pr comment <n> --body-file - < <path>` — `gh` is a snap here and
 
 Then:
 
-- **PASS** → `gh issue edit <n> --add-label "agent:done-review" --remove-label "agent:review"`. Tell the user a human must perform the merge; branch protection requires one human approval. Never approve or merge the PR yourself.
+- **PASS** → `gh issue edit <n> --add-label "agent:done-review" --remove-label "agent:review"`. The PR is now mergeable, but **you do not merge it here** — merging happens only on an explicit human instruction, via `/graft-merge`. Report that it's ready and stop.
 - **CHANGES REQUESTED** → `gh issue edit <n> --add-label "agent:building" --remove-label "agent:review"` and hand back to the Build Agent.
 - **ESCALATE** → apply the `ESCALATE` label on the third disagreement over the same point, and state plainly what the two positions are so the human can arbitrate quickly.
 
