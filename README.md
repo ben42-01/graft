@@ -63,6 +63,13 @@ Guardrails (protected paths, WIP and diff limits, the security checklist) live i
 [.github/agent-policy.yml](.github/agent-policy.yml). Loop spec:
 [docs/AGENTS.md](docs/AGENTS.md).
 
+### Branches
+
+`develop` is the default branch and the base for all work; `main` is the release
+branch and only ever receives `develop` through a `type:release` contract. Work
+branches are named after their issue (`GRAFT-14-bugfix/form-quota-off-by-one`) and
+deleted after merge.
+
 ## Docs
 
 | Doc | |

@@ -5,6 +5,17 @@
 
 version: 1
 
+# Branching model (standard GitHub flow with a release branch).
+#   feature/bugfix/chore  branch from develop -> PR into develop
+#   release               develop -> main, tagged, human-approved
+#   hotfix                branch from main -> PR into main, then back-merged
+branches:
+  default: develop # every PR targets this unless it is a release
+  release: main # only ever receives develop, via a type:release contract
+  protected:
+    - develop
+    - main
+
 limits:
   # Max concurrent issues labelled agent:building (docs/AGENTS.md §3)
   wip: 3
@@ -57,7 +68,8 @@ forbidden_actions:
   - Lowering a coverage threshold or lint severity
   - "`eslint-disable` / `@ts-ignore` / `as any` without an adjacent justification comment"
   - Committing a secret, key, or real credential in any form
-  - Pushing to main, force-pushing, or altering branch protection
+  - Pushing directly to develop or main, force-pushing, or altering branch protection
+  - Opening a PR against main for anything other than a type:release contract
   - Modifying an issue's Acceptance Criteria (propose an amendment instead)
   - Deploying to production (docs/AGENTS.md §4 — humans only)
 
@@ -75,6 +87,7 @@ security_checklist:
 human_gates:
   - Queue entry (agent:draft -> agent:queued)
   - Contract amendments
-  - Final merge to main
+  - Final merge to develop
+  - Every promotion of develop to main
   - Releases and tags
   - Any diff touching protected_paths

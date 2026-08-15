@@ -24,6 +24,18 @@ GRAFT-<NN>-<type>/<short-slug>
 
 Branch name = issue ID. PR title = issue ID + summary. Commits: `GRAFT-14: fix meter reset boundary`.
 
+### 1.3 Branching Model
+
+Standard GitHub flow with a release branch:
+
+| Branch | Role |
+|---|---|
+| `develop` | **Default branch.** Every feature/bugfix/chore branches from it and every PR targets it. Always deployable to QA. |
+| `main` | Release branch. Only ever receives `develop` through a `type:release` contract, then gets tagged. Production deploys from here. |
+| `GRAFT-NN-type/slug` | Short-lived work branch, deleted after merge. |
+
+Hotfixes are the one exception: branch from `main`, PR into `main`, then back-merge to `develop` in the same contract so the fix cannot be lost in the next release.
+
 ### 1.2 Issue Template (the Contract)
 
 Every issue body follows this template — it IS the contract that build and review agents work against:
@@ -98,7 +110,7 @@ Human intent ──► [Drafting Agent] ──► Issue (contract) ──► Que
 **Trigger:** picks the highest-priority `agent:queued` issue with no unmet dependencies; sets `agent:building` and assigns itself (lock — one agent per issue).
 
 **Protocol:**
-1. Create branch `GRAFT-NN-type/slug` from `main`.
+1. Create branch `GRAFT-NN-type/slug` from `develop`.
 2. **Tests first:** write/extend the Bruno + unit tests named in the Test Contract before implementation where practical.
 3. Implement strictly within Scope; if the contract is ambiguous or wrong, STOP, comment `@needs-clarification` with the specific question, set `agent:blocked`. Never invent scope.
 4. Run the full local gate: lint, typecheck, unit, integration, `bru run`.
@@ -152,8 +164,8 @@ Security: ✅ tenant scoping, ✅ zod, ⚠️ missing rate limit on X
 
 ## 4. Release Flow (`type:release`)
 
-- `GRAFT-NN-release/vX.Y.Z` issue is drafted by the Drafting Agent: collects merged issues since last tag, generates changelog grouped by type, lists migration steps.
-- Build Agent bumps version, updates CHANGELOG.md, tags after human approval.
+- `GRAFT-NN-release/vX.Y.Z` issue is drafted by the Drafting Agent: collects issues merged into `develop` since the last tag, generates changelog grouped by type, lists migration steps.
+- Build Agent bumps version and updates CHANGELOG.md on `develop`, then opens the `develop` → `main` PR. A human merges and tags.
 - Releases always require human sign-off; agents never deploy to production.
 
 ## 5. Guardrails Summary (non-negotiable)
@@ -169,7 +181,7 @@ Security: ✅ tenant scoping, ✅ zod, ⚠️ missing rate limit on X
 - [ ] `.github/ISSUE_TEMPLATE/contract.md` (template above)
 - [ ] `.github/agent-policy.yml` (protected paths, WIP limit, diff limit)
 - [ ] Labels created (`type:*`, `agent:*`, `priority:*`, `area:*`)
-- [ ] Branch protection: CI green + 1 human review required on `main`
+- [ ] Branch protection: CI green + 1 human review required on `develop` and `main`; no force-push, no deletion
 - [ ] Bruno CI job wired (see BACKEND.md §7.3)
 - [ ] Pinned "GRAFT Board" issue for digests
 - [ ] First drafted issue: `GRAFT-01-feature/auth-and-tenant-bootstrap`

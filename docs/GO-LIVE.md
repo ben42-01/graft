@@ -89,7 +89,7 @@ Legend: 🔴 REQUIRED for launch · 🟡 required within 30 days of launch · �
 
 ## 9. Launch Procedure (Day 0)
 
-1. Freeze `main`; cut `GRAFT-NN-release/v1.0.0` per AGENTS.md §4
+1. Freeze `develop`; cut `GRAFT-NN-release/v1.0.0` per AGENTS.md §4 (the `develop` → `main` promotion PR)
 2. `npm run release:check` green in CI
 3. Run migrations + indexes against Atlas (migrator user)
 4. Deploy to production; run smoke Bruno suite against live URL (read-only + one canary tenant write)

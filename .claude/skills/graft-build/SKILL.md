@@ -59,9 +59,14 @@ Read the issue body in full. Read every doc section it links. Restate the ACs to
 ### 3. Branch
 
 ```bash
-git checkout main && git pull
+git checkout develop && git pull
 git checkout -b "GRAFT-NN-type/slug"     # branch name == issue ID, exactly
 ```
+
+**`develop` is the integration branch and the base for every PR.** `main` is the
+release branch and only ever receives merges from `develop` via a `type:release`
+issue. Never branch from `main`, never target `main` in a PR, unless the contract
+is a release or an explicitly labelled hotfix.
 
 ### 4. Tests first
 

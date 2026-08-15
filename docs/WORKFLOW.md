@@ -208,11 +208,11 @@ cp .env.example .env.local   # defaults already point at docker dev
 npm run dev:full             # db up → seeded → app on :3000
 ```
 
-**Feature loop (matches AGENTS.md):** branch `GRAFT-NN-…` → code + tests → `npm run verify` → push → CI runs `verify:full` → PR review → merge.
+**Feature loop (matches AGENTS.md):** branch `GRAFT-NN-…` off `develop` → code + tests → `npm run verify` → push → CI runs `verify:full` → PR review → merge into `develop`.
 
 **QA / CI:** `qa:db → qa:seed → build → start :3100 → test:api (Bruno) → test:e2e → teardown`. The QA stack is fully ephemeral; every run starts from identical fixtures.
 
-**Prod deploy (summary — full detail in GO-LIVE.md):** merge to `main` → CI green → `db:migrate` + `db:indexes` against Atlas (release job, not app boot) → deploy to Vercel → smoke tests → tag.
+**Prod deploy (summary — full detail in GO-LIVE.md):** promote `develop` → `main` → CI green → `db:migrate` + `db:indexes` against Atlas (release job, not app boot) → deploy to Vercel → smoke tests → tag.
 
 ---
 
