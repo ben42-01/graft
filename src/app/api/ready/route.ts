@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
 import { getDb } from "@/server/db/mongo";
 import { getRedis } from "@/server/db/redis";
+import { jsonOk } from "@/server/http/envelope";
+import { route } from "@/server/http/handler";
 
 /**
  * Readiness — can this instance actually serve traffic (docs/BACKEND.md §8).
@@ -25,15 +26,17 @@ async function timed(fn: () => Promise<unknown>): Promise<Check> {
   }
 }
 
-export async function GET() {
+export const GET = route(async (_request, { requestId }) => {
   const [mongo, redis] = await Promise.all([
     timed(async () => (await getDb()).command({ ping: 1 })),
     timed(async () => getRedis().ping()),
   ]);
 
   const ok = mongo.ok && redis.ok;
-  return NextResponse.json(
-    { data: { status: ok ? "ready" : "degraded", checks: { mongo, redis } } },
+  return jsonOk(
+    { status: ok ? "ready" : "degraded", checks: { mongo, redis } },
+    requestId,
+    undefined,
     { status: ok ? 200 : 503 },
   );
-}
+});

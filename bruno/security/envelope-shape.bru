@@ -1,0 +1,30 @@
+meta {
+  name: Envelope shape (success)
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/health
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: isDefined
+  res.body.meta: isDefined
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+  res.headers['x-request-id']: isDefined
+  res.headers['content-type']: contains application/json
+}
+
+docs {
+  The success half of the standard envelope (docs/BACKEND.md §2): every response
+  is `{ data, meta }` and every response carries a requestId — in the body and on
+  the wire — so a user's screenshot maps to a log line (GRAFT-02 AC6).
+
+  The error half is asserted by envelope-error-shape.bru; a .bru file is one
+  request, and the two shapes cannot be observed in the same one.
+}

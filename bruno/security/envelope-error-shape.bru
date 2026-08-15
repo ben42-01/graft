@@ -1,0 +1,27 @@
+meta {
+  name: Envelope shape (error)
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/no-such-route
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.message: isDefined
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+  res.headers['x-request-id']: isDefined
+  res.headers['content-type']: contains application/json
+}
+
+docs {
+  The error half of the envelope (docs/BACKEND.md §2). An unclaimed /api/v1 path
+  answers with a machine-readable `code` and a requestId rather than Next.js's
+  HTML 404, so a client never has to parse two response languages.
+}

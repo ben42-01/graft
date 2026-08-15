@@ -1,0 +1,126 @@
+/**
+ * The API envelope and the error-code union (docs/BACKEND.md §2).
+ *
+ * Every response the API produces goes through here, so the shape a client sees
+ * is decided in one place: `{ data, meta }` on success, `{ error }` on failure,
+ * with a `requestId` on both so a user's screenshot maps to a log line.
+ *
+ * Deliberately framework-free — plain `Response`, no next/server import — so it
+ * is unit-testable and usable from route handlers, middleware and scripts alike.
+ */
+
+/** The stable, machine-readable codes. Clients switch on these, not on prose. */
+export const ERROR_CODES = [
+  "VALIDATION_FAILED",
+  "UNAUTHORIZED",
+  "FORBIDDEN",
+  "NOT_FOUND",
+  "QUOTA_EXCEEDED",
+  "RATE_LIMITED",
+  "CONFLICT",
+  "INTERNAL",
+] as const;
+
+export type ErrorCode = (typeof ERROR_CODES)[number];
+
+/**
+ * Codes are the contract; statuses are the coarse HTTP approximation of them.
+ * QUOTA_EXCEEDED is a 403: the request is well-formed and authenticated, the
+ * tenant's plan simply does not allow it (docs/TIERS.md §2.2 hard stop).
+ */
+export const STATUS_FOR_CODE: Record<ErrorCode, number> = {
+  VALIDATION_FAILED: 400,
+  UNAUTHORIZED: 401,
+  FORBIDDEN: 403,
+  NOT_FOUND: 404,
+  QUOTA_EXCEEDED: 403,
+  RATE_LIMITED: 429,
+  CONFLICT: 409,
+  INTERNAL: 500,
+};
+
+/** What the client is told when we will not say more (AC5). */
+const INTERNAL_MESSAGE = "Something went wrong. Quote the requestId when reporting this.";
+
+export type Meta = { requestId: string } & Record<string, unknown>;
+export type SuccessEnvelope<T> = { data: T; meta: Meta };
+export type ErrorEnvelope = {
+  error: { code: ErrorCode; message: string; details?: unknown; requestId: string };
+};
+
+/**
+ * An error we chose to raise, and are therefore willing to describe to the
+ * client. Anything else that reaches the route handler is a bug and becomes a
+ * bare INTERNAL.
+ */
+export class AppError extends Error {
+  readonly code: ErrorCode;
+  readonly status: number;
+  readonly details?: unknown;
+
+  constructor(code: ErrorCode, message: string, details?: unknown) {
+    super(message);
+    this.name = "AppError";
+    this.code = code;
+    this.status = STATUS_FOR_CODE[code];
+    this.details = details;
+  }
+}
+
+export function successEnvelope<T>(
+  data: T,
+  requestId: string,
+  meta?: Record<string, unknown>,
+): SuccessEnvelope<T> {
+  // requestId last: caller meta can add to the envelope, never rewrite its identity.
+  return { data, meta: { ...meta, requestId } };
+}
+
+export function errorEnvelope(error: unknown, requestId: string): ErrorEnvelope {
+  if (error instanceof AppError && error.code !== "INTERNAL") {
+    return {
+      error: {
+        code: error.code,
+        message: error.message,
+        ...(error.details === undefined ? {} : { details: error.details }),
+        requestId,
+      },
+    };
+  }
+  // AC5 — no message, no details, no stack, no path. The log line has all of it.
+  return { error: { code: "INTERNAL", message: INTERNAL_MESSAGE, requestId } };
+}
+
+const jsonResponse = (
+  body: unknown,
+  status: number,
+  requestId: string,
+  headers?: HeadersInit,
+) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: {
+      ...headers,
+      "content-type": "application/json; charset=utf-8",
+      "x-request-id": requestId,
+    },
+  });
+
+export function jsonOk<T>(
+  data: T,
+  requestId: string,
+  meta?: Record<string, unknown>,
+  init?: { status?: number; headers?: HeadersInit },
+): Response {
+  return jsonResponse(
+    successEnvelope(data, requestId, meta),
+    init?.status ?? 200,
+    requestId,
+    init?.headers,
+  );
+}
+
+export function jsonError(error: unknown, requestId: string, headers?: HeadersInit): Response {
+  const status = error instanceof AppError ? error.status : STATUS_FOR_CODE.INTERNAL;
+  return jsonResponse(errorEnvelope(error, requestId), status, requestId, headers);
+}
