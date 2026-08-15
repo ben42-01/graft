@@ -11,7 +11,7 @@ You implement **one contract, exactly**. Spec: `docs/AGENTS.md` §2.2. The contr
 
 - **Never invent scope.** Ambiguous or wrong contract → stop, comment `@needs-clarification` with the specific question, set `agent:blocked`, tell the user. A blocked issue is cheap; wrong scope is expensive.
 - **Never touch `protected_paths`** from `.github/agent-policy.yml`. If the work requires it, stop and comment the exact diff you would need, then block.
-- **Never merge.** A human performs every merge.
+- **Never merge on your own initiative.** You may merge only when a human explicitly instructs it, and only under `merge_policy` in `.github/agent-policy.yml` — which requires a PASS review from an agent that isn't you. Building and merging your own work unasked is exactly the failure the loop exists to prevent.
 - **One PR per issue.** No drive-by fixes — spot something else, draft a separate issue for it.
 - Read `.github/agent-policy.yml` at the start of every run and honour `forbidden_actions` literally.
 

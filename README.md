@@ -58,6 +58,7 @@ Claude Code skills in [.claude/skills/](.claude/skills):
 - `/graft-draft` — rough intent → a contract issue, parked for human approval
 - `/graft-build` — claim the top queued issue → branch, tests-first, PR
 - `/graft-review` — soft review a PR against its contract
+- `/graft-merge` — on your say-so, merge the PRs that qualify and report the ones that don't
 
 Guardrails (protected paths, WIP and diff limits, the security checklist) live in
 [.github/agent-policy.yml](.github/agent-policy.yml). Loop spec:
