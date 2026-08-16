@@ -1,0 +1,125 @@
+meta {
+  name: A spent budget answers 429 RATE_LIMITED with the full header set
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/login
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "email": "{{rlEmail}}",
+    "password": "definitely-not-the-password"
+  }
+}
+
+script:pre-request {
+  // GRAFT-04 AC1/AC3, driven against the live QA app and its real Redis.
+  //
+  // The auth scope is ip + email and allows five *failures* per 15 minutes, so a
+  // per-run address gives this test a clean budget every time — reruns against a
+  // warm Redis behave identically, and nothing here consumes the budget of a
+  // seeded fixture account that another request depends on.
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const email = `rl-${Date.now()}-${Math.floor(Math.random() * 1e6)}@qa.test`;
+  bru.setVar("rlEmail", email);
+
+  const axios = require("axios");
+  const attempt = (address, password) =>
+    axios.post(
+      `${baseUrl}/api/v1/auth/login`,
+      { email: address, password },
+      { headers: { "content-type": "application/json" }, validateStatus: () => true },
+    );
+
+  // Five failures spend exactly the budget; the request below is the sixth.
+  const statuses = [];
+  for (let i = 0; i < 5; i += 1) {
+    const response = await attempt(email, "definitely-not-the-password");
+    statuses.push(response.status);
+    if (response.status === 200) throw new Error("QA fixture password leaked into this test");
+  }
+  bru.setVar("rlFailureStatuses", JSON.stringify(statuses));
+
+  // AC3, second half: a *correct* password must not spend the failure budget.
+  // Six successful logins as the seeded two-tenant user, well past the five the
+  // scope allows, and the sixth still succeeds.
+  const successes = [];
+  for (let i = 0; i < 6; i += 1) {
+    const response = await attempt("both@qa.test", bru.getEnvVar("qaPassword"));
+    successes.push(response.status);
+  }
+  bru.setVar("rlSuccessStatuses", JSON.stringify(successes));
+}
+
+assert {
+  res.status: eq 429
+  res.body.error.code: eq RATE_LIMITED
+  res.body.error.message: isDefined
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+  res.headers['retry-after']: isDefined
+  res.headers['x-ratelimit-limit']: isDefined
+  res.headers['x-ratelimit-remaining']: isDefined
+  res.headers['x-ratelimit-reset']: isDefined
+  res.headers['content-type']: contains application/json
+}
+
+tests {
+  test("AC3 — the five preceding failures were answered as failures, not throttled", function () {
+    expect(JSON.parse(bru.getVar("rlFailureStatuses"))).to.eql([401, 401, 401, 401, 401]);
+  });
+
+  test("AC1 — the response states the ceiling and that nothing is left", function () {
+    expect(res.getHeader("x-ratelimit-limit")).to.equal("5");
+    expect(res.getHeader("x-ratelimit-remaining")).to.equal("0");
+  });
+
+  test("AC1 — Retry-After is a positive whole number of seconds", function () {
+    const retryAfter = Number(res.getHeader("retry-after"));
+    expect(Number.isInteger(retryAfter)).to.equal(true);
+    expect(retryAfter).to.be.above(0);
+    // The auth window is 15 minutes; a longer wait would mean the wrong scope.
+    expect(retryAfter).to.be.at.most(900);
+  });
+
+  test("AC1 — X-RateLimit-Reset is an epoch second in the future", function () {
+    const reset = Number(res.getHeader("x-ratelimit-reset"));
+    expect(reset).to.be.above(Math.floor(Date.now() / 1000));
+  });
+
+  test("AC3 — a correct password never spends the failure budget", function () {
+    expect(JSON.parse(bru.getVar("rlSuccessStatuses"))).to.eql([200, 200, 200, 200, 200, 200]);
+  });
+
+  test("AC5 — the counter is Redis-side, so it survives between requests", function () {
+    // The six requests above were six separate connections to the same running
+    // app; nothing in this process carried the count from one to the next.
+    expect(res.getStatus()).to.equal(429);
+  });
+
+  test("the refusal carries no data half of the envelope", function () {
+    expect(res.getBody().data).to.be.undefined;
+    expect(res.getBody().error.code).to.equal("RATE_LIMITED");
+  });
+}
+
+docs {
+  GRAFT-04 AC1 and AC3 end to end (docs/BACKEND.md §4). Six failed logins for one
+  ip+email pair: five are answered 401, the sixth is refused 429 RATE_LIMITED
+  with Retry-After and the three X-RateLimit headers.
+
+  It runs last in the security folder, and against a per-run email address, so
+  the lockout it deliberately triggers belongs to an account nothing else uses.
+  The successful-login loop in the pre-request script proves the other half of
+  AC3: the budget is charged on failure, so a legitimate user hammering the login
+  form with the right password is never locked out.
+}

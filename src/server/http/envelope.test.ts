@@ -75,6 +75,7 @@ describe("status mapping", () => {
       "NOT_FOUND",
       "QUOTA_EXCEEDED",
       "RATE_LIMITED",
+      "PAYLOAD_TOO_LARGE",
       "CONFLICT",
       "INTERNAL",
     ]);
