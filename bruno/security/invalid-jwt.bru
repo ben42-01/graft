@@ -1,0 +1,40 @@
+meta {
+  name: Invalid JWT
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/logout
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6Im5vdC1hLWtleSJ9.eyJzdWIiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMGIiLCJ0aWQiOiIwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDIiLCJyb2xlcyI6WyJvd25lciJdLCJ0aWVyIjoiZW50ZXJwcmlzZSIsImlhdCI6NDEwMjQ0NDgwMCwiZXhwIjo0MTAyNDQ1NzAwLCJqdGkiOiJmb3JnZWQifQ.bm90LWEtcmVhbC1zaWduYXR1cmU
+}
+
+assert {
+  res.status: eq 401
+  res.body.error.code: eq UNAUTHORIZED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC4 — the rejection leaks nothing about the key or the failed check", function () {
+    const body = JSON.stringify(res.body);
+    expect(body).to.not.contain("kid");
+    expect(body).to.not.contain("not-a-key");
+    expect(body).to.not.contain("BEGIN");
+  });
+}
+
+docs {
+  AC4 at the wire. A well-formed RS256 JWT whose header names a kid we do not
+  publish and whose signature is nonsense, claiming owner of another tenant on
+  the enterprise tier and an expiry in 2100 — every one of those claims is inert
+  because the signature is checked before any of them is read. The precise
+  variants (expired, wrong key, tampered payload, wrong alg, "none") are unit
+  tested in src/server/auth/jwt.test.ts, where the boundaries are exact.
+}

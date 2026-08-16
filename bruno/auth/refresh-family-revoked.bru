@@ -1,0 +1,28 @@
+meta {
+  name: Reuse kills the whole family
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/refresh
+  body: none
+  auth: none
+}
+
+headers {
+  Cookie: graft_refresh={{qaRefreshReuseSibling}}
+}
+
+assert {
+  res.status: eq 401
+  res.body.error.code: eq UNAUTHORIZED
+  res.body.data: isUndefined
+}
+
+docs {
+  AC3, the half that matters. This token is seeded unused and unexpired — before
+  seq 5 it would have refreshed successfully. It fails now only because reuse
+  detection revoked every token in family 0x82, including the ones the attacker
+  had not spent yet.
+}

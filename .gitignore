@@ -151,3 +151,6 @@ vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
 .scratchpad.sh
+
+# Agent worktrees — transient, never committed
+.claude/worktrees/

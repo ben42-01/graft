@@ -1,0 +1,30 @@
+meta {
+  name: Refresh reuse revokes the family
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/refresh
+  body: none
+  auth: none
+}
+
+headers {
+  Cookie: graft_refresh={{qaRefreshReuseUsed}}
+}
+
+assert {
+  res.status: eq 401
+  res.body.error.code: eq UNAUTHORIZED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+docs {
+  AC3 — the stolen-token defense (docs/BACKEND.md §3.1). This fixture is seeded
+  already rotated: presenting it is by definition either the thief or the victim
+  replaying, and the server cannot tell which. So it refuses, and revokes the
+  entire family rather than only this token — refresh-family-revoked.bru (seq 6)
+  proves the sibling that was never used died with it.
+}

@@ -12,6 +12,7 @@
 import { ObjectId, type Db } from "mongodb";
 import { connect, COLLECTIONS } from "./lib/db";
 import { TIER_LIMITS } from "../src/server/tiers";
+import { hashRefreshToken, REFRESH_TTL_SECONDS } from "../src/server/auth/refresh-tokens";
 
 /**
  * The meter period is the *current* month, not a hardcoded one: the app looks up
@@ -322,6 +323,79 @@ async function main() {
       widgets: [{ type: "table", title: "Customers", config: { entityKey: "customers" } }],
       ...base,
     });
+
+    /**
+     * Refresh token fixtures (GRAFT-03.1). There is no login endpoint until
+     * GRAFT-03.2, so the rotation contract can only be exercised from a token
+     * that already exists — these are it, and bruno/environments/*.bru presents
+     * them by value.
+     *
+     * These are not credentials. They exist only inside the ephemeral QA
+     * database, which `npm run qa:db:down -v` destroys after every run, and they
+     * authorise nothing anywhere else. Only the SHA-256 is stored, exactly as
+     * the server stores a real one — the fixture proves the hashing path too.
+     *
+     * `expiresAt` is relative to now for the same reason PERIOD is: a pinned
+     * date would silently expire and every rotation assertion would start
+     * failing for a reason that has nothing to do with the code.
+     */
+    const refreshExpiry = new Date(Date.now() + REFRESH_TTL_SECONDS * 1000);
+    const refreshFixture = (
+      id: ObjectId,
+      familyId: ObjectId,
+      tenantId: ObjectId,
+      userId: ObjectId,
+      token: string,
+      usedAt: Date | null = null,
+    ) => ({
+      _id: id,
+      tenantId,
+      userId,
+      familyId,
+      tokenHash: hashRefreshToken(token),
+      expiresAt: refreshExpiry,
+      usedAt,
+      revokedAt: null,
+      ...base,
+    });
+
+    const FREE = `${IDS.tenantFree.toHexString()}.`;
+    await db.collection("refresh_tokens").insertMany([
+      // Rotated by bruno/auth/refresh.bru, then replayed by refresh-replay.bru.
+      refreshFixture(
+        oid(91),
+        oid(81),
+        IDS.tenantFree,
+        IDS.userFreeOwner,
+        `${FREE}qa0rotate0000000000000000000000000000001`,
+      ),
+      // Family 0x82: one token already spent, one sibling never spent. Presenting
+      // the spent one is reuse; the sibling must die with it (AC3).
+      refreshFixture(
+        oid(92),
+        oid(82),
+        IDS.tenantFree,
+        IDS.userFreeOwner,
+        `${FREE}qa0reuse0used000000000000000000000000002`,
+        FIXED_DATE,
+      ),
+      refreshFixture(
+        oid(93),
+        oid(82),
+        IDS.tenantFree,
+        IDS.userFreeOwner,
+        `${FREE}qa0reuse0sibling0000000000000000000003`,
+      ),
+      // A live token belonging to the *premium* tenant. The cross-tenant test
+      // presents this secret under the free tenant's id and must be refused.
+      refreshFixture(
+        oid(94),
+        oid(83),
+        IDS.tenantPremium,
+        IDS.userPremiumOwner,
+        `${IDS.tenantPremium.toHexString()}.qa0premium000000000000000000000000000000004`,
+      ),
+    ]);
 
     const counts = await Promise.all(
       COLLECTIONS.map(
