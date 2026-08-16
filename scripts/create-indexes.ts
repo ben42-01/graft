@@ -68,6 +68,22 @@ const INDEXES: IndexDef[] = [
     keys: { expiresAt: 1 },
     options: { expireAfterSeconds: 60 * 60 * 24 },
   },
+
+  // Email verification (GRAFT-03.2 AC3). The lookup is by hash alone — there is
+  // no session at verification time to scope it by — so it must be unique, or
+  // one presented token could match two rows and "single use" would be a lie.
+  {
+    collection: "email_verification_tokens",
+    keys: { tokenHash: 1 },
+    options: { unique: true },
+  },
+  // Same reasoning as the refresh sweep: the application refuses an expired
+  // token itself, and the TTL monitor only reclaims the space afterwards.
+  {
+    collection: "email_verification_tokens",
+    keys: { expiresAt: 1 },
+    options: { expireAfterSeconds: 60 * 60 * 24 },
+  },
 ];
 
 async function main() {

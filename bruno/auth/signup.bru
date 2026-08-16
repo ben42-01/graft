@@ -1,0 +1,61 @@
+meta {
+  name: Signup creates an account and its tenant
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/signup
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "new-owner@qa-signup.test",
+    "password": "{{qaPassword}}",
+    "businessName": "QA Signup Co"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.userId: isDefined
+  res.body.data.tenantId: isDefined
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  const body = res.getBody();
+
+  test("AC1 — ids come back, and nothing else", function () {
+    expect(Object.keys(body.data).sort()).to.eql(["tenantId", "userId"]);
+    expect(body.data.userId).to.match(/^[0-9a-f]{24}$/);
+    expect(body.data.tenantId).to.match(/^[0-9a-f]{24}$/);
+  });
+
+  test("AC4 — the response carries no password material of any kind", function () {
+    const raw = JSON.stringify(body);
+    expect(raw).to.not.contain("argon2");
+    expect(raw).to.not.contain("passwordHash");
+    expect(raw).to.not.contain(bru.getVar("qaPassword"));
+  });
+
+  test("AC3 — signup does not log you in", function () {
+    // No session is minted until the emailed token is spent, so there must be
+    // no access token in the body and no session cookie on the response.
+    expect(body.data.accessToken).to.be.undefined;
+    const setCookie = res.getHeader("set-cookie");
+    const cookies = Array.isArray(setCookie) ? setCookie : setCookie ? [setCookie] : [];
+    expect(cookies.filter((c) => c && c.startsWith("graft_"))).to.have.lengthOf(0);
+  });
+}
+
+docs {
+  AC1/AC3/AC4 on the signup surface. Like the refresh fixtures, this request is
+  single-shot against a freshly seeded QA stack: the email is fixed so the
+  assertions can be, and `npm run qa:db:down -v` destroys the database between
+  runs (docs/WORKFLOW.md §5.2). Running it twice without reseeding returns the
+  409 that AC2 specifies, which is correct behaviour, not a flake.
+}

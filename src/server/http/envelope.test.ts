@@ -71,6 +71,7 @@ describe("status mapping", () => {
       "VALIDATION_FAILED",
       "UNAUTHORIZED",
       "FORBIDDEN",
+      "EMAIL_NOT_VERIFIED",
       "NOT_FOUND",
       "QUOTA_EXCEEDED",
       "RATE_LIMITED",

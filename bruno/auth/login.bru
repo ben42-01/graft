@@ -1,0 +1,75 @@
+meta {
+  name: Login mints a session for the first tenant
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "both@qa.test",
+    "password": "{{qaPassword}}"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.accessToken: isDefined
+  res.body.data.expiresAt: isDefined
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  // Carried into switch-tenant.bru and me.bru: this is the *pre-switch* token,
+  // and AC6 is the claim that it never stops meaning the free tenant.
+  bru.setVar("loginAccessToken", res.body.data.accessToken);
+}
+
+tests {
+  const body = res.getBody();
+  const decode = (segment) => JSON.parse(Buffer.from(segment, "base64url").toString());
+  const claims = decode(body.data.accessToken.split(".")[1]);
+
+  test("AC3 — a verified account signs in and lands in its first tenant", function () {
+    expect(claims.tid).to.equal("000000000000000000000001");
+    expect(claims.sub).to.equal("000000000000000000000010");
+    expect(claims.roles).to.eql(["member"]);
+    expect(claims.tier).to.equal("free");
+  });
+
+  test("the session shape matches /auth/refresh exactly", function () {
+    expect(Object.keys(body.data).sort()).to.eql(["accessToken", "expiresAt"]);
+    expect(claims.exp - claims.iat).to.equal(900);
+  });
+
+  test("AC7 — both session cookies are set, httpOnly and Secure", function () {
+    const setCookie = res.getHeader("set-cookie");
+    const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+    const refresh = cookies.find((c) => c && c.startsWith("graft_refresh="));
+    const access = cookies.find((c) => c && c.startsWith("graft_access="));
+
+    for (const cookie of [refresh, access]) {
+      expect(cookie).to.be.a("string");
+      expect(cookie).to.contain("HttpOnly");
+      expect(cookie).to.contain("Secure");
+      expect(cookie).to.contain("SameSite=Lax");
+    }
+  });
+
+  test("AC4 — no password material in the response", function () {
+    expect(JSON.stringify(body)).to.not.contain("argon2");
+  });
+}
+
+docs {
+  The happy path, logged in as the one QA user who belongs to two tenants
+  (`both@qa.test`, seeded by scripts/seed-qa.ts). Logging in as that account here
+  rather than as `owner@qa-free.test` is what lets switch-tenant.bru and me.bru
+  run against a real multi-tenant session without re-authenticating.
+}

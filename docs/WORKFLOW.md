@@ -171,7 +171,7 @@ Rule: **the app never knows root credentials** in any environment.
 Creates a believable multi-tenant world so every plugin/UI has something to render:
 
 - 3 tenants: `Bella's Barbershop` (free), `O'Shea Plumbing` (premium), `Shannon Logistics` (enterprise)
-- Users per tenant (owner/admin/member) — password `Dev!12345`, printed at end of seed
+- Users per tenant (owner/admin/member) — password `Dev!12345678`, argon2id-hashed into `passwordHash`, printed at end of seed
 - Per tenant: 2–4 `entity_defs` (Customers, Jobs, Bookings, Invoices), 50–500 `records` each (faker), 1–3 published Customer Forms with 20–200 `form_submissions`, dashboards with widgets, usage meters set near tier thresholds (to exercise 80% warnings in dev)
 - Idempotent: tagged `seedBatch` field; re-running replaces prior seed data only.
 

@@ -13,6 +13,7 @@ import { ObjectId, type Db } from "mongodb";
 import { connect, COLLECTIONS } from "./lib/db";
 import { TIER_LIMITS } from "../src/server/tiers";
 import { hashRefreshToken, REFRESH_TTL_SECONDS } from "../src/server/auth/refresh-tokens";
+import { hashPassword } from "../src/server/auth/passwords";
 
 /**
  * The meter period is the *current* month, not a hardcoded one: the app looks up
@@ -38,6 +39,10 @@ const IDS = {
   userPremiumMember: oid(13),
   userAtQuotaOwner: oid(14),
   userDowngradedOwner: oid(15),
+  // GRAFT-03.2 fixtures. New ids rather than edits to the five above, so every
+  // assertion written against those still holds exactly as it did.
+  userTwoTenants: oid(16),
+  userUnverified: oid(17),
   entityFreeCustomers: oid(21),
   entityPremiumCustomers: oid(22),
   entityDowngradedExtra: oid(23),
@@ -54,6 +59,23 @@ const CUSTOMER_FIELDS = [
 ];
 
 const base = { createdAt: FIXED_DATE, updatedAt: FIXED_DATE, seedBatch: "qa-fixtures" };
+
+/**
+ * Every QA user shares this password, and bruno/environments/*.bru presents it
+ * by value as `qaPassword` (GRAFT-03.2). The stored value is a real argon2id
+ * hash — the fixture exercises the same verification path a production login
+ * does, so a broken hashing config fails the suite instead of passing it.
+ *
+ * The digest is *not* pinned, because argon2id salts randomly and a pinned hash
+ * would either need a pinned salt (weakening the very thing under test) or would
+ * change on every run. What is pinned is the password, which is what assertions
+ * actually use.
+ *
+ * This is not a credential. It exists only inside the ephemeral QA database that
+ * `npm run qa:db:down -v` destroys after every run, and authorises nothing
+ * anywhere else.
+ */
+const QA_PASSWORD = "qa-fixture-password-2026";
 
 async function assertEmpty(db: Db) {
   for (const name of COLLECTIONS) {
@@ -113,12 +135,17 @@ async function main() {
       },
     ]);
 
+    // One hash for all five: argon2id is deliberately slow, and five identical
+    // computations would add a second to every QA run for no extra coverage.
+    const passwordHash = await hashPassword(QA_PASSWORD);
+
     await db.collection("users").insertMany([
       {
         _id: IDS.userFreeOwner,
         email: "owner@qa-free.test",
         name: "QA Free Owner",
         emailVerifiedAt: FIXED_DATE,
+        passwordHash,
         memberships: [{ tenantId: IDS.tenantFree, roles: ["owner"] }],
         ...base,
       },
@@ -127,6 +154,7 @@ async function main() {
         email: "owner@qa-premium.test",
         name: "QA Premium Owner",
         emailVerifiedAt: FIXED_DATE,
+        passwordHash,
         memberships: [{ tenantId: IDS.tenantPremium, roles: ["owner"] }],
         ...base,
       },
@@ -135,6 +163,7 @@ async function main() {
         email: "member@qa-premium.test",
         name: "QA Premium Member",
         emailVerifiedAt: FIXED_DATE,
+        passwordHash,
         memberships: [{ tenantId: IDS.tenantPremium, roles: ["member"] }],
         ...base,
       },
@@ -143,6 +172,7 @@ async function main() {
         email: "owner@qa-at-quota.test",
         name: "QA At Quota Owner",
         emailVerifiedAt: FIXED_DATE,
+        passwordHash,
         memberships: [{ tenantId: IDS.tenantAtQuota, roles: ["owner"] }],
         ...base,
       },
@@ -151,7 +181,33 @@ async function main() {
         email: "owner@qa-downgraded.test",
         name: "QA Downgraded Owner",
         emailVerifiedAt: FIXED_DATE,
+        passwordHash,
         memberships: [{ tenantId: IDS.tenantDowngraded, roles: ["owner"] }],
+        ...base,
+      },
+      {
+        // AC6 — the only user in two tenants. bruno/auth/switch-tenant.bru logs
+        // in as this account, lands in free, and switches to premium.
+        _id: IDS.userTwoTenants,
+        email: "both@qa.test",
+        name: "QA Two Tenant User",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [
+          { tenantId: IDS.tenantFree, roles: ["member"] },
+          { tenantId: IDS.tenantPremium, roles: ["admin"] },
+        ],
+        ...base,
+      },
+      {
+        // AC3 — verified nowhere. Logging in as this account must be refused
+        // with EMAIL_NOT_VERIFIED even though the password is correct.
+        _id: IDS.userUnverified,
+        email: "unverified@qa.test",
+        name: "QA Unverified User",
+        emailVerifiedAt: null,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantFree, roles: ["member"] }],
         ...base,
       },
     ]);
