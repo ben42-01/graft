@@ -1,0 +1,45 @@
+meta {
+  name: Login before verification is refused
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "unverified@qa.test",
+    "password": "{{qaPassword}}"
+  }
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq EMAIL_NOT_VERIFIED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC3 — the code is distinguishable from an ordinary 403", function () {
+    // The client offers "resend verification email" off this code, so it must
+    // not be FORBIDDEN and it must not require parsing the message.
+    expect(res.getBody().error.code).to.not.equal("FORBIDDEN");
+  });
+
+  test("AC4 — a rejected login still leaks no session", function () {
+    expect(res.getHeader("set-cookie")).to.be.undefined;
+  });
+}
+
+docs {
+  AC3, the negative half. The password presented is the *correct* one — the
+  refusal is about verification state, which is why this check sits after the
+  password check in the service (docs: src/server/services/accounts.ts). Were it
+  ordered the other way, this endpoint would confirm that an address is
+  registered without the caller knowing the password, defeating AC8.
+}

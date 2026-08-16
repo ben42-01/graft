@@ -1,0 +1,69 @@
+meta {
+  name: /me reflects the token's tenant, not the newest one
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.user.email: eq both@qa.test
+  res.body.data.tenant.tier: eq free
+  res.body.error: isUndefined
+}
+
+tests {
+  const me = res.getBody().data;
+
+  test("AC7 — identity is the token's subject", function () {
+    // Asserted here rather than in the `assert` block above: an all-digit
+    // ObjectId written bare there is coerced to a number, so
+    // `000000000000000000000010` would be compared as 10 and never match.
+    expect(me.user.id).to.equal("000000000000000000000010");
+  });
+
+  test("AC6 — the pre-switch token still grants only the old tenant", function () {
+    // switch-tenant.bru already minted a premium token for this same user. If
+    // switching had mutated server-side state rather than minting, this would
+    // now answer "premium" — that is the failure this request exists to catch.
+    expect(me.tenant.id).to.equal("000000000000000000000001");
+    expect(me.tenant.slug).to.equal("qa-free");
+  });
+
+  test("AC7 — memberships list every workspace the user can switch to", function () {
+    const byId = me.memberships.map((m) => m.tenantId).sort();
+    expect(byId).to.eql(["000000000000000000000001", "000000000000000000000002"]);
+    const premium = me.memberships.find((m) => m.tenantId === "000000000000000000000002");
+    expect(premium.slug).to.equal("qa-premium");
+    expect(premium.roles).to.eql(["admin"]);
+  });
+
+  test("AC7 — the active tenant carries the materialised limits the UI reads", function () {
+    // The free matrix from src/server/tiers.ts, stored on the tenant document
+    // rather than looked up, so an Enterprise override is a data change.
+    expect(me.tenant.limits.seats).to.equal(1);
+    expect(me.tenant.limits.entities).to.equal(3);
+    expect(me.tenant.limits.submissionsPerMonth).to.equal(100);
+    expect(me.tenant.limits.plugins).to.equal(3);
+  });
+
+  test("AC4 — no hash is ever returned", function () {
+    expect(JSON.stringify(me)).to.not.contain("argon2");
+    expect(me.user.passwordHash).to.be.undefined;
+  });
+}
+
+docs {
+  AC7, and the enforcing half of AC6. Uses `loginAccessToken` — the token minted
+  *before* switch-tenant.bru ran — so it proves the old token's authority never
+  followed the user to the new tenant.
+}

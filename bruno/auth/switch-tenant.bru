@@ -1,0 +1,64 @@
+meta {
+  name: Switching tenant mints a token for the new tenant
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/switch-tenant
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "tenantId": "000000000000000000000002"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.accessToken: isDefined
+  res.body.data.expiresAt: isDefined
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  bru.setVar("switchedAccessToken", res.body.data.accessToken);
+}
+
+tests {
+  const decode = (segment) => JSON.parse(Buffer.from(segment, "base64url").toString());
+  const before = decode(bru.getVar("loginAccessToken").split(".")[1]);
+  const after = decode(res.getBody().data.accessToken.split(".")[1]);
+
+  test("AC6 — the new token carries the new tid", function () {
+    expect(after.tid).to.equal("000000000000000000000002");
+    expect(after.tid).to.not.equal(before.tid);
+    expect(after.sub).to.equal(before.sub);
+  });
+
+  test("AC6 — roles and tier come from the target tenant, not the old token", function () {
+    // both@qa.test is a `member` of the free tenant and an `admin` of premium.
+    expect(before.roles).to.eql(["member"]);
+    expect(after.roles).to.eql(["admin"]);
+    expect(after.tier).to.equal("premium");
+  });
+
+  test("AC6 — the old token is untouched and still names the old tenant", function () {
+    // Switching mints; it does not revoke. me.bru then proves the old token
+    // still only *grants* that tenant, which is the half that matters.
+    expect(before.tid).to.equal("000000000000000000000001");
+    expect(after.jti).to.not.equal(before.jti);
+  });
+}
+
+docs {
+  AC6. One token is always one tenant (docs/BACKEND.md §3.1), so a switch is a
+  fresh mint rather than a mutation. Depends on login.bru having stored
+  `loginAccessToken`.
+}

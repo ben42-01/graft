@@ -29,7 +29,10 @@
   ```json
   { "error": { "code": "QUOTA_EXCEEDED", "message": "...", "details": {...}, "requestId": "..." } }
   ```
-- Stable machine-readable error codes (`VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `QUOTA_EXCEEDED`, `RATE_LIMITED`, `CONFLICT`, `INTERNAL`).
+- Stable machine-readable error codes (`VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `EMAIL_NOT_VERIFIED`, `NOT_FOUND`, `QUOTA_EXCEEDED`, `RATE_LIMITED`, `CONFLICT`, `INTERNAL`).
+  `EMAIL_NOT_VERIFIED` is a 403 distinct from `FORBIDDEN`: the credentials were
+  correct and the account simply is not usable yet, which is a state the client
+  offers a specific remedy for (GRAFT-03.2 AC3).
 - Cursor-based pagination for large collections (`?cursor=...&limit=`), offset pagination allowed for small admin lists.
 - Filtering/sorting via a constrained query grammar — never pass raw client filters into Mongo (NoSQL injection). Whitelist fields from `entity_defs`.
 - All timestamps UTC ISO-8601; money as integer minor units + currency code.

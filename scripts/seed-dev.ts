@@ -12,9 +12,10 @@ import { faker } from "@faker-js/faker";
 import { ObjectId, type Db } from "mongodb";
 import { connect, COLLECTIONS } from "./lib/db";
 import { TIER_LIMITS, type Tier } from "../src/server/tiers";
+import { hashPassword } from "../src/server/auth/passwords";
 
 const SEED_BATCH = "dev-seed";
-const DEV_PASSWORD = "Dev!12345";
+const DEV_PASSWORD = "Dev!12345678"; // >= PASSWORD_MIN_LENGTH (GRAFT-03.2 AC4)
 
 faker.seed(42); // stable-ish between runs; still generative in shape
 
@@ -167,13 +168,17 @@ async function main() {
 
       // Owner/admin/member — the seat count still respects the tier
       const roles = spec.tier === "free" ? ["owner"] : ["owner", "admin", "member"];
+      // Hashed once per tenant rather than per user — argon2id is intentionally
+      // slow and every seeded account shares DEV_PASSWORD anyway.
+      const passwordHash = await hashPassword(DEV_PASSWORD);
       await db.collection("users").insertMany(
         roles.map((role) => ({
           _id: new ObjectId(),
           email: `${role}@${spec.slug}.test`,
           name: faker.person.fullName(),
-          // Placeholder only — real hashing lands with the auth contract (GRAFT-02).
-          passwordPlaceholder: DEV_PASSWORD,
+          // AC4 — a real argon2id digest, not a placeholder. The dev seed now
+          // produces accounts that can actually sign in through /auth/login.
+          passwordHash,
           emailVerifiedAt: new Date(),
           memberships: [{ tenantId, roles: [role] }],
           ...stamp,

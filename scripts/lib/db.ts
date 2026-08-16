@@ -44,6 +44,9 @@ export const COLLECTIONS = [
   // Server-side refresh token families (docs/BACKEND.md §3.1). Stores hashes,
   // never token values.
   "refresh_tokens",
+  // Single-use email verification tokens (GRAFT-03.2 AC3). Hashes only, same
+  // reasoning as refresh_tokens.
+  "email_verification_tokens",
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];

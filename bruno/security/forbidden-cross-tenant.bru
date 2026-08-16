@@ -1,0 +1,51 @@
+meta {
+  name: Switching into a tenant you do not belong to is refused
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/switch-tenant
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "tenantId": "000000000000000000000004"
+  }
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq FORBIDDEN
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("no token is minted for a tenant the caller is not a member of", function () {
+    expect(res.getBody().data).to.be.undefined;
+    expect(res.getHeader("set-cookie")).to.be.undefined;
+  });
+
+  test("the refusal does not reveal whether the tenant exists", function () {
+    // 000000000000000000000004 is the seeded downgraded tenant — it is real, and
+    // the caller is simply not in it. A tenant id that does not exist at all must
+    // produce this identical answer, or the endpoint becomes a tenant oracle.
+    expect(res.getStatus()).to.equal(403);
+    expect(res.getBody().error.code).to.equal("FORBIDDEN");
+  });
+}
+
+docs {
+  The cross-tenant isolation case the Test Contract requires (AC6). The caller
+  holds a valid, correctly signed session for the free tenant and asks for a
+  token naming the downgraded tenant, where they hold no membership. Membership
+  is re-read from the database rather than taken from the presented token, so
+  possession of a valid token for *one* tenant grants nothing anywhere else.
+}

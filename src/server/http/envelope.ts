@@ -14,6 +14,11 @@ export const ERROR_CODES = [
   "VALIDATION_FAILED",
   "UNAUTHORIZED",
   "FORBIDDEN",
+  // Authentication succeeded and the account is simply not usable yet. Separate
+  // from FORBIDDEN because the client's response is specific — offer to resend
+  // the verification email — and branching on prose is not a contract
+  // (GRAFT-03.2 AC3).
+  "EMAIL_NOT_VERIFIED",
   "NOT_FOUND",
   "QUOTA_EXCEEDED",
   "RATE_LIMITED",
@@ -32,6 +37,7 @@ export const STATUS_FOR_CODE: Record<ErrorCode, number> = {
   VALIDATION_FAILED: 400,
   UNAUTHORIZED: 401,
   FORBIDDEN: 403,
+  EMAIL_NOT_VERIFIED: 403,
   NOT_FOUND: 404,
   QUOTA_EXCEEDED: 403,
   RATE_LIMITED: 429,
