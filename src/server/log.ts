@@ -103,7 +103,14 @@ const VALUE_RULES: readonly { pattern: RegExp; replacement: string }[] = [
   { pattern: /(dup key:\s*)\{[^}]*\}/gi, replacement: `$1${REDACTED}` },
   // Anything quoted, in either quote style, including inside ObjectId('…').
   { pattern: /"[^"]*"/g, replacement: REDACTED },
-  { pattern: /'[^']*'/g, replacement: REDACTED },
+  // The opening quote must follow a non-word character. Apostrophes are
+  // ambiguous: a contraction supplies an unmatched quote, and a naive
+  // /'[^']*'/g then pairs them off by one, so the redacted span slides onto the
+  // diagnostic text while the value walks free — `doesn't match index 'idx' for
+  // value 'IE1234567X'` redacted to `doesn[redacted]idx[redacted]IE1234567X'`.
+  // Under-redacting while printing "[redacted]" is worse than not redacting:
+  // it looks handled. Real driver texts do this ("Can't extract geo keys").
+  { pattern: /(^|[^\w])'[^']*'/g, replacement: `$1${REDACTED}` },
   // Bare runs of digits long enough to be an identifier, a phone or an account.
   // Short runs survive on purpose: "timeout after 30000ms" stays diagnosable.
   { pattern: /\b\d[\d\s().+-]{5,}\d\b/g, replacement: REDACTED },

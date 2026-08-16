@@ -105,6 +105,9 @@ describe("redact over driver errors (AC4)", () => {
       `{ contact: "ada@qa-free.test" }`,
       `{ passport: 'P-99881122' }`,
       `{ mrn: 4455667788 }`,
+      // Driver text with a contraction ahead of the value (see the exact-output
+      // table): the apostrophe must not shift which span gets redacted.
+      `{ vat: 'IE1234567X' } — can't apply`,
     ]) {
       const serialised = JSON.stringify(redact(duplicateKeyError(detail)));
       expect(serialised, detail).not.toContain("IE1234567X");
@@ -149,6 +152,18 @@ describe("redact over driver errors (AC4)", () => {
       ],
       ["timeout after 30000ms", "timeout after 30000ms"],
       ["ETIMEDOUT", "ETIMEDOUT"],
+      // A contraction supplies an unmatched apostrophe. Pairing quotes off by
+      // one slid the redaction onto the diagnostic text and let the value walk
+      // free — printing "[redacted]" while leaking is worse than not redacting.
+      [
+        `doesn't match index 'tenant_vat_idx' for value 'IE1234567X'`,
+        `doesn't match index ${REDACTED} for value ${REDACTED}`,
+      ],
+      [
+        `Can't extract geo keys: { loc: 'Dublin 2' } wrong type`,
+        `Can't extract geo keys: { loc: ${REDACTED} } wrong type`,
+      ],
+      [`'leading' then 'second'`, `${REDACTED} then ${REDACTED}`],
     ];
 
     it.each(cases)("redacts %j exactly", (input, expected) => {
