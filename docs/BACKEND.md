@@ -29,7 +29,7 @@
   ```json
   { "error": { "code": "QUOTA_EXCEEDED", "message": "...", "details": {...}, "requestId": "..." } }
   ```
-- Stable machine-readable error codes (`VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `EMAIL_NOT_VERIFIED`, `NOT_FOUND`, `QUOTA_EXCEEDED`, `RATE_LIMITED`, `CONFLICT`, `INTERNAL`).
+- Stable machine-readable error codes (`VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `EMAIL_NOT_VERIFIED`, `NOT_FOUND`, `QUOTA_EXCEEDED`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `CONFLICT`, `INTERNAL`).
   `EMAIL_NOT_VERIFIED` is a 403 distinct from `FORBIDDEN`: the credentials were
   correct and the account simply is not usable yet, which is a state the client
   offers a specific remedy for (GRAFT-03.2 AC3).
@@ -70,7 +70,9 @@ Layered, Redis-backed (sliding window or token bucket via `rate-limiter-flexible
 | Connectors / API tokens | tokenId | tier-based |
 
 - Respond `429` with `Retry-After` and `X-RateLimit-Limit/Remaining/Reset` headers.
-- Body size limits (1 MB JSON default; uploads via signed URLs, not through the API).
+- Body size limits (1 MB JSON default; uploads via signed URLs, not through the API). An over-sized body is refused with `413 PAYLOAD_TOO_LARGE` before the handler runs.
+- Auth endpoints are charged on **failure**: a correct password never spends the 5-per-15-minutes budget.
+- When Redis is unavailable the limiter fails **closed** on the unauthenticated write surfaces (public form, auth) and **open** on authenticated traffic and the global IP layer, logging `ratelimit.degraded` with the decision either way.
 - Security headers via middleware: HSTS, CSP, X-Content-Type-Options, frame-ancestors.
 - CORS: locked to app origins; public form embed endpoints get a separate permissive-but-scoped policy.
 - CSRF: SameSite cookies + double-submit token on cookie-authenticated mutations.

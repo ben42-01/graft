@@ -12,6 +12,17 @@ import { parseBody } from "./validate";
  * lives, in src/server/auth/session.test.ts; here it is a stand-in whose only
  * interesting property is the requestId it was handed.
  */
+/**
+ * Likewise the limiter (GRAFT-04): route() now meters every request, and a unit
+ * test of the plumbing should not need a Redis. What route() does with a
+ * limiter decision is tested in handler.rate-limit.test.ts against an in-memory
+ * backend, and the decisions themselves in src/server/rate-limit/.
+ */
+vi.mock("@/server/rate-limit/enforce", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/server/rate-limit/enforce")>()),
+  enforceRateLimit: async () => ({ headers: {} }),
+}));
+
 vi.mock("@/server/auth/session", () => ({
   contextFromRequest: async (_request: Request, options: { requestId?: string } = {}) => ({
     requestId: options.requestId ?? "unset",

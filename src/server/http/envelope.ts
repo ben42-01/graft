@@ -22,6 +22,10 @@ export const ERROR_CODES = [
   "NOT_FOUND",
   "QUOTA_EXCEEDED",
   "RATE_LIMITED",
+  // The body was refused before anyone looked at it (GRAFT-04 AC6). Distinct
+  // from VALIDATION_FAILED: nothing about its *content* was judged, so the
+  // remedy is "send less", not "send it differently".
+  "PAYLOAD_TOO_LARGE",
   "CONFLICT",
   "INTERNAL",
 ] as const;
@@ -41,6 +45,7 @@ export const STATUS_FOR_CODE: Record<ErrorCode, number> = {
   NOT_FOUND: 404,
   QUOTA_EXCEEDED: 403,
   RATE_LIMITED: 429,
+  PAYLOAD_TOO_LARGE: 413,
   CONFLICT: 409,
   INTERNAL: 500,
 };
