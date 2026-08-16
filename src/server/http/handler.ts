@@ -7,7 +7,8 @@
  * that throws `AppError` gets that envelope; a handler that throws anything else
  * gets a bare 500 and the detail goes to the log, not to the client.
  */
-import { type Ctx, contextFromRequest, requestIdFrom } from "@/server/context";
+import { contextFromRequest } from "@/server/auth/session";
+import { type Ctx, requestIdFrom } from "@/server/context";
 import { createLogger, type Logger } from "@/server/log";
 import { AppError, jsonError } from "./envelope";
 
@@ -21,8 +22,12 @@ export type RouteArgs<P> = {
    * Handlers that need a tenant call this instead of `contextFromRequest`
    * directly, so a request can never end up with two different request ids
    * (GRAFT-02.1 AC1) — one on the response, another in the log line.
+   *
+   * Asynchronous since GRAFT-03.1: authenticating means verifying the RS256
+   * signature *and* checking the jti deny-list in Redis, and a revocation check
+   * that could be skipped by forgetting an await is not a revocation check.
    */
-  context: () => Ctx;
+  context: () => Promise<Ctx>;
 };
 
 export type RouteHandler<P> = (

@@ -1,0 +1,37 @@
+meta {
+  name: Logout
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/logout
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 204
+  res.headers['x-request-id']: isDefined
+}
+
+tests {
+  test("both cookies are cleared, with the flags they were set with", function () {
+    const setCookie = res.getHeader("set-cookie");
+    const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+    const refresh = cookies.find((c) => c && c.startsWith("graft_refresh="));
+    expect(refresh).to.contain("Max-Age=0");
+    expect(refresh).to.contain("HttpOnly");
+    expect(refresh).to.contain("Secure");
+  });
+}
+
+docs {
+  AC6 — takes the access token minted in seq 2 and ends the session. 204 carries
+  no envelope by design: there is no resource to describe. The proof that it
+  actually revoked something is seq 8, which replays the same token.
+}

@@ -94,20 +94,22 @@ export function errorEnvelope(error: unknown, requestId: string): ErrorEnvelope 
   return { error: { code: "INTERNAL", message: INTERNAL_MESSAGE, requestId } };
 }
 
+/**
+ * Headers are composed through `new Headers`, not an object spread: `set-cookie`
+ * is the one header that legitimately appears twice (rotating the refresh cookie
+ * while replacing the access cookie), and spreading collapses it to one.
+ */
 const jsonResponse = (
   body: unknown,
   status: number,
   requestId: string,
   headers?: HeadersInit,
-) =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: {
-      ...headers,
-      "content-type": "application/json; charset=utf-8",
-      "x-request-id": requestId,
-    },
-  });
+) => {
+  const composed = new Headers(headers);
+  composed.set("content-type", "application/json; charset=utf-8");
+  composed.set("x-request-id", requestId);
+  return new Response(JSON.stringify(body), { status, headers: composed });
+};
 
 export function jsonOk<T>(
   data: T,

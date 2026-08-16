@@ -41,6 +41,9 @@ export const COLLECTIONS = [
   "dashboards",
   "usage_meters",
   "audit_log",
+  // Server-side refresh token families (docs/BACKEND.md §3.1). Stores hashes,
+  // never token values.
+  "refresh_tokens",
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];

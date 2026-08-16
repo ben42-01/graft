@@ -1,0 +1,28 @@
+meta {
+  name: A logged-out token is denied before it expires
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/logout
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{accessToken}}
+}
+
+assert {
+  res.status: eq 401
+  res.body.error.code: eq UNAUTHORIZED
+  res.body.data: isUndefined
+}
+
+docs {
+  AC6, the half that matters. This token is still inside its 15-minute life and
+  its RS256 signature still verifies — it is refused solely because logout put
+  its `jti` on the Redis deny-list (docs/BACKEND.md §3.1, "revocation: short
+  expiry + a small deny-list for logout-everywhere").
+}

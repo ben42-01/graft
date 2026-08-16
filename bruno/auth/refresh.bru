@@ -1,0 +1,72 @@
+meta {
+  name: Refresh rotates the session
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/refresh
+  body: none
+  auth: none
+}
+
+headers {
+  Cookie: graft_refresh={{qaRefreshRotate}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.accessToken: isDefined
+  res.body.data.expiresAt: isDefined
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  bru.setVar("accessToken", res.body.data.accessToken);
+  const setCookie = res.getHeader("set-cookie");
+  const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+  bru.setVar("rotatedRefreshCookie", cookies.find((c) => c && c.startsWith("graft_refresh=")));
+}
+
+tests {
+  const refresh = bru.getVar("rotatedRefreshCookie");
+  const accessToken = bru.getVar("accessToken");
+  const decode = (segment) => JSON.parse(Buffer.from(segment, "base64url").toString());
+
+  test("AC7 — the refresh cookie is unreadable from JavaScript", function () {
+    expect(refresh).to.be.a("string");
+    expect(refresh).to.contain("HttpOnly");
+    expect(refresh).to.contain("Secure");
+    expect(refresh).to.contain("SameSite=Lax");
+  });
+
+  test("AC2 — a NEW refresh token came back, not the one presented", function () {
+    const rotated = refresh.split(";")[0].split("=")[1];
+    expect(rotated).to.not.equal(bru.getVar("qaRefreshRotate"));
+    // AC7 — opaque, not a JWT: two segments, not three.
+    expect(rotated.split(".").length).to.equal(2);
+  });
+
+  test("AC1 — the access token names the kid JWKS published", function () {
+    const header = decode(accessToken.split(".")[0]);
+    expect(header.alg).to.equal("RS256");
+    expect(header.kid).to.equal(bru.getVar("jwksKid"));
+  });
+
+  test("AC5 — the token carries exactly one tenant", function () {
+    const claims = decode(accessToken.split(".")[1]);
+    expect(claims.tid).to.equal("000000000000000000000001");
+    expect(typeof claims.tid).to.equal("string");
+    expect(claims.sub).to.equal("00000000000000000000000b");
+    expect(claims.jti).to.be.a("string");
+    expect(claims.exp - claims.iat).to.equal(900);
+  });
+}
+
+docs {
+  AC2 happy path, plus AC1/AC5/AC7 assertions on what came back. Fixture:
+  `qaRefreshRotate` is seeded by scripts/seed-qa.ts (docs/WORKFLOW.md §5.2) —
+  there is no login endpoint until GRAFT-03.2, so the starting refresh token is
+  a deterministic fixture rather than something this suite generated.
+}

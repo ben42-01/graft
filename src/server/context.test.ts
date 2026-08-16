@@ -35,7 +35,15 @@ describe("createContext", () => {
   });
 });
 
-describe("contextFromRequest (stub until GRAFT-03)", () => {
+/**
+ * GRAFT-03.1 note: nothing wires this stub up any more. `route()` builds its
+ * context through src/server/auth/session.ts, which verifies an RS256 signature
+ * and checks the jti deny-list (see session.test.ts). The stub and these tests
+ * survive only because src/server/context.ts is a protected path that this
+ * issue's Constraints did not list — removing it needs its own approval, which
+ * is asked for in a comment on the issue.
+ */
+describe("contextFromRequest (dead stub — nothing calls it since GRAFT-03.1)", () => {
   const headers = {
     "x-graft-tenant-id": "000000000000000000000001",
     "x-graft-user-id": "00000000000000000000000b",
@@ -145,5 +153,41 @@ describe("contextFromRequest (stub until GRAFT-03)", () => {
       { appEnv: "qa" },
     );
     expect(ctx.requestId).toBe("edge-01HZY7");
+  });
+});
+
+describe("createContext validation", () => {
+  const valid = {
+    requestId: "r-1",
+    tenantId: "000000000000000000000001",
+    userId: "00000000000000000000000b",
+    roles: ["owner"] as const,
+    tier: "free" as const,
+  };
+
+  it("is UNAUTHORIZED, never a partial ctx, when a field is unusable", () => {
+    for (const bad of [
+      { ...valid, tenantId: "" },
+      { ...valid, tenantId: "000000000000000000000001x" },
+      { ...valid, userId: "not-an-object-id" },
+      { ...valid, roles: [] as unknown as typeof valid.roles },
+      { ...valid, roles: ["superuser"] as unknown as typeof valid.roles },
+      { ...valid, tier: "platinum" as unknown as typeof valid.tier },
+    ]) {
+      try {
+        createContext(bad);
+        expect.unreachable("an invalid ctx must not be constructible");
+      } catch (error) {
+        expect((error as AppError).code).toBe("UNAUTHORIZED");
+      }
+    }
+  });
+
+  it("freezes the ctx, so nothing downstream can retenant itself", () => {
+    const ctx = createContext(valid);
+    expect(Object.isFrozen(ctx)).toBe(true);
+    expect(() => {
+      (ctx as { tenantId: string }).tenantId = "000000000000000000000002";
+    }).toThrow();
   });
 });

@@ -19,6 +19,21 @@ export const schema = z.object({
   MONGODB_URI: z.string().url().startsWith("mongodb"),
   REDIS_URL: z.string().url().startsWith("redis"),
   APP_URL: z.string().url().default("http://localhost:3000"),
+
+  /**
+   * RS256 keypair paths (docs/BACKEND.md §3.1, docs/WORKFLOW.md §4.3). Paths,
+   * never key material: nothing about the key belongs in an environment
+   * variable that a crash dump or a process listing can read. `npm run setup`
+   * writes the pair into .keys/, which is gitignored.
+   */
+  JWT_PRIVATE_KEY_PATH: z.string().min(1).default(".keys/jwt-private.pem"),
+  JWT_PUBLIC_KEY_PATH: z.string().min(1).default(".keys/jwt-public.pem"),
+  /**
+   * Set during a key rotation to the public half of the key being retired: JWKS
+   * publishes both, so tokens signed minutes before the swap keep verifying
+   * until they expire (GRAFT-03.1 AC8). Unset the rest of the time.
+   */
+  JWT_PREVIOUS_PUBLIC_KEY_PATH: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof schema>;

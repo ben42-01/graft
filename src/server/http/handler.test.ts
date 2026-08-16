@@ -5,6 +5,23 @@ import { route } from "./handler";
 import { encodeCursor } from "./pagination";
 import { parseBody } from "./validate";
 
+/**
+ * These tests are about route() plumbing — the request id, the envelope, the log
+ * line — not about authentication, which since GRAFT-03.1 means an RS256
+ * verification and a Redis round trip. Authentication proper is tested where it
+ * lives, in src/server/auth/session.test.ts; here it is a stand-in whose only
+ * interesting property is the requestId it was handed.
+ */
+vi.mock("@/server/auth/session", () => ({
+  contextFromRequest: async (_request: Request, options: { requestId?: string } = {}) => ({
+    requestId: options.requestId ?? "unset",
+    tenantId: "000000000000000000000001",
+    userId: "00000000000000000000000b",
+    roles: ["owner"],
+    tier: "free",
+  }),
+}));
+
 function captureLogs() {
   const lines: string[] = [];
   vi.spyOn(console, "log").mockImplementation((line: string) => {
@@ -73,26 +90,13 @@ describe("route", () => {
    * service and log line said another.
    */
   it("gives the handler a context on the same requestId as the response (AC2)", async () => {
-    // route() resolves APP_ENV through env(); the stub only builds a ctx in dev/qa.
-    vi.stubEnv("APP_ENV", "qa");
-    vi.stubEnv("MONGODB_URI", "mongodb://localhost:27017/graft-test");
-    vi.stubEnv("REDIS_URL", "redis://localhost:6379");
     const lines = captureLogs();
-    const handler = route((_request, { requestId, context, log }) => {
-      const ctx = context();
+    const handler = route(async (_request, { requestId, context, log }) => {
+      const ctx = await context();
       log.info("ctx.built", { ctxRequestId: ctx.requestId });
       return jsonOk({ ctxRequestId: ctx.requestId }, requestId);
     });
-    const response = await handler(
-      new Request("http://localhost/api/v1/things", {
-        headers: {
-          "x-graft-tenant-id": "000000000000000000000001",
-          "x-graft-user-id": "00000000000000000000000b",
-          "x-graft-roles": "owner",
-        },
-      }),
-      NO_PARAMS,
-    );
+    const response = await handler(new Request("http://localhost/api/v1/things"), NO_PARAMS);
     const body = await response.json();
     expect(body.data.ctxRequestId).toBe(body.meta.requestId);
     expect(response.headers.get("x-request-id")).toBe(body.data.ctxRequestId);

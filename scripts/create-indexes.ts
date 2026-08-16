@@ -50,6 +50,24 @@ const INDEXES: IndexDef[] = [
 
   // Audit log: 90-day retention on Premium (docs/TIERS.md §2.4)
   { collection: "audit_log", keys: { tenantId: 1, createdAt: -1 } },
+
+  // Refresh tokens (docs/BACKEND.md §3.1). The lookup is (tenantId, tokenHash)
+  // and it is unique: one stored hash can never resolve to two families.
+  {
+    collection: "refresh_tokens",
+    keys: { tenantId: 1, tokenHash: 1 },
+    options: { unique: true },
+  },
+  // Reuse detection revokes by family, so the family is an index, not a scan.
+  { collection: "refresh_tokens", keys: { tenantId: 1, familyId: 1 } },
+  // Expired tokens are swept by Mongo rather than by a cron we would forget.
+  // Deliberately *after* the 30-day expiry, not instead of it: the application
+  // refuses an expired token itself, and the TTL monitor only reclaims space.
+  {
+    collection: "refresh_tokens",
+    keys: { expiresAt: 1 },
+    options: { expireAfterSeconds: 60 * 60 * 24 },
+  },
 ];
 
 async function main() {

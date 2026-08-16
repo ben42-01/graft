@@ -1,0 +1,39 @@
+meta {
+  name: JWKS
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/.well-known/jwks.json
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.body.keys: isDefined
+  res.body.keys[0].kty: eq RSA
+  res.body.keys[0].alg: eq RS256
+  res.body.keys[0].use: eq sig
+  res.body.keys[0].kid: isDefined
+  res.body.keys[0].n: isDefined
+  res.body.keys[0].e: eq AQAB
+  res.body.keys[0].d: isUndefined
+  res.body.keys[0].p: isUndefined
+  res.headers['cache-control']: contains max-age
+}
+
+script:post-response {
+  // AC1 — the kid published here is the kid the access token carries. Stashed so
+  // refresh.bru can assert the two match rather than trusting them separately.
+  bru.setVar("jwksKid", res.body.keys[0].kid);
+  bru.setVar("jwksKeyCount", res.body.keys.length);
+}
+
+docs {
+  AC1/AC8 (docs/BACKEND.md §3.1). Publishes the public half only — the private
+  key never leaves the server, so `d`/`p`/`q` must be absent. When a previous key
+  is configured it is served alongside the current one, so rotation does not
+  invalidate tokens that are still inside their 15-minute life.
+}
