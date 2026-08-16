@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { REDACTED, createLogger, log, redact } from "./log";
+import { REDACTED, createLogger, log, redact, redactErrorMessage } from "./log";
 
 /** Captures what the logger actually writes, which is what AC7 is about. */
 function captureLogs() {
@@ -128,6 +128,41 @@ describe("redact over driver errors (AC4)", () => {
     const serialised = JSON.stringify(redact(new Error("could not notify ada@qa-free.test")));
     expect(serialised).not.toContain("ada@qa-free.test");
   });
+
+  /**
+   * Asserting the *exact* output, not just the absence of the secret. Absence
+   * alone let a real defect through review: three of the four value rules have no
+   * capture group, and a shared replacer function received the match offset in the
+   * group position and spliced it into the line —
+   * `connect ECONNREFUSED 21[redacted]:27017 for user 46[redacted]`. The line was
+   * still safe, but it was also wrong, and `not.toContain` could never see it.
+   */
+  describe("writes exactly what it means to write", () => {
+    const cases: readonly [string, string][] = [
+      [
+        `connect ECONNREFUSED 127.0.0.1:27017 for user "ada"`,
+        `connect ECONNREFUSED ${REDACTED}:27017 for user ${REDACTED}`,
+      ],
+      [
+        `E11000 duplicate key error collection: graft.records index: t_phone dup key: { phone: "+353 1 000 0001" }`,
+        `E11000 duplicate key error collection: graft.records index: t_phone dup key: ${REDACTED}`,
+      ],
+      ["timeout after 30000ms", "timeout after 30000ms"],
+      ["ETIMEDOUT", "ETIMEDOUT"],
+    ];
+
+    it.each(cases)("redacts %j exactly", (input, expected) => {
+      expect(redactErrorMessage(input)).toBe(expected);
+    });
+
+    it("never splices a match offset into the message", () => {
+      // Long enough that any offset would be a multi-digit number next to a marker.
+      const message = `${"x".repeat(120)} secret "value" and another 'value'`;
+      const out = redactErrorMessage(message);
+      expect(out).toBe(`${"x".repeat(120)} secret ${REDACTED} and another ${REDACTED}`);
+      expect(out).not.toMatch(/\d+\[redacted\]/);
+    });
+  });
 });
 
 /**
@@ -154,6 +189,14 @@ describe("redact keeps a 500 diagnosable (AC5)", () => {
     const inner = new Error('dup key: { phone: "+353 1 000 0001" }');
     const serialised = JSON.stringify(redact(new Error("write failed", { cause: inner })));
     expect(serialised).not.toContain("+353 1 000 0001");
+  });
+
+  // Stacks are long, so an offset splice would be a large number here — and this
+  // is the field AC5 exists to preserve, so corrupting it defeats the point.
+  it("keeps the stack readable rather than corrupting it", () => {
+    const entry = redact(new Error('failed on "secret"')) as Record<string, unknown>;
+    expect(String(entry.stack)).not.toMatch(/\d+\[redacted\]/);
+    expect(String(entry.stack)).toContain("at ");
   });
 
   it("does not follow a cause chain forever", () => {

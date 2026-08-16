@@ -89,22 +89,32 @@ function redactString(value: string): string {
  * key-based deny-list can anticipate it. Everything that looks like a value is
  * dropped and the diagnostic skeleton — error class, index name, code — is kept.
  */
-const VALUE_PATTERNS: readonly RegExp[] = [
-  // The whole `dup key: { … }` clause, which is nothing but values.
-  /(dup key:\s*)\{[^}]*\}/gi,
+/**
+ * Each rule carries its own replacement string rather than sharing one replacer
+ * function. A shared `(match, group) => …` is a trap here: `String.replace`
+ * passes the match *offset* in that position for any pattern without a capture
+ * group, so the offset gets spliced into the message
+ * (`ECONNREFUSED 21[redacted]:27017`). Replacement strings have no such
+ * ambiguity, and `REDACTED` contains no `$` to be re-interpreted.
+ */
+const VALUE_RULES: readonly { pattern: RegExp; replacement: string }[] = [
+  // The whole `dup key: { … }` clause, which is nothing but values. The prefix is
+  // captured and put back, so the line still says *what kind* of failure it was.
+  { pattern: /(dup key:\s*)\{[^}]*\}/gi, replacement: `$1${REDACTED}` },
   // Anything quoted, in either quote style, including inside ObjectId('…').
-  /"[^"]*"/g,
-  /'[^']*'/g,
+  { pattern: /"[^"]*"/g, replacement: REDACTED },
+  { pattern: /'[^']*'/g, replacement: REDACTED },
   // Bare runs of digits long enough to be an identifier, a phone or an account.
-  /\b\d[\d\s().+-]{5,}\d\b/g,
+  // Short runs survive on purpose: "timeout after 30000ms" stays diagnosable.
+  { pattern: /\b\d[\d\s().+-]{5,}\d\b/g, replacement: REDACTED },
 ];
 
 export function redactErrorMessage(message: string): string {
   let out = message;
-  for (const pattern of VALUE_PATTERNS) {
-    out = out.replace(pattern, (_match, prefix?: string) => `${prefix ?? ""}${REDACTED}`);
+  for (const { pattern, replacement } of VALUE_RULES) {
+    out = out.replace(pattern, replacement);
   }
-  // A bare address that survived the value patterns (unquoted, unbracketed).
+  // A bare address that survived the value rules (unquoted, unbracketed).
   return EMAIL_PATTERN.test(out) ? out.replace(new RegExp(EMAIL_PATTERN, "g"), REDACTED) : out;
 }
 
