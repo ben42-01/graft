@@ -12,23 +12,39 @@ import { AppError } from "./envelope";
 export const DEFAULT_LIMIT = 25;
 export const MAX_LIMIT = 100;
 
-const cursorSchema = z.object({ id: z.string().min(1), at: z.string().optional() });
+/**
+ * The id is a Mongo ObjectId hex, matching `objectIdHex` in context.ts. It was
+ * `z.string().min(1)` until GRAFT-02.1 (AC3): any non-empty string passed the
+ * boundary and reached `new ObjectId(...)` in the repository, which threw a raw
+ * BSONError and surfaced as a 500 INTERNAL. A client-supplied value must never
+ * produce a 500 — it is a 400 or it is nothing.
+ */
+const cursorSchema = z.object({
+  id: z.string().regex(/^[0-9a-f]{24}$/i, "Expected a 24-character id"),
+  at: z.string().optional(),
+});
 
 /** What a cursor points at: the last item of the page just served. */
 export type CursorPayload = z.infer<typeof cursorSchema>;
 
 export type PageMeta = { limit: number; hasMore: boolean; cursor: string | null };
 
+const invalidCursor = () =>
+  new AppError("VALIDATION_FAILED", "Invalid cursor", {
+    source: "query",
+    fields: { cursor: "Not a cursor issued by this API" },
+  });
+
 export function encodeCursor(payload: CursorPayload): string {
-  return Buffer.from(JSON.stringify(cursorSchema.parse(payload)), "utf8").toString("base64url");
+  // An id we could not page on is not a cursor: raise the same 400 rather than
+  // letting a ZodError escape as a 500.
+  const parsed = cursorSchema.safeParse(payload);
+  if (!parsed.success) throw invalidCursor();
+  return Buffer.from(JSON.stringify(parsed.data), "utf8").toString("base64url");
 }
 
 export function decodeCursor(cursor: string): CursorPayload {
-  const invalid = () =>
-    new AppError("VALIDATION_FAILED", "Invalid cursor", {
-      source: "query",
-      fields: { cursor: "Not a cursor issued by this API" },
-    });
+  const invalid = invalidCursor;
   let decoded: unknown;
   try {
     decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));

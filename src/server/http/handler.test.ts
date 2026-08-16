@@ -45,6 +45,61 @@ describe("route", () => {
     expect(entries.some((e) => e.requestId === requestId && e.status === 200)).toBe(true);
   });
 
+  /**
+   * GRAFT-02.1 AC2 (F1) — handler.ts and context.ts each called requestIdFrom
+   * independently, so with no inbound header one request minted two different
+   * uuids: the response carried one, the log line the other. route() mints
+   * exactly once, and every log line for the request shares that id.
+   */
+  it("mints exactly one requestId per request with no inbound header (AC2)", async () => {
+    const lines = captureLogs();
+    const handler = route((_request, { requestId, log }) => {
+      log.info("handler.reached");
+      return jsonOk({ seen: requestId }, requestId);
+    });
+    const response = await handler(new Request("http://localhost/api/v1/things"), NO_PARAMS);
+    const body = await response.json();
+
+    const logged = new Set(lines.map((line) => JSON.parse(line).requestId));
+    expect(logged.size).toBe(1);
+    expect([...logged][0]).toBe(body.meta.requestId);
+    expect(response.headers.get("x-request-id")).toBe(body.meta.requestId);
+    expect(body.data.seen).toBe(body.meta.requestId);
+  });
+
+  /**
+   * The defect proper: before GRAFT-02.1 a handler that built a context got a
+   * *second* uuid, so the response said one id and the ctx carried into every
+   * service and log line said another.
+   */
+  it("gives the handler a context on the same requestId as the response (AC2)", async () => {
+    // route() resolves APP_ENV through env(); the stub only builds a ctx in dev/qa.
+    vi.stubEnv("APP_ENV", "qa");
+    vi.stubEnv("MONGODB_URI", "mongodb://localhost:27017/graft-test");
+    vi.stubEnv("REDIS_URL", "redis://localhost:6379");
+    const lines = captureLogs();
+    const handler = route((_request, { requestId, context, log }) => {
+      const ctx = context();
+      log.info("ctx.built", { ctxRequestId: ctx.requestId });
+      return jsonOk({ ctxRequestId: ctx.requestId }, requestId);
+    });
+    const response = await handler(
+      new Request("http://localhost/api/v1/things", {
+        headers: {
+          "x-graft-tenant-id": "000000000000000000000001",
+          "x-graft-user-id": "00000000000000000000000b",
+          "x-graft-roles": "owner",
+        },
+      }),
+      NO_PARAMS,
+    );
+    const body = await response.json();
+    expect(body.data.ctxRequestId).toBe(body.meta.requestId);
+    expect(response.headers.get("x-request-id")).toBe(body.data.ctxRequestId);
+    const logged = new Set(lines.map((line) => JSON.parse(line).requestId));
+    expect(logged).toEqual(new Set([body.meta.requestId]));
+  });
+
   it("honours a caller-supplied x-request-id when it is a sane token", async () => {
     captureLogs();
     const handler = route((_request, { requestId }) => jsonOk({ ok: true }, requestId));
@@ -128,7 +183,7 @@ describe("route", () => {
       jsonOk([{ id: "a" }], requestId, {
         limit: 1,
         hasMore: true,
-        cursor: encodeCursor({ id: "a" }),
+        cursor: encodeCursor({ id: "6890000000000000000000ff" }),
       }),
     );
     const body = await (
