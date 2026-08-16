@@ -74,17 +74,45 @@ export function createContext(fields: {
 }
 
 /**
+ * The only environments in which a header may stand in for an identity. This is
+ * an allow-list on purpose: the previous deny-list (`appEnv === "production"`)
+ * meant every value it failed to anticipate — an unset variable, a typo, a new
+ * environment name like "staging" — silently authenticated the caller.
+ */
+const STUB_ENVIRONMENTS: ReadonlySet<string> = new Set(["dev", "qa"]);
+
+export type ContextOptions = {
+  /**
+   * The id `route()` already minted for this request. Passed in so one request
+   * has exactly one id: without it the response and its log line disagreed.
+   */
+  requestId?: string;
+  appEnv?: string;
+  nodeEnv?: string;
+};
+
+/**
  * STUB (GRAFT-03 replaces this with RS256 token verification, docs/BACKEND.md §3.1).
  *
  * Reads the identity from `x-graft-*` headers so dev and the Bruno suite can
  * exercise tenant-scoped routes before auth exists. Trusting a header is exactly
- * the bypass this file is meant to prevent, so it is inert in production: no
- * token verification, no authenticated request.
+ * the bypass this file is meant to prevent, so it is inert anywhere but dev and
+ * qa: no token verification, no authenticated request.
+ *
+ * It **fails closed**. A deployment that forgets APP_ENV gets no authentication
+ * at all, which is a loud outage; the alternative — the shape this code had
+ * until GRAFT-02.1 — was handing any caller any tenant, which is a silent breach.
  */
-export function contextFromRequest(request: Request, appEnv: string = env().APP_ENV): Ctx {
-  if (appEnv === "production") {
+export function contextFromRequest(request: Request, options: ContextOptions = {}): Ctx {
+  const appEnv = options.appEnv ?? env().APP_ENV;
+  // Node's own variable, read raw rather than through env(): a second, independent
+  // signal that this is a production process, and one nothing here can default away.
+  const nodeEnv = options.nodeEnv ?? process.env.NODE_ENV ?? "";
+
+  if (!STUB_ENVIRONMENTS.has(appEnv) || nodeEnv === "production") {
     throw new AppError("UNAUTHORIZED", "Authentication is not available yet");
   }
+
   const header = (name: string) => request.headers.get(name)?.trim() ?? "";
   const roles = header("x-graft-roles")
     .split(",")
@@ -92,7 +120,7 @@ export function contextFromRequest(request: Request, appEnv: string = env().APP_
     .filter(Boolean);
 
   return createContext({
-    requestId: requestIdFrom(request),
+    requestId: options.requestId ?? requestIdFrom(request),
     tenantId: header("x-graft-tenant-id"),
     userId: header("x-graft-user-id"),
     roles: roles as Role[],

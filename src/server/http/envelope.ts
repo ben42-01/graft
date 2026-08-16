@@ -87,7 +87,10 @@ export function errorEnvelope(error: unknown, requestId: string): ErrorEnvelope 
       },
     };
   }
-  // AC5 — no message, no details, no stack, no path. The log line has all of it.
+  // AC5 — no message, no details, no stack, no path. The log line has all of it:
+  // `route()` writes the error through redact(), which keeps the class, the
+  // redacted message, the stack and the cause chain (GRAFT-02.1 AC5). The client
+  // gets the requestId and nothing else; the operator gets the rest.
   return { error: { code: "INTERNAL", message: INTERNAL_MESSAGE, requestId } };
 }
 

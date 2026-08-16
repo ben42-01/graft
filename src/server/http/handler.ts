@@ -7,7 +7,7 @@
  * that throws `AppError` gets that envelope; a handler that throws anything else
  * gets a bare 500 and the detail goes to the log, not to the client.
  */
-import { requestIdFrom } from "@/server/context";
+import { type Ctx, contextFromRequest, requestIdFrom } from "@/server/context";
 import { createLogger, type Logger } from "@/server/log";
 import { AppError, jsonError } from "./envelope";
 
@@ -16,6 +16,13 @@ export type RouteArgs<P> = {
   log: Logger;
   /** Next.js 15 hands dynamic segments as a promise; it is resolved for you. */
   params: P;
+  /**
+   * The request context, built against the id `route()` already minted.
+   * Handlers that need a tenant call this instead of `contextFromRequest`
+   * directly, so a request can never end up with two different request ids
+   * (GRAFT-02.1 AC1) — one on the response, another in the log line.
+   */
+  context: () => Ctx;
 };
 
 export type RouteHandler<P> = (
@@ -59,7 +66,8 @@ export function route<P = Record<string, never>>(
     try {
       // Static routes get no params; a plain object is the honest stand-in.
       const params = ((await segment?.params) ?? {}) as P;
-      return finish(await handler(request, { requestId, log, params }));
+      const context = () => contextFromRequest(request, { requestId });
+      return finish(await handler(request, { requestId, log, params, context }));
     } catch (error) {
       return finish(jsonError(error, requestId), error);
     }

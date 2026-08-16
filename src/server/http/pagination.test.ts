@@ -34,6 +34,58 @@ describe("cursor", () => {
       }
     }
   });
+
+  /**
+   * GRAFT-02.1 AC3 (F2) — the cursor id used to be any non-empty string, so a
+   * client-supplied value reached `new ObjectId(...)` in the repository and threw
+   * a raw BSONError that surfaced as a 500 INTERNAL. A client value must never
+   * produce a 500: the id is now validated as 24-hex at the boundary.
+   */
+  describe("a malformed cursor id is a 400, never a 500 (AC3)", () => {
+    const cursorFor = (id: unknown) =>
+      Buffer.from(JSON.stringify({ id }), "utf8").toString("base64url");
+
+    it("rejects a decoded id that is not an ObjectId", () => {
+      for (const id of [
+        "not-an-object-id",
+        "689000000000000000000",
+        "6890000000000000000000fff",
+        "6890000000000000000000zz",
+        "../../etc/passwd",
+        "6890000000000000000000ff ",
+      ]) {
+        let thrown: unknown;
+        try {
+          decodeCursor(cursorFor(id));
+        } catch (error) {
+          thrown = error;
+        }
+        expect(thrown, `id ${JSON.stringify(id)} must be rejected`).toBeInstanceOf(AppError);
+        expect((thrown as AppError).code).toBe("VALIDATION_FAILED");
+        expect((thrown as AppError).status).toBe(400);
+      }
+    });
+
+    it("still accepts a real ObjectId in either case", () => {
+      expect(decodeCursor(cursorFor("6890000000000000000000ff")).id).toBe(
+        "6890000000000000000000ff",
+      );
+      expect(decodeCursor(cursorFor("6890000000000000000000FF")).id).toBe(
+        "6890000000000000000000FF",
+      );
+    });
+
+    // The same invariant on the way out — an id we cannot page on is not a cursor.
+    it("refuses to encode a non-ObjectId id", () => {
+      expect(() => encodeCursor({ id: "not-an-object-id" })).toThrow(AppError);
+      try {
+        encodeCursor({ id: "not-an-object-id" });
+      } catch (error) {
+        expect((error as AppError).code).toBe("VALIDATION_FAILED");
+        expect((error as AppError).status).toBe(400);
+      }
+    });
+  });
 });
 
 describe("clampLimit", () => {
@@ -48,14 +100,20 @@ describe("clampLimit", () => {
 });
 
 describe("page", () => {
-  const rows = [{ _id: "a" }, { _id: "b" }, { _id: "c" }];
+  // Real ObjectId hex since AC3 — a page cursor is built from a document _id.
+  const ids = [
+    "6890000000000000000000a1",
+    "6890000000000000000000b2",
+    "6890000000000000000000c3",
+  ];
+  const rows = ids.map((_id) => ({ _id }));
   const cursorOf = (row: { _id: string }) => ({ id: row._id });
 
   it("returns a full page with a cursor when there is more", () => {
     const result = page(rows, 2, cursorOf);
-    expect(result.items).toEqual([{ _id: "a" }, { _id: "b" }]);
+    expect(result.items).toEqual([{ _id: ids[0] }, { _id: ids[1] }]);
     expect(result.meta.hasMore).toBe(true);
-    expect(decodeCursor(result.meta.cursor!)).toEqual({ id: "b" });
+    expect(decodeCursor(result.meta.cursor!)).toEqual({ id: ids[1] });
     expect(result.meta.limit).toBe(2);
   });
 

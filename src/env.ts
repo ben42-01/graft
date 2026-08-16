@@ -7,8 +7,14 @@ import { z } from "zod";
  *
  * Server-only: never import this from a client component.
  */
-const schema = z.object({
-  APP_ENV: z.enum(["dev", "qa", "production"]).default("dev"),
+export const schema = z.object({
+  /**
+   * No default (GRAFT-02.1 AC1). APP_ENV decides whether header-based identity is
+   * accepted, so defaulting it to "dev" meant a deploy that forgot the variable
+   * quietly became a development box. Every .env file sets it explicitly; a
+   * missing one is now a startup failure rather than an open door.
+   */
+  APP_ENV: z.enum(["dev", "qa", "production"]),
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   MONGODB_URI: z.string().url().startsWith("mongodb"),
   REDIS_URL: z.string().url().startsWith("redis"),

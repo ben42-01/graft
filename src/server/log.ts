@@ -70,9 +70,76 @@ const PAYLOAD_KEYS = new Set([
 const EMAIL_PATTERN = /[\w.+-]+@[\w-]+\.[\w.-]+/;
 const MAX_DEPTH = 4;
 const MAX_ARRAY = 20;
+/** Stack frames are for diagnosis, not forensics — the top of the stack is the bug. */
+const MAX_STACK_FRAMES = 12;
+const MAX_CAUSE_DEPTH = 4;
 
 function redactString(value: string): string {
   return EMAIL_PATTERN.test(value) ? REDACTED : value;
+}
+
+/**
+ * Driver error text carries data (GRAFT-02.1 AC4). Mongo's E11000 quotes the
+ * duplicated value back at you:
+ *
+ *   E11000 duplicate key error collection: graft.records index: tenant_phone_idx
+ *   dup key: { tenantId: ObjectId('…'), phone: "+353 1 000 0001" }
+ *
+ * and in GRAFT-06/07 the indexed field is whatever the tenant named it, so no
+ * key-based deny-list can anticipate it. Everything that looks like a value is
+ * dropped and the diagnostic skeleton — error class, index name, code — is kept.
+ */
+const VALUE_PATTERNS: readonly RegExp[] = [
+  // The whole `dup key: { … }` clause, which is nothing but values.
+  /(dup key:\s*)\{[^}]*\}/gi,
+  // Anything quoted, in either quote style, including inside ObjectId('…').
+  /"[^"]*"/g,
+  /'[^']*'/g,
+  // Bare runs of digits long enough to be an identifier, a phone or an account.
+  /\b\d[\d\s().+-]{5,}\d\b/g,
+];
+
+export function redactErrorMessage(message: string): string {
+  let out = message;
+  for (const pattern of VALUE_PATTERNS) {
+    out = out.replace(pattern, (_match, prefix?: string) => `${prefix ?? ""}${REDACTED}`);
+  }
+  // A bare address that survived the value patterns (unquoted, unbracketed).
+  return EMAIL_PATTERN.test(out) ? out.replace(new RegExp(EMAIL_PATTERN, "g"), REDACTED) : out;
+}
+
+/**
+ * The stack is kept (GRAFT-02.1 AC5) because envelope.ts tells the client
+ * "the log line has all of it" — a 500 whose only record is one line is not
+ * diagnosable. Frames are paths and function names, but the first line repeats
+ * the message, so the whole thing goes through the same redaction.
+ */
+function redactStack(stack: string | undefined): string | undefined {
+  if (!stack) return undefined;
+  return redactErrorMessage(
+    stack
+      .split("\n")
+      .slice(0, MAX_STACK_FRAMES + 1)
+      .join("\n"),
+  );
+}
+
+function redactError(error: Error, causeDepth: number): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    name: error.name,
+    message: redactErrorMessage(error.message),
+  };
+  const stack = redactStack(error.stack);
+  if (stack) out.stack = stack;
+
+  const { cause } = error;
+  if (cause !== undefined && causeDepth < MAX_CAUSE_DEPTH) {
+    out.cause =
+      cause instanceof Error
+        ? redactError(cause, causeDepth + 1)
+        : redact(cause, MAX_DEPTH - 1, new WeakSet());
+  }
+  return out;
 }
 
 /**
@@ -87,7 +154,7 @@ export function redact(value: unknown, depth = 0, seen = new WeakSet<object>()):
   if (typeof value === "bigint") return value.toString();
   if (typeof value === "function" || typeof value === "symbol") return "[unloggable]";
   if (value instanceof Date) return value.toISOString();
-  if (value instanceof Error) return { name: value.name, message: redactString(value.message) };
+  if (value instanceof Error) return redactError(value, 0);
 
   if (typeof value === "object") {
     if (seen.has(value)) return "[circular]";
