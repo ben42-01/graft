@@ -73,6 +73,14 @@ export type RouteOptions = {
   rateLimit?: RoutePolicy;
   /** Test seam: the limiter backend. Production uses Redis. */
   limiter?: Partial<EnforceDeps>;
+  /**
+   * Extra headers merged onto every response this route produces, success or
+   * error alike (docs/BACKEND.md §4 — "public form embed endpoints get a
+   * separate permissive-but-scoped [CORS] policy", distinct from the app
+   * origin lock everything else gets). Opt-in per route, not a global CORS
+   * layer: only a route that passes this gets anything beyond the default.
+   */
+  headers?: Record<string, string>;
 };
 
 /** Scopes whose key can only be known once a token has been verified. */
@@ -87,10 +95,21 @@ const rateLimited = (retryAfter: number) =>
     retryAfterSeconds: retryAfter,
   });
 
-/** The dynamic segment a public form route is keyed on, when there is one. */
+/**
+ * The dynamic segment a public form route is keyed on, when there is one.
+ * GRAFT-09's submission route is `[tenantSlug]/[formSlug]/submissions` (two
+ * plain segments, not a catch-all — Next.js does not allow a static segment
+ * after one, and `forms.publicSlug` is always exactly two parts anyway), so
+ * both are joined back into the same `tenantSlug/formSlug` identity the
+ * service itself reconstructs, keeping one `public-form` rate-limit bucket
+ * per form regardless of which route shape produced the params.
+ */
 function formIdFrom(params: unknown): string | undefined {
   if (!params || typeof params !== "object") return undefined;
   const bag = params as Record<string, unknown>;
+  if (typeof bag.tenantSlug === "string" && typeof bag.formSlug === "string") {
+    return `${bag.tenantSlug}/${bag.formSlug}`;
+  }
   const candidate = bag.slug ?? bag.formId;
   return typeof candidate === "string" ? candidate : undefined;
 }
@@ -146,6 +165,9 @@ export function route<P = Record<string, never>>(
         response.headers.set("x-request-id", requestId);
       }
       for (const [name, value] of Object.entries(limitHeaders)) {
+        response.headers.set(name, value);
+      }
+      for (const [name, value] of Object.entries(options.headers ?? {})) {
         response.headers.set(name, value);
       }
       const fields = { status: response.status, durationMs: Date.now() - started };

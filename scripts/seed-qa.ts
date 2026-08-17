@@ -52,6 +52,11 @@ const IDS = {
   entityFreeCustomers: oid(21),
   entityPremiumCustomers: oid(22),
   entityDowngradedExtra: oid(23),
+  // GRAFT-09 — qa-at-quota needs its own entity: the public submit endpoint
+  // fetches the entity tenant-scoped (so it never leaks another tenant's
+  // schema even to its own owner), and formAtQuota previously pointed at
+  // entityFreeCustomers, which belongs to tenantFree, not tenantAtQuota.
+  entityAtQuotaCustomers: oid(24),
   formFreePublic: oid(31),
   formAtQuota: oid(32),
   formDowngradedUnpublished: oid(33),
@@ -265,6 +270,16 @@ async function main() {
         readOnly: true,
         ...base,
       },
+      {
+        _id: IDS.entityAtQuotaCustomers,
+        tenantId: IDS.tenantAtQuota,
+        key: "customers",
+        name: "Customers",
+        fields: CUSTOMER_FIELDS,
+        schemaVersion: 1,
+        readOnly: false,
+        ...base,
+      },
     ]);
 
     // Exactly 3 records for the free tenant — assertions count on this.
@@ -333,7 +348,7 @@ async function main() {
       {
         _id: IDS.formAtQuota,
         tenantId: IDS.tenantAtQuota,
-        entityDefId: IDS.entityFreeCustomers,
+        entityDefId: IDS.entityAtQuotaCustomers,
         name: "QA Quota Form",
         slug: "qa-quota-form",
         publicSlug: "qa-at-quota/qa-quota-form",

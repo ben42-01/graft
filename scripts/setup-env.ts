@@ -48,7 +48,13 @@ function buildSpec(env: "dev" | "qa"): EnvSpec {
       MONGO_ROOT_PASSWORD: secret(),
       MONGO_APP_USER: appUser,
       MONGO_APP_PASSWORD: appPassword,
-      MONGODB_URI: `mongodb://${appUser}:${appPassword}@localhost:${mongoPort}/${db}?authSource=${db}`,
+      // `directConnection=true` — the single-node replica set (docker-compose.*
+      // "GRAFT-09: --replSet") advertises itself as `localhost:27017`
+      // internally regardless of the host port it's mapped to (27018 for qa),
+      // so full topology discovery would try to redial that literal address.
+      // A direct connection skips discovery and talks to the seed host as-is,
+      // which is all a single member ever needs.
+      MONGODB_URI: `mongodb://${appUser}:${appPassword}@localhost:${mongoPort}/${db}?authSource=${db}&directConnection=true`,
       REDIS_PORT: redisPort,
       REDIS_URL: `redis://localhost:${redisPort}`,
       PORT: env === "dev" ? "3000" : "3100",
@@ -74,6 +80,27 @@ function writeEnvFile({ file, values }: EnvSpec): boolean {
   ].join("\n");
   writeFileSync(file, body, { mode: 0o600 });
   log(`  + ${file.replace(root + "/", "")} created (mode 600)`);
+  return true;
+}
+
+function writeMongoKeyFile(): boolean {
+  // Its own subdirectory, not .keys/ directly: the compose files bind-mount the
+  // whole directory into the mongo container (a single-file bind mount hits a
+  // "bad file" permission-check quirk — see docker-compose.dev.yml), and JWT
+  // signing material has no reason to be reachable from inside that container.
+  const path = join(root, ".keys", "mongo", "keyfile");
+  if (existsSync(path)) {
+    log("  = .keys/mongo/keyfile already exists — left untouched");
+    return false;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  // Internal cluster auth for the replica set (GRAFT-09) — required by mongod
+  // the moment `--auth` and `--replSet` are combined, even for one member.
+  // Mongo only checks that group/world have no permission bits set (mode 600),
+  // not the owning uid, so this is readable from inside the container across
+  // a bind mount regardless of which user the mongod process runs as.
+  writeFileSync(path, secret(500), { mode: 0o600 });
+  log("  + .keys/mongo/keyfile created (mode 600)");
   return true;
 }
 
@@ -110,6 +137,7 @@ function main() {
     writeEnvFile(buildSpec("dev")),
     writeEnvFile(buildSpec("qa")),
     writeKeypair(),
+    writeMongoKeyFile(),
   ].some(Boolean);
 
   if (created) {

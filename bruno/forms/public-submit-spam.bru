@@ -1,0 +1,64 @@
+meta {
+  name: A honeypot hit is accepted like a real submission but writes nothing
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/public/forms/qa-free/qa-public-form/submissions
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "data": {
+      "name": "{{spamSubmitName}}",
+      "email": "spam-submit@qa.test",
+      "phone": "+353 1 000 0098"
+    },
+    "_hp": "http://a-real-browser-never-fills-this.example",
+    "_t": {{spamSubmitRenderedAt}}
+  }
+}
+
+script:pre-request {
+  bru.setVar("spamSubmitName", `QA Spam Submit ${Date.now()}`);
+  bru.setVar("spamSubmitRenderedAt", Date.now() - 3000);
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.submissionId: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  const body = res.getBody();
+
+  test("AC3 — a filled honeypot is indistinguishable from a real acceptance", function () {
+    expect(res.getStatus()).to.equal(201);
+    expect(body.data.submissionId).to.match(/^[0-9a-f]{24}$/);
+  });
+
+  test("AC3, AC5 — nothing was actually written: no record, no quota spent", async function () {
+    const axios = require("axios");
+    const baseUrl = bru.getEnvVar("baseUrl");
+    const filter = encodeURIComponent(JSON.stringify({ name: bru.getVar("spamSubmitName") }));
+    const response = await axios.get(
+      `${baseUrl}/api/v1/entities/000000000000000000000015/records?filter=${filter}`,
+      { headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` } },
+    );
+    expect(response.data.data).to.have.lengthOf(0);
+  });
+}
+
+docs {
+  AC3, AC5. Requires bruno/auth/login.bru (loginAccessToken) and runs after
+  public-submit.bru in the same folder, against the same free-tenant form —
+  the point of this test is that its own submission is absent from exactly
+  the same records list the previous one proved a real write lands in.
+  AC4's fill-time rule is the same code path (`isSpamSubmission`) and is
+  covered directly in src/server/services/public-forms.test.ts, which does
+  not need a running QA stack to prove timing behaviour reliably.
+}

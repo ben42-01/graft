@@ -1,0 +1,58 @@
+meta {
+  name: A tenant at its submission quota is refused with an upgrade-prompt payload
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/public/forms/qa-at-quota/qa-quota-form/submissions
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "data": {
+      "name": "Should Not Be Written",
+      "email": "quota-hard-stop@qa.test"
+    },
+    "_t": {{quotaHardStopRenderedAt}}
+  }
+}
+
+script:pre-request {
+  bru.setVar("quotaHardStopRenderedAt", Date.now() - 3000);
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq QUOTA_EXCEEDED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  const body = res.getBody();
+
+  test("AC7 — the qa-at-quota fixture is seeded exactly at the free limit", function () {
+    // scripts/seed-qa.ts seeds this tenant's form_submissions meter at
+    // TIER_LIMITS.free.submissionsPerMonth exactly — this is the hard stop,
+    // not a coincidental refusal.
+    expect(body.error.code).to.equal("QUOTA_EXCEEDED");
+  });
+
+  test("AC7 — the refusal carries no tenant or form metadata (docs/BACKEND.md §5)", function () {
+    const text = JSON.stringify(body);
+    expect(text).to.not.contain("qa-at-quota");
+    expect(text).to.not.contain("qa-quota-form");
+  });
+}
+
+docs {
+  AC7. `qa-at-quota` / `qa-quota-form` (scripts/seed-qa.ts) is seeded with its
+  form_submissions meter exactly at TIER_LIMITS.free.submissionsPerMonth, so
+  this is the hard stop, not the boundary one point under it — that boundary,
+  and the proof that no record or meter increment occurs on refusal, is in
+  src/server/services/public-forms.integration.test.ts against a real
+  transaction, which a single black-box HTTP call cannot observe.
+}

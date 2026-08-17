@@ -61,6 +61,27 @@ describe("route() rate limiting", () => {
     expect(response.headers.get("content-type")).toContain("application/json");
   });
 
+  // GRAFT-09 — the real route shape is [tenantSlug]/[formSlug]/submissions,
+  // not a single `slug` param (Next.js forbids a static segment after a
+  // catch-all, so publicSlug's two halves are plain params, not an array).
+  it("keys the public-form scope on tenantSlug/formSlug independently per form", async () => {
+    silence();
+    const limiter = { backend: memoryBackend() };
+    const handler = route<{ tenantSlug: string; formSlug: string }>(
+      (_request, { requestId }) => jsonOk({ ok: true }, requestId),
+      { rateLimit: { scopes: ["public-form"] }, limiter },
+    );
+    const call = (formSlug: string) =>
+      handler(get(`/api/v1/public/forms/acme/${formSlug}/submissions`), {
+        params: Promise.resolve({ tenantSlug: "acme", formSlug }),
+      });
+
+    for (let i = 0; i < 10; i += 1) expect((await call("contact")).status).toBe(200);
+    expect((await call("contact")).status).toBe(429);
+    // A different form under the same tenant is a different bucket entirely.
+    expect((await call("newsletter")).status).toBe(200);
+  });
+
   it("tells a client where it stands on a request it allowed", async () => {
     silence();
     const handler = route((_request, { requestId }) => jsonOk({ ok: true }, requestId), {
