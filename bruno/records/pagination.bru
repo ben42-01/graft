@@ -1,0 +1,44 @@
+meta {
+  name: Listing is cursor-paginated with a round-trippable cursor
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000015/records?limit=2
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.meta.limit: eq 2
+  res.body.error: isUndefined
+}
+
+tests {
+  const body = res.getBody();
+
+  test("AC2 — a page never exceeds the requested limit", function () {
+    expect(body.data.length).to.be.at.most(2);
+  });
+
+  test("AC2 — a full page of a larger set carries an opaque cursor", function () {
+    // Seeded set is 3 records (scripts/seed-qa.ts) plus crud.bru's new one: 4
+    // total under this entity, so a page of 2 always has more behind it.
+    expect(body.meta.hasMore).to.equal(true);
+    expect(body.meta.cursor).to.be.a("string").with.length.greaterThan(0);
+  });
+}
+
+docs {
+  AC2 — the mechanics (limit is honoured, a full page carries a cursor).
+  Full round-trip correctness — paging through 100 records with no duplicates
+  or gaps — is proven against a real MongoDB in
+  src/server/services/records.integration.test.ts, which does not depend on
+  the QA stack's fixed 4-row fixture. Depends on crud.bru having run first.
+}

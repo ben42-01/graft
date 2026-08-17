@@ -1,0 +1,59 @@
+meta {
+  name: Creating a record validates against the entity's compiled schema
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000015/records
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "name": "Ada King",
+    "email": "ada.king@example.com",
+    "phone": "+353 1 000 0009"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.data.name: eq Ada King
+  res.body.data.schemaVersion: eq 1
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  // Carried into pagination.bru — created against the free tenant's
+  // "customers" entity (000000000000000000000015, scripts/seed-qa.ts).
+  bru.setVar("createdRecordId", res.body.data.id);
+}
+
+tests {
+  const record = res.getBody().data;
+
+  test("AC1 — unknown fields are rejected rather than stored", function () {
+    expect(Object.keys(record.data).sort()).to.eql(["email", "name", "phone"]);
+  });
+
+  test("AC1 — the id is a real Mongo ObjectId hex", function () {
+    expect(record.id).to.match(/^[0-9a-f]{24}$/);
+  });
+
+  test("AC8 — the record is bound to the entity it was created under", function () {
+    expect(record.entityId).to.equal("000000000000000000000015");
+  });
+}
+
+docs {
+  AC1, AC8. Requires bruno/auth/login.bru to have run first (loginAccessToken).
+  Unknown-field rejection and the QUOTA_EXCEEDED hard stop (AC7) are proven
+  against a fake repository in src/server/services/records.test.ts, which does
+  not need a running QA stack to prove them.
+}

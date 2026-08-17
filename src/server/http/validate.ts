@@ -40,13 +40,15 @@ export function parse<S extends z.ZodTypeAny>(
   return result.data;
 }
 
-export async function parseBody<S extends z.ZodTypeAny>(
-  request: Request,
-  schema: S,
-): Promise<z.infer<S>> {
-  let body: unknown;
+/**
+ * The JSON-parsing half of `parseBody`, split out for callers whose schema
+ * cannot be known statically — records (GRAFT-07) validate against a schema
+ * compiled per-entity, so the route has nothing to hand `parseBody` and reads
+ * the body itself before the service compiles and applies that schema.
+ */
+export async function parseJsonBody(request: Request): Promise<unknown> {
   try {
-    body = await request.json();
+    return await request.json();
   } catch {
     // Unparseable JSON is the caller's mistake, not ours — 400, not 500.
     throw new AppError("VALIDATION_FAILED", "Invalid request body", {
@@ -54,7 +56,13 @@ export async function parseBody<S extends z.ZodTypeAny>(
       fields: { "(body)": "Expected a JSON document" },
     });
   }
-  return parse(schema, body, "body");
+}
+
+export async function parseBody<S extends z.ZodTypeAny>(
+  request: Request,
+  schema: S,
+): Promise<z.infer<S>> {
+  return parse(schema, await parseJsonBody(request), "body");
 }
 
 export function parseQuery<S extends z.ZodTypeAny>(

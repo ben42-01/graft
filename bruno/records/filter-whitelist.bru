@@ -1,0 +1,38 @@
+meta {
+  name: A raw Mongo operator in the filter is rejected, not executed
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000015/records?filter=%7B%22%24where%22%3A%221%3D%3D1%22%7D
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC3 — the offending key is named, not silently dropped or executed", function () {
+    expect(res.getBody().error.details.fields.filter).to.match(/\$where/);
+  });
+}
+
+docs {
+  AC3 — the single most important assertion in this issue. `$where` is never a
+  member of the entity's field-key whitelist (field keys are constrained to
+  `/^[a-z][a-z0-9_]*$/` at entity-creation time, src/server/services/entities.ts),
+  so this is rejected by construction rather than by pattern-matching known
+  operator names. src/server/services/records.test.ts exercises the same
+  parser directly against `$where`, `$ne` and `$gt`, plus an operator smuggled
+  as a field's value.
+}
