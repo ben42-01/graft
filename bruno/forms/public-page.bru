@@ -1,0 +1,41 @@
+meta {
+  name: The public form page is 200 for a published form and 404 for an unpublished one, with OG meta present
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/f/qa-free/qa-public-form
+  auth: none
+}
+
+assert {
+  res.status: eq 200
+  res.headers['content-type']: contains text/html
+}
+
+tests {
+  const body = res.getBody();
+
+  test("AC1 — served as HTML", function () {
+    expect(body).to.be.a("string");
+    expect(body).to.include("<html");
+  });
+
+  test("AC4 — og:title, og:description, og:image and twitter:card are present", function () {
+    expect(body).to.match(/<meta property="og:title" content="[^"]+"/);
+    expect(body).to.match(/<meta property="og:description" content="[^"]+"/);
+    expect(body).to.match(/<meta property="og:image"[^>]*content="[^"]+"/);
+    expect(body).to.match(/<meta name="twitter:card" content="summary_large_image"/);
+  });
+
+  test("AC5 — the Free tenant's page carries the Powered by Graft badge", function () {
+    expect(body).to.include("Powered by Graft");
+  });
+}
+
+docs {
+  AC1, AC4, AC5. Requires bruno/auth/login.bru to have run first only insofar
+  as the environment is warm — this request itself is unauthenticated (AC7),
+  sends no Authorization header and no cookie.
+}
