@@ -318,17 +318,28 @@ describe("updateEntity (AC4, AC6)", () => {
 });
 
 describe("deleteEntity (AC7)", () => {
+  // A no-op stand-in for the GRAFT-08 cascade: the default reaches a real
+  // Mongo-backed forms repository via a dynamic import, which unit tests
+  // never have. The cascade itself is covered in forms.test.ts.
+  const noUnpublish = async () => {};
+
   it("soft-deletes rather than removing the document", async () => {
     const doc = seedDoc();
     const { repo, docs } = fakeRepo([doc]);
-    await deleteEntity(ctx, doc._id.toHexString(), { repo });
+    await deleteEntity(ctx, doc._id.toHexString(), {
+      repo,
+      unpublishFormsForEntity: noUnpublish,
+    });
     expect(docs.get(doc._id.toHexString())?.deletedAt).not.toBeNull();
   });
 
   it("returns NOT_FOUND for an already-deleted or foreign entity", async () => {
     const { repo } = fakeRepo([]);
     await expect(
-      deleteEntity(ctx, new ObjectId().toHexString(), { repo }),
+      deleteEntity(ctx, new ObjectId().toHexString(), {
+        repo,
+        unpublishFormsForEntity: noUnpublish,
+      }),
     ).rejects.toMatchObject({
       code: "NOT_FOUND",
     });

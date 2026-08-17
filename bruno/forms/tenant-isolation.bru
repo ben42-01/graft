@@ -1,0 +1,37 @@
+meta {
+  name: Another tenant's form is not found, not forbidden
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000032
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC6 — a real id belonging to another tenant reads as not found", function () {
+    // 000000000000000000000032 is formAtQuota (scripts/seed-qa.ts) — it exists,
+    // but belongs to the at-quota tenant, not this caller's free tenant. 404
+    // rather than 403 so existence of the row is not leaked.
+    expect(res.getStatus()).to.equal(404);
+  });
+}
+
+docs {
+  AC6. The repository layer (src/server/repositories/base.ts) scopes every
+  read by ctx.tenantId, so this is a structural guarantee, not a check this
+  route wrote itself.
+}

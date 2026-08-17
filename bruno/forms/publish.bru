@@ -1,0 +1,35 @@
+meta {
+  name: Publishing assigns a globally-unique publicSlug and reserves quota
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/forms/{{createdFormId}}/publish
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.published: eq true
+  res.body.data.publicSlug: eq qa-free/qa-booking-request
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC2 — publicSlug is {tenantSlug}/{formSlug}", function () {
+    expect(res.getBody().data.publicSlug).to.equal("qa-free/qa-booking-request");
+  });
+}
+
+docs {
+  AC2. Depends on create.bru having run first (createdFormId). The AC4 hard
+  stop (a refused publish leaves the form untouched) is proven directly
+  against the service in src/server/services/forms.test.ts, which does not
+  need a running QA stack to prove it.
+}
