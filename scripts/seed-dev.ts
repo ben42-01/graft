@@ -12,7 +12,11 @@ import { faker } from "@faker-js/faker";
 import { ObjectId, type Db } from "mongodb";
 import { connect, COLLECTIONS } from "./lib/db";
 import { TIER_LIMITS, type Tier } from "../src/server/tiers";
+import { billingPeriod } from "../src/server/services/meters";
 import { hashPassword } from "../src/server/auth/passwords";
+
+/** Every dev tenant renews on the 1st, so the meter period is the calendar month. */
+const BILLING_ANCHOR_DAY = 1;
 
 const SEED_BATCH = "dev-seed";
 const DEV_PASSWORD = "Dev!12345678"; // >= PASSWORD_MIN_LENGTH (GRAFT-03.2 AC4)
@@ -144,7 +148,9 @@ async function clearPreviousBatch(db: Db) {
 
 async function main() {
   const { client, db } = await connect();
-  const period = new Date().toISOString().slice(0, 7); // YYYY-MM
+  // Anchored on the 1st, like the seeded tenants, so the period the app
+  // computes at request time is the one seeded here (GRAFT-05 AC6).
+  const period = billingPeriod(BILLING_ANCHOR_DAY, new Date());
 
   try {
     await clearPreviousBatch(db);
@@ -161,6 +167,7 @@ async function main() {
         tier: spec.tier,
         industry: spec.industry,
         limits,
+        billingAnchorDay: BILLING_ANCHOR_DAY,
         branding: { logoUrl: null, primaryColor: faker.color.rgb() },
         settings: { currency: "EUR", timezone: "Europe/Dublin", locale: "en-IE" },
         ...stamp,

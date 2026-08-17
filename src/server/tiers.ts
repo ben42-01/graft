@@ -58,5 +58,58 @@ export const TIER_LIMITS: Record<Tier, TierLimits> = {
   },
 };
 
+export const LIMIT_KEYS = Object.keys(TIER_LIMITS.free) as (keyof TierLimits)[];
+
+/**
+ * The entitlement vocabulary (docs/TIERS.md §2.2–§2.5) — capability gates, as
+ * opposed to the counted limits above.
+ *
+ * These keys are the words every later feature will use at its call site, so
+ * they name the *capability* rather than the screen that exposes it: a key is
+ * renamed only by a migration, and a wrong name propagates. Anything already
+ * available on every tier (manual CRUD, CSV export) is deliberately absent —
+ * a gate nobody is behind is a gate nobody maintains.
+ */
+export const FEATURES = [
+  "csv_import",
+  "external_connectors",
+  "inbound_webhooks",
+  "outbound_webhooks",
+  "public_api",
+  "automations",
+  "custom_roles",
+  "audit_log",
+  "form_file_uploads",
+  "form_conditional_logic",
+  "form_analytics",
+  "remove_branding",
+  "custom_form_domain",
+  "invoicing",
+  "reports",
+  "sso",
+  "white_label",
+  "custom_plugins",
+] as const;
+
+export type Feature = (typeof FEATURES)[number];
+export type TierFeatures = Record<Feature, boolean>;
+
+const featureSet = (granted: readonly Feature[]): TierFeatures =>
+  Object.fromEntries(FEATURES.map((f) => [f, granted.includes(f)])) as TierFeatures;
+
+/** Premium gets everything except what §2.5 reserves for Enterprise. */
+const ENTERPRISE_ONLY: readonly Feature[] = [
+  "custom_form_domain",
+  "sso",
+  "white_label",
+  "custom_plugins",
+];
+
+export const TIER_FEATURES: Record<Tier, TierFeatures> = {
+  free: featureSet([]),
+  premium: featureSet(FEATURES.filter((f) => !ENTERPRISE_ONLY.includes(f))),
+  enterprise: featureSet(FEATURES),
+};
+
 /** Soft warning threshold — email + in-app banner (docs/TIERS.md §2.2). */
 export const QUOTA_WARNING_RATIO = 0.8;

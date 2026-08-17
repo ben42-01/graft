@@ -12,17 +12,23 @@
 import { ObjectId, type Db } from "mongodb";
 import { connect, COLLECTIONS } from "./lib/db";
 import { TIER_LIMITS } from "../src/server/tiers";
+import { billingPeriod } from "../src/server/services/meters";
 import { hashRefreshToken, REFRESH_TTL_SECONDS } from "../src/server/auth/refresh-tokens";
 import { hashPassword } from "../src/server/auth/passwords";
 
 /**
- * The meter period is the *current* month, not a hardcoded one: the app looks up
+ * The meter period is the *current* one, not a hardcoded one: the app looks up
  * meters by the period it computes at request time, so a pinned period would
  * leave the at-quota tenant looking empty and the hard-stop test would silently
  * pass for the wrong reason. The counts are what assertions depend on, and those
  * are fixed.
+ *
+ * Periods run from the tenant's billing anniversary (GRAFT-05 AC6), so every QA
+ * tenant is anchored to the 1st — that makes the period the calendar month and
+ * keeps the fixture independent of which day of the month QA happens to run on.
  */
-const PERIOD = new Date().toISOString().slice(0, 7);
+const BILLING_ANCHOR_DAY = 1;
+const PERIOD = billingPeriod(BILLING_ANCHOR_DAY, new Date());
 
 /** Everything else is pinned — no assertion may depend on the clock. */
 const FIXED_DATE = new Date("2026-01-15T12:00:00.000Z");
@@ -102,6 +108,7 @@ async function main() {
         slug: "qa-free",
         tier: "free",
         limits: TIER_LIMITS.free,
+        billingAnchorDay: BILLING_ANCHOR_DAY,
         settings: { currency: "EUR", timezone: "UTC", locale: "en" },
         ...base,
       },
@@ -111,6 +118,7 @@ async function main() {
         slug: "qa-premium",
         tier: "premium",
         limits: TIER_LIMITS.premium,
+        billingAnchorDay: BILLING_ANCHOR_DAY,
         settings: { currency: "EUR", timezone: "UTC", locale: "en" },
         ...base,
       },
@@ -120,6 +128,7 @@ async function main() {
         slug: "qa-at-quota",
         tier: "free",
         limits: TIER_LIMITS.free,
+        billingAnchorDay: BILLING_ANCHOR_DAY,
         settings: { currency: "EUR", timezone: "UTC", locale: "en" },
         ...base,
       },
@@ -130,6 +139,10 @@ async function main() {
         tier: "free",
         limits: TIER_LIMITS.free,
         downgradedAt: FIXED_DATE,
+        // Over-limit resources after the downgrade: readable, never writable,
+        // never deleted (docs/TIERS.md §4, GRAFT-05 AC7).
+        readOnly: ["records", "entities"],
+        billingAnchorDay: BILLING_ANCHOR_DAY,
         settings: { currency: "EUR", timezone: "UTC", locale: "en" },
         ...base,
       },
