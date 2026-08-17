@@ -248,9 +248,19 @@ export type EntityDeps = {
   repo: Repository<EntityDefDoc>;
   consumeQuota: (ctx: Ctx, meter: Meter, amount?: number) => Promise<QuotaResult>;
   cache: SchemaCache;
+  /** AC7 (GRAFT-08) — unpublishes any form bound to the entity being deleted. */
+  unpublishFormsForEntity: (ctx: Ctx, entityId: string) => Promise<void>;
 };
 
 const defaultRepo = createRepository<EntityDefDoc>("entity_defs");
+
+/**
+ * Dynamic, not static: forms.ts imports getEntity from this module, so a
+ * static import the other way would be a cycle. The import only ever
+ * happens on the delete path, not on module load.
+ */
+const defaultUnpublishFormsForEntity = (ctx: Ctx, entityId: string) =>
+  import("./forms").then((forms) => forms.unpublishFormsForEntity(ctx, entityId));
 
 function resolveDeps(overrides: Partial<EntityDeps> = {}): EntityDeps {
   return {
@@ -259,6 +269,8 @@ function resolveDeps(overrides: Partial<EntityDeps> = {}): EntityDeps {
       overrides.consumeQuota ??
       ((ctx, meter, amount) => consumeQuotaDefault(ctx, meter, amount)),
     cache: overrides.cache ?? defaultCache,
+    unpublishFormsForEntity:
+      overrides.unpublishFormsForEntity ?? defaultUnpublishFormsForEntity,
   };
 }
 
@@ -358,7 +370,11 @@ export async function updateEntity(
   return toView(updated);
 }
 
-/** AC7 — soft delete only; records referencing this entity are untouched. */
+/**
+ * AC7 — soft delete only; records referencing this entity are untouched. Any
+ * form bound to it is unpublished (GRAFT-08 AC7) so it stops serving a dead
+ * schema rather than being left dangling.
+ */
 export async function deleteEntity(
   ctx: Ctx,
   entityId: string,
@@ -367,4 +383,5 @@ export async function deleteEntity(
   const deps = resolveDeps(overrides);
   const deleted = await deps.repo.softDelete(ctx, entityId);
   if (!deleted) throw new AppError("NOT_FOUND", "Entity not found");
+  await deps.unpublishFormsForEntity(ctx, entityId);
 }
