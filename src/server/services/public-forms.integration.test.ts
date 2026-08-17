@@ -16,7 +16,9 @@
 import { ObjectId } from "mongodb";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { createContext } from "@/server/context";
 import { getDb, getMongoClient } from "@/server/db/mongo";
+import { createRepository } from "@/server/repositories/base";
 import { TIER_LIMITS } from "@/server/tiers";
 import type { EntityView } from "./entities";
 import type { Entitlements } from "./entitlements";
@@ -25,6 +27,7 @@ import {
   submitPublicForm,
   type PublicFormWriteStore,
 } from "./public-forms";
+import type { RecordDoc } from "./records";
 
 const TENANT_A = new ObjectId("000000000000000000000001");
 const TENANT_B = new ObjectId("000000000000000000000002");
@@ -270,5 +273,62 @@ describe("submitPublicForm — real transaction", () => {
     expect(tenantBRecords).toHaveLength(0);
     expect(tenantASubmissions).toHaveLength(1);
     expect(tenantASubmissions[0]?.tenantId).toEqual(TENANT_A);
+  });
+
+  it("AC10 — the created record is genuinely unreachable through tenant B's own repository-scoped read, even by its real id", async () => {
+    // The weak version of this proof just checks tenantId on the stored
+    // document, which is true by construction (submitPublicForm writes
+    // exactly one tenantId, taken from the form). The real question a public,
+    // ctx-less endpoint has to answer is adversarial: can *anything* about
+    // the request cause the write to land somewhere a different tenant's own
+    // scoped queries can reach? Two attempts:
+
+    // Attempt 1 — smuggle a tenantId through the submitted data. The form's
+    // compiled schema is `.strict()` over exactly its own field keys
+    // (entities.ts), so an extra key is a 400, not a silently-dropped or
+    // silently-honoured field.
+    await expect(
+      submitPublicForm(
+        "req-1",
+        ["acme", "contact"],
+        { data: { name: "Attacker", tenantId: TENANT_B.toHexString() }, _t: RENDERED_AT },
+        deps(),
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+
+    // Attempt 2 — a legitimate submission, then ask tenant B's own
+    // repository-scoped view for that exact record by its real _id. This is
+    // the same proof repositories/base.integration.test.ts uses for the
+    // authenticated CRUD paths: tenant isolation is enforced by the
+    // repository layer injecting ctx.tenantId into every query, not by the
+    // caller happening not to ask.
+    const result = await submitPublicForm("req-1", ["acme", "contact"], validBody(), deps());
+    const db = await getDb();
+    const submission = await db
+      .collection("form_submissions")
+      .findOne({ _id: new ObjectId(result.submissionId) });
+    const recordId = submission?.recordId as ObjectId;
+    expect(recordId).toBeTruthy();
+
+    const recordsRepo = createRepository<RecordDoc>("records");
+    const ctxB = createContext({
+      requestId: "req-attacker",
+      tenantId: TENANT_B.toHexString(),
+      userId: "000000000000000000000099",
+      roles: ["owner"],
+      tier: "free",
+    });
+    await expect(recordsRepo.findById(ctxB, recordId)).resolves.toBeNull();
+
+    // Tenant A's own scoped view, by contrast, finds it — proving the null
+    // above is tenant scoping, not a bug that hides the record from everyone.
+    const ctxA = createContext({
+      requestId: "req-owner",
+      tenantId: TENANT_A.toHexString(),
+      userId: "000000000000000000000098",
+      roles: ["owner"],
+      tier: "free",
+    });
+    await expect(recordsRepo.findById(ctxA, recordId)).resolves.not.toBeNull();
   });
 });

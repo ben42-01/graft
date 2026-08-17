@@ -33,6 +33,7 @@ assert {
   res.status: eq 201
   res.body.data.submissionId: isDefined
   res.body.error: isUndefined
+  res.headers['access-control-allow-origin']: eq *
 }
 
 tests {

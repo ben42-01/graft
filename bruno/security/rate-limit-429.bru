@@ -58,6 +58,38 @@ script:pre-request {
     successes.push(response.status);
   }
   bru.setVar("rlSuccessStatuses", JSON.stringify(successes));
+
+  // GRAFT-09: the *other* row of the same docs/BACKEND.md §4 table — the
+  // public-form scope, keyed on ip+formId instead of ip+email, unauthenticated
+  // rather than charged-on-failure. Extends this file rather than adding a
+  // sibling one, since the contract asks for the public scope to extend this
+  // test and a .bru file is one request — the extra proof lives here, in script.
+  //
+  // Uses the downgraded tenant's unpublished form (scripts/seed-qa.ts) so this
+  // budget is independent of bruno/forms/public-submit.bru and
+  // public-submit-spam.bru, which run earlier in the same `bru run` and would
+  // otherwise have already spent part of the same ip+formId bucket. Every
+  // attempt here 404s (the form is unpublished) — irrelevant to this proof,
+  // since the `public-form` rate-limit scope applies in route() before the
+  // handler decides that, keyed on the URL's formId alone.
+  const submitAttempt = () =>
+    axios.post(
+      `${baseUrl}/api/v1/public/forms/qa-downgraded/qa-unpublished-form/submissions`,
+      { data: {}, _t: Date.now() - 3000 },
+      { headers: { "content-type": "application/json" }, validateStatus: () => true },
+    );
+
+  const publicFormStatuses = [];
+  for (let i = 0; i < 10; i += 1) {
+    const response = await submitAttempt();
+    publicFormStatuses.push(response.status);
+  }
+  bru.setVar("rlPublicFormStatuses", JSON.stringify(publicFormStatuses));
+
+  const eleventh = await submitAttempt();
+  bru.setVar("rlPublicFormEleventhStatus", eleventh.status);
+  bru.setVar("rlPublicFormEleventhBody", JSON.stringify(eleventh.data));
+  bru.setVar("rlPublicFormEleventhHeaders", JSON.stringify(eleventh.headers));
 }
 
 assert {
@@ -110,6 +142,26 @@ tests {
     expect(res.getBody().data).to.be.undefined;
     expect(res.getBody().error.code).to.equal("RATE_LIMITED");
   });
+
+  // GRAFT-09 — the public-form scope, proved in the same pre-request script
+  // (see above for why it lives here rather than a separate file).
+  test("GRAFT-09 — ten public-form submits were answered on their own merits (404, unpublished), not throttled", function () {
+    expect(JSON.parse(bru.getVar("rlPublicFormStatuses"))).to.eql(new Array(10).fill(404));
+  });
+
+  test("GRAFT-09 — the eleventh public-form submit is 429 RATE_LIMITED", function () {
+    expect(bru.getVar("rlPublicFormEleventhStatus")).to.equal(429);
+    const body = JSON.parse(bru.getVar("rlPublicFormEleventhBody"));
+    expect(body.error.code).to.equal("RATE_LIMITED");
+    expect(body.data).to.be.undefined;
+  });
+
+  test("GRAFT-09 — the public-form scope's ceiling matches docs/BACKEND.md §4 (10/min), independent of the auth scope above", function () {
+    const headers = JSON.parse(bru.getVar("rlPublicFormEleventhHeaders"));
+    expect(headers["x-ratelimit-limit"]).to.equal("10");
+    expect(headers["x-ratelimit-remaining"]).to.equal("0");
+    expect(Number(headers["retry-after"])).to.be.above(0).and.at.most(60);
+  });
 }
 
 docs {
@@ -122,4 +174,9 @@ docs {
   The successful-login loop in the pre-request script proves the other half of
   AC3: the budget is charged on failure, so a legitimate user hammering the login
   form with the right password is never locked out.
+
+  GRAFT-09 extends this file (rather than adding a sibling) with the same proof
+  for the public-form scope (ip+formId, docs/BACKEND.md §4) — ten unauthenticated
+  submits to an unpublished form, then an eleventh that 429s, run in the same
+  pre-request script and asserted alongside the auth-scope test above.
 }

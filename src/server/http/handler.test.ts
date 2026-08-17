@@ -180,6 +180,44 @@ describe("route", () => {
     expect(lines.some((line) => JSON.parse(line).status === 409)).toBe(true);
   });
 
+  // GRAFT-09 — the `headers` option (used for the public-form endpoint's CORS
+  // policy, docs/BACKEND.md §4) applies to every response the route produces,
+  // not just the happy path — a cross-origin embed needs to *read* a 400 or a
+  // 429 too, not just a 201.
+  describe("the headers option", () => {
+    const CORS = { "access-control-allow-origin": "*" };
+
+    it("merges onto a successful response", async () => {
+      captureLogs();
+      const handler = route(
+        async (_request, { requestId }) => jsonOk({ ok: true }, requestId),
+        { headers: CORS },
+      );
+      const response = await handler(new Request("http://localhost/api/v1/things"), NO_PARAMS);
+      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    });
+
+    it("merges onto a thrown AppError's response just the same", async () => {
+      captureLogs();
+      const handler = route(
+        () => {
+          throw new AppError("QUOTA_EXCEEDED", "over the limit");
+        },
+        { headers: CORS },
+      );
+      const response = await handler(new Request("http://localhost/api/v1/things"), NO_PARAMS);
+      expect(response.status).toBe(403);
+      expect(response.headers.get("access-control-allow-origin")).toBe("*");
+    });
+
+    it("is absent when the route declares nothing (no CORS by default)", async () => {
+      captureLogs();
+      const handler = route(async (_request, { requestId }) => jsonOk({ ok: true }, requestId));
+      const response = await handler(new Request("http://localhost/api/v1/things"), NO_PARAMS);
+      expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    });
+  });
+
   it("awaits Next.js route params before handing them over", async () => {
     captureLogs();
     const handler = route<{ slug: string }>((_request, { params, requestId }) =>
