@@ -1,0 +1,38 @@
+meta {
+  name: Another tenant's dashboard is not found, not forbidden
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/dashboards/000000000000000000000047
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{switchedAccessToken}}
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC7 — a real id belonging to another tenant reads as not found", function () {
+    // 000000000000000000000047 is the QA Dashboard (scripts/seed-qa.ts) — it
+    // exists, but belongs to the free tenant, not the premium tenant this
+    // request authenticates as (switchedAccessToken). 404 rather than 403 so
+    // existence of the row is not leaked.
+    expect(res.getStatus()).to.equal(404);
+  });
+}
+
+docs {
+  AC7. The repository layer (src/server/repositories/base.ts) scopes every
+  read by ctx.tenantId, so this is a structural guarantee, not a check this
+  route wrote itself — the same pattern as bruno/forms/tenant-isolation.bru.
+}

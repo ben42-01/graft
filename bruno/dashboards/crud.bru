@@ -1,0 +1,72 @@
+meta {
+  name: Creating a dashboard stores pure JSON widget config, nothing else
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/dashboards
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{switchedAccessToken}}
+}
+
+body:json {
+  {
+    "name": "Ops Overview",
+    "widgets": [
+      {
+        "id": "w1",
+        "type": "kpi",
+        "config": { "source": "meter", "meter": "records", "label": "Records used" },
+        "layout": { "x": 0, "y": 0, "w": 1, "h": 1 }
+      }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.name: eq Ops Overview
+  res.body.data.widgets[0].type: eq kpi
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  // Carried into tenant-isolation.bru's premium-tenant context.
+  bru.setVar("createdDashboardId", res.body.data.id);
+}
+
+tests {
+  const dashboard = res.getBody().data;
+
+  test("AC1 — the dashboard is pure JSON: only id/name/widgets/timestamps, no component identity", function () {
+    expect(Object.keys(dashboard).sort()).to.eql(["createdAt", "id", "name", "updatedAt", "widgets"]);
+    expect(Object.keys(dashboard.widgets[0]).sort()).to.eql(["config", "id", "layout", "type"]);
+  });
+
+  test("AC1 — the widget's config round-trips exactly as sent", function () {
+    expect(dashboard.widgets[0].config).to.eql({
+      source: "meter",
+      meter: "records",
+      label: "Records used",
+    });
+  });
+
+  test("the id is a real Mongo ObjectId hex", function () {
+    expect(dashboard.id).to.match(/^[0-9a-f]{24}$/);
+  });
+}
+
+docs {
+  AC1. Runs against the premium tenant (switchedAccessToken,
+  bruno/auth/switch-tenant.bru — plenty of room under its 10-dashboard limit).
+  The QUOTA_EXCEEDED hard stop (AC6) and unknown-type fallback (AC2) are
+  proven against a fake repository in src/server/services/dashboards.test.ts,
+  which does not need a running QA stack to prove them; the free tenant
+  (qa-free) is seeded already at its 1-dashboard limit specifically so that
+  path is exercised for real too if a future test wants it (scripts/seed-qa.ts).
+}
