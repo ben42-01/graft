@@ -187,4 +187,12 @@ describe("submitPublicForm", () => {
       submitPublicForm("req-1", ["acme", "contact"], validBody(), overrides),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("an unrelated getEntity failure propagates unchanged, not remapped to a 404", async () => {
+    const overrides = baseOverrides();
+    overrides.getEntity.mockRejectedValue(new AppError("INTERNAL", "boom"));
+    await expect(
+      submitPublicForm("req-1", ["acme", "contact"], validBody(), overrides),
+    ).rejects.toMatchObject({ code: "INTERNAL" });
+  });
 });
