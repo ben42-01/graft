@@ -1,0 +1,38 @@
+meta {
+  name: Another tenant's entity is not found, not forbidden
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000016
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC6 — a real id belonging to another tenant reads as not found", function () {
+    // 000000000000000000000016 is entityPremiumCustomers (scripts/seed-qa.ts) —
+    // it exists, but not for this caller's tenant. 404 rather than 403 so
+    // existence of the row is not leaked to a tenant that cannot see it.
+    expect(res.getStatus()).to.equal(404);
+  });
+}
+
+docs {
+  AC6. loginAccessToken (GRAFT-03.2 fixtures) is a session for the free
+  tenant; the id it requests belongs to the premium tenant. The repository
+  layer (src/server/repositories/base.ts) scopes every read by ctx.tenantId,
+  so this is a structural guarantee, not a check this route wrote itself.
+}
