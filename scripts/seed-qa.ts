@@ -12,7 +12,7 @@
 import { ObjectId, type Db } from "mongodb";
 import { connect, COLLECTIONS } from "./lib/db";
 import { TIER_LIMITS } from "../src/server/tiers";
-import { billingPeriod } from "../src/server/services/meters";
+import { billingPeriod, LIFETIME_PERIOD } from "../src/server/services/meters";
 import { hashRefreshToken, REFRESH_TTL_SECONDS } from "../src/server/auth/refresh-tokens";
 import { hashPassword } from "../src/server/auth/passwords";
 
@@ -415,14 +415,36 @@ async function main() {
         count: 100,
         ...base,
       },
+      // GRAFT-13 AC6 — the free tenant's `dashboards` meter (never resets,
+      // METERS.dashboards) at exactly TIER_LIMITS.free.dashboards, matching
+      // the one dashboard seeded below. A second create is the hard stop.
+      {
+        _id: oid(65),
+        tenantId: IDS.tenantFree,
+        meter: "dashboards",
+        period: LIFETIME_PERIOD,
+        count: TIER_LIMITS.free.dashboards!,
+        ...base,
+      },
     ]);
 
+    // GRAFT-13 — the free tenant's one dashboard, deliberately at its tier
+    // limit (dashboards: 1). Paired with the usage_meters row below so a
+    // second create is refused as the *actual* hard stop (AC6), the same
+    // convention formAtQuota uses for form_submissions.
     await db.collection("dashboards").insertOne({
       _id: oid(71),
       tenantId: IDS.tenantFree,
       ownerId: IDS.userFreeOwner,
       name: "QA Dashboard",
-      widgets: [{ type: "table", title: "Customers", config: { entityKey: "customers" } }],
+      widgets: [
+        {
+          id: "w1",
+          type: "record_list",
+          config: { entityId: IDS.entityFreeCustomers.toHexString() },
+          layout: { x: 0, y: 0, w: 1, h: 1 },
+        },
+      ],
       ...base,
     });
 

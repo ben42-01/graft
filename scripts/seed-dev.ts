@@ -178,19 +178,19 @@ async function main() {
       // Hashed once per tenant rather than per user — argon2id is intentionally
       // slow and every seeded account shares DEV_PASSWORD anyway.
       const passwordHash = await hashPassword(DEV_PASSWORD);
-      await db.collection("users").insertMany(
-        roles.map((role) => ({
-          _id: new ObjectId(),
-          email: `${role}@${spec.slug}.test`,
-          name: faker.person.fullName(),
-          // AC4 — a real argon2id digest, not a placeholder. The dev seed now
-          // produces accounts that can actually sign in through /auth/login.
-          passwordHash,
-          emailVerifiedAt: new Date(),
-          memberships: [{ tenantId, roles: [role] }],
-          ...stamp,
-        })),
-      );
+      const users = roles.map((role) => ({
+        _id: new ObjectId(),
+        email: `${role}@${spec.slug}.test`,
+        name: faker.person.fullName(),
+        // AC4 — a real argon2id digest, not a placeholder. The dev seed now
+        // produces accounts that can actually sign in through /auth/login.
+        passwordHash,
+        emailVerifiedAt: new Date(),
+        memberships: [{ tenantId, roles: [role] }],
+        ...stamp,
+      }));
+      await db.collection("users").insertMany(users);
+      const ownerId = users[0]!._id;
 
       await db.collection("plugins_enabled").insertMany(
         PLUGINS_BY_TIER[spec.tier].map((pluginId) => ({
@@ -203,8 +203,10 @@ async function main() {
         })),
       );
 
+      let firstEntityDefId: ObjectId | undefined;
       for (const entity of spec.entities) {
         const entityDefId = new ObjectId();
+        firstEntityDefId ??= entityDefId;
         await db.collection("entity_defs").insertOne({
           _id: entityDefId,
           tenantId,
@@ -268,23 +270,34 @@ async function main() {
         ...stamp,
       });
 
+      // GRAFT-13 widget shape: {id, type, config, layout}, JSON-only, no
+      // component identity persisted (AC1).
       await db.collection("dashboards").insertOne({
         _id: new ObjectId(),
         tenantId,
-        ownerId: null,
+        ownerId,
         name: "Home",
         widgets: [
           {
+            id: "w1",
             type: "kpi",
-            title: "Submissions this month",
-            config: { meter: "form_submissions" },
+            config: {
+              source: "meter",
+              meter: "form_submissions",
+              label: "Submissions this month",
+            },
+            layout: { x: 0, y: 0, w: 1, h: 1 },
           },
-          {
-            type: "table",
-            title: spec.entities[0].name,
-            config: { entityKey: spec.entities[0].key },
-          },
-          { type: "calendar", title: "Week", config: {} },
+          ...(firstEntityDefId
+            ? [
+                {
+                  id: "w2",
+                  type: "record_list",
+                  config: { entityId: firstEntityDefId.toHexString() },
+                  layout: { x: 1, y: 0, w: 1, h: 1 },
+                },
+              ]
+            : []),
         ],
         ...stamp,
       });

@@ -1,12 +1,15 @@
 import Link from "next/link";
-import { LayoutDashboardIcon } from "lucide-react";
+import { LayoutDashboardIcon, LayoutGridIcon } from "lucide-react";
 
 /**
- * Primary nav links. Just "Home" for now — the record-list/dashboard routes
- * belong to their own contracts (GRAFT-12/13). Shared between the desktop
- * rail and the mobile `Sheet` (AC2) so the two never drift.
+ * Primary nav links. Shared between the desktop rail and the mobile `Sheet`
+ * (AC2) so the two never drift. "Dashboards" is GRAFT-13's widget composer;
+ * the record-list route belongs to its own contract (GRAFT-12).
  */
-const NAV_ITEMS = [{ href: "/", label: "Home", icon: LayoutDashboardIcon }] as const;
+const NAV_ITEMS = [
+  { href: "/", label: "Home", icon: LayoutDashboardIcon },
+  { href: "/dashboards", label: "Dashboards", icon: LayoutGridIcon },
+] as const;
 
 export function Nav({ onNavigate }: { onNavigate?: () => void }) {
   return (
