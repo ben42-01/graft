@@ -1,0 +1,93 @@
+meta {
+  name: The public-form scope (ip + formId) 429s independently of auth traffic
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/v1/public/forms/qa-downgraded/qa-unpublished-form/submissions
+  body: json
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "data": {},
+    "_t": {{rlPublicFormRenderedAt}}
+  }
+}
+
+script:pre-request {
+  // docs/BACKEND.md §4 — "public form submit: 10/min". Uses the downgraded
+  // tenant's unpublished form (scripts/seed-qa.ts) rather than qa-public-form:
+  // that keeps this test's budget independent of public-submit.bru and
+  // public-submit-spam.bru, which run earlier in the same `bru run` and would
+  // otherwise have already spent part of the same ip+formId bucket. Every
+  // attempt here 404s (the form is unpublished) — irrelevant to this test,
+  // since the `public-form` rate-limit scope is applied in route() before the
+  // handler decides that, keyed on the URL's formId alone.
+  bru.setVar("rlPublicFormRenderedAt", Date.now() - 3000);
+
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const axios = require("axios");
+  const attempt = () =>
+    axios.post(
+      `${baseUrl}/api/v1/public/forms/qa-downgraded/qa-unpublished-form/submissions`,
+      { data: {}, _t: Date.now() - 3000 },
+      { headers: { "content-type": "application/json" }, validateStatus: () => true },
+    );
+
+  // Ten spend exactly the budget; the request this file itself sends is the
+  // eleventh.
+  const statuses = [];
+  for (let i = 0; i < 10; i += 1) {
+    const response = await attempt();
+    statuses.push(response.status);
+  }
+  bru.setVar("rlPublicFormStatuses", JSON.stringify(statuses));
+}
+
+assert {
+  res.status: eq 429
+  res.body.error.code: eq RATE_LIMITED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+  res.headers['retry-after']: isDefined
+  res.headers['x-ratelimit-limit']: isDefined
+  res.headers['x-ratelimit-remaining']: isDefined
+}
+
+tests {
+  test("AC — the ten preceding requests were answered on their own merits, not throttled", function () {
+    const statuses = JSON.parse(bru.getVar("rlPublicFormStatuses"));
+    expect(statuses).to.eql(new Array(10).fill(404));
+  });
+
+  test("the ceiling matches docs/BACKEND.md §4's public-form row", function () {
+    expect(res.getHeader("x-ratelimit-limit")).to.equal("10");
+    expect(res.getHeader("x-ratelimit-remaining")).to.equal("0");
+  });
+
+  test("Retry-After is a positive whole number of seconds, at most a minute", function () {
+    const retryAfter = Number(res.getHeader("retry-after"));
+    expect(Number.isInteger(retryAfter)).to.equal(true);
+    expect(retryAfter).to.be.above(0);
+    expect(retryAfter).to.be.at.most(60);
+  });
+
+  test("the refusal carries no data half of the envelope", function () {
+    expect(res.getBody().data).to.be.undefined;
+  });
+}
+
+docs {
+  GRAFT-04's public-form scope, exercised end to end by GRAFT-09's own
+  endpoint. Extends bruno/security/rate-limit-429.bru (the auth scope) rather
+  than duplicating it — this is the *other* row of the same table, keyed on
+  ip+formId instead of ip+email, and unauthenticated rather than
+  charged-on-failure.
+}

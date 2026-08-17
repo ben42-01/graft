@@ -89,16 +89,18 @@ const rateLimited = (retryAfter: number) =>
 
 /**
  * The dynamic segment a public form route is keyed on, when there is one.
- * GRAFT-09's submission route is a catch-all (`[...publicSlug]`, since
- * `forms.publicSlug` is itself `tenantSlug/formSlug`), so Next.js hands an
- * array rather than a single string — joined back into one identity so the
- * `public-form` rate-limit scope keys on the same value regardless of shape.
+ * GRAFT-09's submission route is `[tenantSlug]/[formSlug]/submissions` (two
+ * plain segments, not a catch-all — Next.js does not allow a static segment
+ * after one, and `forms.publicSlug` is always exactly two parts anyway), so
+ * both are joined back into the same `tenantSlug/formSlug` identity the
+ * service itself reconstructs, keeping one `public-form` rate-limit bucket
+ * per form regardless of which route shape produced the params.
  */
 function formIdFrom(params: unknown): string | undefined {
   if (!params || typeof params !== "object") return undefined;
   const bag = params as Record<string, unknown>;
-  if (Array.isArray(bag.publicSlug) && bag.publicSlug.every((s) => typeof s === "string")) {
-    return (bag.publicSlug as string[]).join("/");
+  if (typeof bag.tenantSlug === "string" && typeof bag.formSlug === "string") {
+    return `${bag.tenantSlug}/${bag.formSlug}`;
   }
   const candidate = bag.slug ?? bag.formId;
   return typeof candidate === "string" ? candidate : undefined;

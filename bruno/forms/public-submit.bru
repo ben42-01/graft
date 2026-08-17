@@ -1,0 +1,70 @@
+meta {
+  name: A valid public submission is accepted and actually persists
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/public/forms/qa-free/qa-public-form/submissions
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "data": {
+      "name": "{{publicSubmitName}}",
+      "email": "public-submit@qa.test",
+      "phone": "+353 1 000 0099"
+    },
+    "_t": {{publicSubmitRenderedAt}}
+  }
+}
+
+script:pre-request {
+  // A per-run name so this test is safe to re-run against a warm QA stack —
+  // and so the follow-up GET below can find *this* submission and no other.
+  bru.setVar("publicSubmitName", `QA Public Submit ${Date.now()}`);
+  // Comfortably past MIN_FILL_MS (public-forms.ts) so this isn't scored as spam.
+  bru.setVar("publicSubmitRenderedAt", Date.now() - 3000);
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.submissionId: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  const body = res.getBody();
+
+  test("AC1 — the submissionId is a real Mongo ObjectId hex", function () {
+    expect(body.data.submissionId).to.match(/^[0-9a-f]{24}$/);
+  });
+
+  test("AC1 — the submission actually created a record, not just a 201", async function () {
+    // No unauthenticated read exists for records (by design — see
+    // docs/BACKEND.md §5), so this proves the write happened by reading it
+    // back through the normal authenticated records API, exactly the way a
+    // tenant's own dashboard would.
+    const axios = require("axios");
+    const baseUrl = bru.getEnvVar("baseUrl");
+    const filter = encodeURIComponent(JSON.stringify({ name: bru.getVar("publicSubmitName") }));
+    const response = await axios.get(
+      `${baseUrl}/api/v1/entities/000000000000000000000015/records?filter=${filter}`,
+      { headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` } },
+    );
+    expect(response.data.data).to.have.lengthOf(1);
+    expect(response.data.data[0].data.email).to.equal("public-submit@qa.test");
+  });
+}
+
+docs {
+  AC1. Requires bruno/auth/login.bru to have run first (loginAccessToken) —
+  logged in as `both@qa.test`, whose first membership is the free tenant
+  (scripts/seed-qa.ts), the same tenant that owns qa-public-form. The atomic
+  triple write and its rollback under an induced failure (AC2) are proven
+  against a real MongoDB replica-set transaction in
+  src/server/services/public-forms.integration.test.ts, which cannot be
+  proven black-box over HTTP.
+}
