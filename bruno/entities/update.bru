@@ -1,0 +1,45 @@
+meta {
+  name: Adding a required field bumps schemaVersion
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/entities/{{createdEntityId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "fields": [
+      { "key": "title", "label": "Title", "type": "text", "required": true },
+      { "key": "price", "label": "Price", "type": "number", "required": true, "min": 0 },
+      { "key": "sku", "label": "SKU", "type": "text", "required": true }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.schemaVersion: eq 2
+  res.body.data.fields: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC4 — the new required field is present", function () {
+    const keys = res.getBody().data.fields.map((f) => f.key);
+    expect(keys).to.include("sku");
+  });
+}
+
+docs {
+  AC4 (the structural half — a relabel leaving schemaVersion untouched is
+  covered by src/server/services/entities.test.ts, which does not need a
+  running QA stack to prove it). Depends on create.bru for createdEntityId.
+}

@@ -1,0 +1,48 @@
+meta {
+  name: Listing entities returns the tenant's own definitions
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/entities
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  const items = res.getBody().data;
+  const keys = items.map((e) => e.key);
+
+  test("includes the seeded free-tenant entity", function () {
+    expect(keys).to.include("customers");
+  });
+
+  test("includes the entity create.bru just created", function () {
+    expect(keys).to.include("products");
+  });
+
+  test("never leaks another tenant's entity", function () {
+    // entityPremiumCustomers (scripts/seed-qa.ts) is also keyed "customers" but
+    // belongs to the premium tenant — this only proves count, key uniqueness
+    // per tenant is asserted by create.bru returning 409 on a repeat.
+    const ids = items.map((e) => e.id);
+    expect(ids).to.not.include("000000000000000000000016");
+  });
+}
+
+docs {
+  AC1, AC6 (the negative half — no other tenant's row is even in the page).
+  Depends on create.bru having run first (createdEntityId / the "products"
+  entity) and login.bru for the token.
+}
