@@ -201,6 +201,7 @@ const TENANT_RECORD: TenantRecord = {
   slug: "qa-free",
   tier: "free",
   limits: {} as TenantRecord["limits"],
+  branding: null,
 };
 
 describe("resolveFormFields (AC1)", () => {

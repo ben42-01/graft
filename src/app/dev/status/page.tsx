@@ -4,9 +4,10 @@ import { env } from "@/env";
 import { TIER_LIMITS, QUOTA_WARNING_RATIO, type Tier } from "@/server/tiers";
 
 /**
- * Development status page. Not the product — the product's landing page arrives
- * with its own contract. This exists so `npm run dev:full` ends with visible
- * proof that Mongo, Redis and the seed all worked.
+ * Development status page. Not the product — moved off `/` by GRAFT-11.4,
+ * which gave that route to the real authenticated home behind the app shell.
+ * Still unauthenticated and still here so `npm run dev:full` ends with
+ * visible proof that Mongo, Redis and the seed all worked.
  */
 export const dynamic = "force-dynamic";
 

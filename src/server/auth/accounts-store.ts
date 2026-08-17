@@ -33,12 +33,21 @@ export type UserRecord = {
   memberships: Membership[];
 };
 
+/**
+ * Written by tenant creation (and seed data) since before this type existed;
+ * surfaced here so GRAFT-11.4's shell can read a branding colour from `/me`
+ * without inventing a new write path (docs/Graft.md §4.3 — branding is
+ * Free-tier-badged, Premium removes it).
+ */
+export type TenantBranding = { logoUrl: string | null; primaryColor: string | null };
+
 export type TenantRecord = {
   id: string;
   name: string;
   slug: string;
   tier: Tier;
   limits: TierLimits;
+  branding: TenantBranding | null;
 };
 
 export type NewUser = {
@@ -48,7 +57,13 @@ export type NewUser = {
   memberships: Membership[];
 };
 
-export type NewTenant = { name: string; slug: string; tier: Tier; limits: TierLimits };
+export type NewTenant = {
+  name: string;
+  slug: string;
+  tier: Tier;
+  limits: TierLimits;
+  branding?: TenantBranding | null;
+};
 
 /** Which unique index rejected the write — the service maps it to a message. */
 export type DuplicateField = "email" | "slug";
@@ -103,6 +118,7 @@ type TenantDoc = {
   slug: string;
   tier: string;
   limits: TierLimits;
+  branding?: TenantBranding | null;
 };
 
 type VerificationDoc = {
@@ -138,6 +154,7 @@ const toTenant = (doc: TenantDoc): TenantRecord | null =>
         slug: doc.slug,
         tier: doc.tier as Tier,
         limits: doc.limits,
+        branding: doc.branding ?? null,
       }
     : null;
 
@@ -211,6 +228,7 @@ export function mongoAccountStore(): AccountStore {
           slug: tenant.slug,
           tier: tenant.tier,
           limits: tenant.limits,
+          branding: tenant.branding ?? null,
           settings: { currency: "EUR", timezone: "UTC", locale: "en" },
           createdAt: now,
           updatedAt: now,
