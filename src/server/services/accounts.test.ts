@@ -60,7 +60,7 @@ function fakeStore() {
         throw new DuplicateKeyError("slug");
       }
       const id = new ObjectId().toHexString();
-      tenants.set(id, { id, ...tenant });
+      tenants.set(id, { id, branding: null, ...tenant });
       return id;
     },
     async deleteTenant(id) {
@@ -482,7 +482,29 @@ describe("getMe", () => {
       slug: "bellas-barbershop",
       tier: "free",
       limits: TIER_LIMITS.free,
+      branding: null,
     });
+  });
+
+  it("GRAFT-11.4 AC3 — passes through a tenant's branding colour when the store has one", async () => {
+    const branding = { logoUrl: null, primaryColor: "#4ade80" };
+    const tenantId = await fake.store.insertTenant({
+      name: "Branded Co",
+      slug: "branded-co",
+      tier: "free",
+      limits: TIER_LIMITS.free,
+      branding,
+    });
+    const userId = await fake.store.insertUser({
+      email: "branded-owner@example.test",
+      name: null,
+      passwordHash: "irrelevant",
+      memberships: [{ tenantId, roles: ["owner"] }],
+    });
+
+    const me = await getMe(ctxFor(tenantId, userId), deps);
+
+    expect(me.tenant.branding).toEqual(branding);
   });
 
   it("AC4 — never returns a password hash", async () => {

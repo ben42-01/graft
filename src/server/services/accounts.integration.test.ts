@@ -151,6 +151,7 @@ describe("signup → verify → login → me", () => {
       slug: "integration-motors",
       tier: "free",
       limits: TIER_LIMITS.free,
+      branding: null,
     });
     expect(me.memberships).toEqual([
       {

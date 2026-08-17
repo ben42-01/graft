@@ -309,7 +309,15 @@ export async function switchTenant(
 export type MeView = {
   user: { id: string; email: string; name: string | null; emailVerifiedAt: Date | null };
   memberships: { tenantId: string; slug: string; name: string; roles: Membership["roles"] }[];
-  tenant: { id: string; name: string; slug: string; tier: Tier; limits: TierLimits };
+  tenant: {
+    id: string;
+    name: string;
+    slug: string;
+    tier: Tier;
+    limits: TierLimits;
+    /** GRAFT-11.4 AC3 — the shell's only source for the tenant's brand colour. */
+    branding: { logoUrl: string | null; primaryColor: string | null } | null;
+  };
 };
 
 /**
@@ -354,6 +362,7 @@ export async function getMe(ctx: Ctx, overrides: Partial<AccountDeps> = {}): Pro
       slug: tenant.slug,
       tier: tenant.tier,
       limits: tenant.limits,
+      branding: tenant.branding,
     },
   };
 }
