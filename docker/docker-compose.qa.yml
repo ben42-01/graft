@@ -8,7 +8,11 @@ services:
   mongo:
     image: mongo:7
     container_name: graft-qa-mongo
-    command: ["--auth"]
+    # See docker-compose.dev.yml for why this is a single-node replica set, not a
+    # second Mongo instance, why it is initiated by wait-for-mongo.ts, and why
+    # the keyfile goes through mongo-entrypoint.sh instead of a direct bind mount.
+    entrypoint: ["/graft/mongo-entrypoint.sh"]
+    command: ["--auth", "--replSet", "rs0", "--keyFile", "/tmp/graft-mongo-keyfile"]
     ports:
       - "${MONGO_PORT:-27018}:27017"
     environment:
@@ -19,6 +23,8 @@ services:
       GRAFT_APP_PASSWORD: ${MONGO_APP_PASSWORD:?set in .env.qa}
     volumes:
       - ./mongo-init:/docker-entrypoint-initdb.d:ro
+      - ../.keys/mongo:/etc/graft/keys:ro
+      - ./mongo-entrypoint.sh:/graft/mongo-entrypoint.sh:ro
     healthcheck:
       test:
         [

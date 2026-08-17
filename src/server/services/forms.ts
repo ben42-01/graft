@@ -23,9 +23,10 @@
  *     conjunction of both (`isFormServable`) — a killed form stays killed
  *     even if it is still marked published (AC5).
  */
-import { MongoServerError, ObjectId, type Filter } from "mongodb";
+import { MongoServerError, ObjectId, type Filter, type WithId } from "mongodb";
 import { z } from "zod";
 import type { Ctx } from "@/server/context";
+import { getDb } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
 import { clampLimit } from "@/server/http/pagination";
 import { parse } from "@/server/http/validate";
@@ -392,6 +393,18 @@ export async function unpublishForm(
   });
   if (!updated) throw new AppError("NOT_FOUND", "Form not found");
   return toView(updated);
+}
+
+/**
+ * GRAFT-09 — the public submission path's only entry point into `forms`.
+ * There is no ctx yet: discovering which tenant owns this slug *is* the point
+ * of the lookup, so it reads the collection directly rather than through the
+ * ctx-scoped repository above (same reasoning as
+ * src/server/auth/accounts-store.ts). Never called from an authenticated path.
+ */
+export async function findByPublicSlug(publicSlug: string): Promise<WithId<FormDoc> | null> {
+  const db = await getDb();
+  return db.collection<FormDoc>("forms").findOne({ publicSlug, deletedAt: null });
 }
 
 /**
