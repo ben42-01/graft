@@ -181,6 +181,188 @@ describe("redact over driver errors (AC4)", () => {
 });
 
 /**
+ * GRAFT-17 — the driver hands us the same information structurally, so the
+ * E11000 path stops depending on quote-pairing over prose entirely. Assertions
+ * here are on the *exact* object: `not.toContain` is what hid both #24 defects.
+ */
+describe("redact over structured driver errors (GRAFT-17)", () => {
+  /**
+   * The real shape of a `MongoServerError` on a unique-index collision: the
+   * duplicated value appears twice, in `message` and in `keyValue`.
+   */
+  const serverError = (
+    extra: Record<string, unknown>,
+    message = "E11000 duplicate key error",
+  ) => {
+    const error = Object.assign(new Error(message), extra);
+    error.name = "MongoServerError";
+    return error;
+  };
+
+  /**
+   * Faithful to what the driver actually throws, as verified in
+   * log.integration.test.ts: `index` is the *batch offset* (0 for a single
+   * insert), not the index name, and the name appears only in the message.
+   */
+  const dupKey = (field: string, value: unknown) =>
+    serverError(
+      {
+        code: 11000,
+        index: 0,
+        keyPattern: { tenantId: 1, [field]: 1 },
+        keyValue: { tenantId: "000000000000000000000001", [field]: value },
+      },
+      `E11000 duplicate key error collection: graft.records index: tenant_${field}_idx dup key: { tenantId: ObjectId('000000000000000000000001'), ${field}: "${String(value)}" }`,
+    );
+
+  // AC1 — code, index and the key *names*; never a value, from keyValue or anywhere.
+  it("logs the structured fields and no values at all", () => {
+    const entry = redact(dupKey("vat_no", "IE1234567X")) as Record<string, unknown>;
+    expect(entry.name).toBe("MongoServerError");
+    expect(entry.driver).toEqual({
+      code: 11000,
+      index: "tenant_vat_no_idx",
+      opIndex: 0,
+      keys: ["tenantId", "vat_no"],
+    });
+    expect(entry.keyValue).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain("IE1234567X");
+  });
+
+  it("keeps codeName when the server sends one", () => {
+    const error = Object.assign(dupKey("iban", "IE29"), { codeName: "DuplicateKey" });
+    expect((redact(error) as Record<string, unknown>).driver).toMatchObject({
+      codeName: "DuplicateKey",
+    });
+  });
+
+  /**
+   * The index name is the one fact only the message carries, so it is lifted out
+   * of it — between the server's own two markers, and only if it has the shape of
+   * an index name. A value cannot pass that filter, and a miss omits the field.
+   */
+  it("extracts an index name only from the server's own slot", () => {
+    const entry = redact(
+      serverError(
+        { code: 11000, index: 0, keyPattern: { vat: 1 } },
+        `E11000 duplicate key error collection: graft.records index: "ada@qa-free.test" dup key: { vat: 'IE1234567X' }`,
+      ),
+    ) as Record<string, unknown>;
+    // Quoted, so not index-name-shaped: the field is dropped rather than guessed.
+    expect(entry.driver).toEqual({ code: 11000, opIndex: 0, keys: ["vat"] });
+    expect(JSON.stringify(entry)).not.toContain("ada@qa-free.test");
+  });
+
+  // AC2 — with keyPattern present the free-form message never reaches the line,
+  // so no regex is load-bearing on this path.
+  it("drops the message entirely when structure is available", () => {
+    const entry = redact(dupKey("passport", "P-99881122")) as Record<string, unknown>;
+    expect(entry.message).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain("E11000 duplicate key error collection");
+    expect(JSON.stringify(entry)).not.toContain("dup key");
+  });
+
+  // The residuals #24 accepted (`foo'x'`, unanchored double quotes) are simply
+  // unreachable here: the prose is never consulted.
+  it("leaks nothing from message shapes the regexes could not reach", () => {
+    for (const value of ["IE1234567X", "ada@qa-free.test", "+353 1 000 0001", 4455667788]) {
+      const entry = redact(dupKey("whatever_the_tenant_called_it", value));
+      const serialised = JSON.stringify(entry);
+      expect(serialised, String(value)).not.toContain(String(value));
+      expect(serialised, String(value)).toContain("whatever_the_tenant_called_it");
+    }
+  });
+
+  /**
+   * A bulk write's real shape: fields under `err`, and `err.op` is the entire
+   * document being written — the largest single lump of tenant data on the error.
+   * It must not appear, and it cannot, because the output is an explicit list.
+   */
+  it("reads the write-error array a bulk write reports and never its op document", () => {
+    const entry = redact(
+      serverError({
+        code: 11000,
+        writeErrors: [
+          {
+            err: {
+              index: 0,
+              code: 11000,
+              errmsg: `E11000 duplicate key error collection: graft.records index: tenant_email_idx dup key: { email: "ada@qa-free.test" }`,
+              op: { tenantId: "000000000000000000000001", data: { email: "ada@qa-free.test" } },
+            },
+          },
+          { code: 11000, index: 1, keyPattern: { mrn: 1 }, keyValue: { mrn: "MRN-4455" } },
+        ],
+      }),
+    ) as Record<string, unknown>;
+    expect((entry.driver as Record<string, unknown>).writeErrors).toEqual([
+      { code: 11000, index: "tenant_email_idx", opIndex: 0 },
+      { code: 11000, opIndex: 1, keys: ["mrn"] },
+    ]);
+    const serialised = JSON.stringify(entry);
+    expect(serialised).not.toContain("ada@qa-free.test");
+    expect(serialised).not.toContain("MRN-4455");
+  });
+
+  // AC5 — structuring must not undo GRAFT-02.1 AC5. Frames survive; the message
+  // line at the head of the stack does not, because it is the prose again.
+  it("keeps the stack frames but not the message line inside them", () => {
+    const entry = redact(dupKey("phone", "+353 1 000 0001")) as Record<string, unknown>;
+    expect(String(entry.stack)).toContain("log.test.ts");
+    expect(String(entry.stack)).not.toContain("E11000");
+    expect(
+      String(entry.stack)
+        .split("\n")
+        .every((line) => /^\s+at /.test(line)),
+    ).toBe(true);
+  });
+
+  it("structures a driver error found on the cause chain", () => {
+    const entry = redact(
+      new Error("could not save record", { cause: dupKey("iban", "IE29AIBK93115212345678") }),
+    ) as Record<string, unknown>;
+    const cause = entry.cause as Record<string, unknown>;
+    expect(cause.driver).toEqual({
+      code: 11000,
+      index: "tenant_iban_idx",
+      opIndex: 0,
+      keys: ["tenantId", "iban"],
+    });
+    expect(cause.message).toBeUndefined();
+    expect(JSON.stringify(entry)).not.toContain("IE29AIBK93115212345678");
+  });
+
+  // AC3 — no structured fields, no change: the fallback is still the regex path.
+  it("falls back to the redacted message when the error carries no structure", () => {
+    const entry = redact(
+      serverError({}, `E11000 duplicate key error dup key: { phone: "+353 1 000 0001" }`),
+    ) as Record<string, unknown>;
+    expect(entry.driver).toBeUndefined();
+    expect(entry.message).toBe(`E11000 duplicate key error dup key: ${REDACTED}`);
+    expect(String(entry.stack)).toContain("MongoServerError");
+  });
+
+  // `code` alone does not identify a key, so the message is still the only
+  // diagnosis available and is kept — redacted, exactly as before.
+  it("keeps the redacted message when only a code is present", () => {
+    const entry = redact(
+      serverError({ code: 91 }, `shutdown in progress for "primary"`),
+    ) as Record<string, unknown>;
+    expect(entry.driver).toEqual({ code: 91 });
+    expect(entry.message).toBe(`shutdown in progress for ${REDACTED}`);
+  });
+
+  it("copies key names out rather than passing keyPattern through", () => {
+    const entry = redact(dupKey("email", "ada@qa-free.test")) as Record<string, unknown>;
+    const driver = entry.driver as Record<string, unknown>;
+    expect(driver.keys).toEqual(["tenantId", "email"]);
+    // The container itself never reaches the line — only names lifted out of it.
+    expect(driver.keyPattern).toBeUndefined();
+    expect(driver.keyValue).toBeUndefined();
+  });
+});
+
+/**
  * GRAFT-02.1 AC5 (F5) — `stack` and `cause` were dropped, while envelope.ts
  * promises the client "the log line has all of it". A 500 whose only record is a
  * one-line message is not diagnosable.
