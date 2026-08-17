@@ -1,15 +1,17 @@
 "use client";
 
 /**
- * The auth-redirect guard (AC4): renders nothing while `/me` is loading — SSR
- * emits the same nothing, so there's no authenticated chrome to flash before
- * hydration — redirects to `/login` on "unauthenticated", and only then
- * mounts `AppShell`. The one place `useMe()` is called for this section.
+ * The auth-redirect guard (AC4): renders `LoadingState` (GRAFT-11.5 AC1)
+ * while `/me` is loading — SSR emits the same shell-free markup, so there's
+ * no authenticated chrome to flash before hydration — redirects to `/login`
+ * on "unauthenticated", and only then mounts `AppShell`. The one place
+ * `useMe()` is called for this section.
  */
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/shell/app-shell";
+import { LoadingState } from "@/components/shell/loading-state";
 import { useMe } from "@/lib/session";
 
 export function SessionGate({ children }: { children: ReactNode }) {
@@ -21,6 +23,10 @@ export function SessionGate({ children }: { children: ReactNode }) {
       router.replace("/login");
     }
   }, [status, router]);
+
+  if (status === "loading") {
+    return <LoadingState label="Loading your workspace…" />;
+  }
 
   if (status !== "authenticated" || !me) {
     return null;
