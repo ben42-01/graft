@@ -30,6 +30,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "test:api": "cd bruno && bru run --env ci -r",
     "test:api:local": "cd bruno && bru run --env local -r",
+    "test:e2e": "playwright test",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run test:component && npm run test:integration",
     "verify:full": "npm run verify && npm run qa:db && npm run qa:seed && npm run qa:build && dotenv -e .env.qa -- tsx scripts/with-qa-app.ts npm run test:api && npm run qa:db:down",
     "db:indexes": "tsx scripts/create-indexes.ts",
@@ -63,6 +64,7 @@
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
     "@faker-js/faker": "^9.4.0",
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4.0.0",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",

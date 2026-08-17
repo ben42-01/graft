@@ -1,0 +1,32 @@
+meta {
+  name: The public form page 404s for an unpublished form and for an unknown slug
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{baseUrl}}/f/qa-downgraded/qa-unpublished-form
+  auth: none
+}
+
+assert {
+  res.status: eq 404
+}
+
+tests {
+  test("AC1 — unpublished is 404, same as unknown (AC9's collapse, carried over from GRAFT-09)", async function () {
+    const axios = require("axios");
+    const baseUrl = bru.getEnvVar("baseUrl");
+    const unknown = await axios
+      .get(`${baseUrl}/f/qa-free/does-not-exist`, { validateStatus: () => true });
+    expect(unknown.status).to.equal(404);
+  });
+}
+
+docs {
+  AC1, AC9-style collapse. qa-unpublished-form (scripts/seed-qa.ts) was
+  unpublished by the downgrade fixture but its definition and submissions are
+  retained — this only asserts the public page itself refuses to serve it,
+  not that the data was deleted (that's covered by GRAFT-15's downgrade
+  tests).
+}
