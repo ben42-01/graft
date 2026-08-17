@@ -1,0 +1,42 @@
+meta {
+  name: Another tenant's record is not found, not forbidden
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000016/records/00000000000000000000002c
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC8 — a real record id belonging to another tenant reads as not found", function () {
+    // 000000000000000000000016 / 00000000000000000000002c are the premium
+    // tenant's "customers" entity and its "Do Not Leak" record
+    // (scripts/seed-qa.ts). loginAccessToken is a free-tenant session. The
+    // entity lookup 404s first — the repository layer scopes every read by
+    // ctx.tenantId (src/server/repositories/base.ts) — so existence is never
+    // leaked to a tenant that cannot see it.
+    expect(res.getStatus()).to.equal(404);
+  });
+}
+
+docs {
+  GRAFT-07 AC8 — extends the cross-tenant coverage this security folder
+  establishes (forbidden-cross-tenant.bru, GRAFT-03.2) to records. A single
+  Bruno request is one HTTP call, so this is a sibling file rather than an
+  edit to that one, following the same pattern GRAFT-06 used
+  (bruno/entities/tenant-isolation.bru) for entities.
+}
