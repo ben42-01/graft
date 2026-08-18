@@ -58,6 +58,7 @@
     "react-dom": "^19.0.0",
     "react-hook-form": "^7.85.0",
     "sonner": "^2.0.8",
+    "stripe": "^17.7.0",
     "tailwind-merge": "^3.6.0",
     "zod": "^3.25.76"
   },

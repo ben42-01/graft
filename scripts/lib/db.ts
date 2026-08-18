@@ -47,6 +47,9 @@ export const COLLECTIONS = [
   // Single-use email verification tokens (GRAFT-03.2 AC3). Hashes only, same
   // reasoning as refresh_tokens.
   "email_verification_tokens",
+  // Stripe webhook dedup log (GRAFT-15 AC3). `_id` is the Stripe event id, so
+  // uniqueness is free — no separate index needed.
+  "billing_webhook_events",
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];

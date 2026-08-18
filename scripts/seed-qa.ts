@@ -40,6 +40,16 @@ const IDS = {
   tenantPremium: oid(2),
   tenantAtQuota: oid(3),
   tenantDowngraded: oid(4),
+  // GRAFT-15 — isolated from the tenants above on purpose: the webhook tests
+  // mutate this tenant's tier in place, and reusing e.g. tenantFree would
+  // make billing tests order-dependent with every other suite that assumes
+  // qa-free stays on Free.
+  tenantBilling: oid(5),
+  // GRAFT-15 — starts Premium, already over the Free limits it will fall
+  // back to, so bruno/billing/webhook-downgrade.bru can fire
+  // customer.subscription.deleted directly and observe the transition,
+  // without depending on webhook-idempotency.bru having run first.
+  tenantBillingDowngrade: oid(6),
   userFreeOwner: oid(11),
   userPremiumOwner: oid(12),
   userPremiumMember: oid(13),
@@ -49,6 +59,9 @@ const IDS = {
   // assertion written against those still holds exactly as it did.
   userTwoTenants: oid(16),
   userUnverified: oid(17),
+  userBillingOwner: oid(18),
+  userBillingDowngradeOwner: oid(19),
+  entityBillingDowngrade: oid(25),
   entityFreeCustomers: oid(21),
   entityPremiumCustomers: oid(22),
   entityDowngradedExtra: oid(23),
@@ -60,6 +73,9 @@ const IDS = {
   formFreePublic: oid(31),
   formAtQuota: oid(32),
   formDowngradedUnpublished: oid(33),
+  formBillingDowngradeOldest: oid(34),
+  formBillingDowngradeMiddle: oid(35),
+  formBillingDowngradeNewest: oid(36),
   recordFreeFirst: oid(41),
 } as const;
 
@@ -151,6 +167,36 @@ async function main() {
         settings: { currency: "EUR", timezone: "UTC", locale: "en" },
         ...base,
       },
+      {
+        // GRAFT-15 — starts Free with no Stripe identity yet; the webhook
+        // suite raises and lowers it through the real checkout/webhook path.
+        _id: IDS.tenantBilling,
+        name: "QA Billing Tenant",
+        slug: "qa-billing",
+        tier: "free",
+        limits: TIER_LIMITS.free,
+        billingAnchorDay: BILLING_ANCHOR_DAY,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
+      {
+        // GRAFT-15 AC4 — Premium and already over Free's limits, so firing
+        // customer.subscription.deleted against this tenant proves the real
+        // downgrade transition end to end, independent of any other billing
+        // fixture's state.
+        _id: IDS.tenantBillingDowngrade,
+        name: "QA Billing Downgrade Tenant",
+        slug: "qa-billing-downgrade",
+        tier: "premium",
+        limits: TIER_LIMITS.premium,
+        billing: {
+          stripeCustomerId: "cus_qa_billing_downgrade",
+          stripeSubscriptionId: "sub_qa_billing_downgrade",
+        },
+        billingAnchorDay: BILLING_ANCHOR_DAY,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
     ]);
 
     // One hash for all five: argon2id is deliberately slow, and five identical
@@ -228,6 +274,24 @@ async function main() {
         memberships: [{ tenantId: IDS.tenantFree, roles: ["member"] }],
         ...base,
       },
+      {
+        _id: IDS.userBillingOwner,
+        email: "owner@qa-billing.test",
+        name: "QA Billing Owner",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantBilling, roles: ["owner"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userBillingDowngradeOwner,
+        email: "owner@qa-billing-downgrade.test",
+        name: "QA Billing Downgrade Owner",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantBillingDowngrade, roles: ["owner"] }],
+        ...base,
+      },
     ]);
 
     await db.collection("plugins_enabled").insertMany([
@@ -273,6 +337,16 @@ async function main() {
       {
         _id: IDS.entityAtQuotaCustomers,
         tenantId: IDS.tenantAtQuota,
+        key: "customers",
+        name: "Customers",
+        fields: CUSTOMER_FIELDS,
+        schemaVersion: 1,
+        readOnly: false,
+        ...base,
+      },
+      {
+        _id: IDS.entityBillingDowngrade,
+        tenantId: IDS.tenantBillingDowngrade,
         key: "customers",
         name: "Customers",
         fields: CUSTOMER_FIELDS,
@@ -379,6 +453,64 @@ async function main() {
         deletedAt: null,
         ...base,
       },
+      // GRAFT-15 AC4 — three public, published forms; Free's activeForms
+      // limit is 2, so the downgrade webhook must unpublish exactly the
+      // newest one and leave the older two active. Distinct createdAt makes
+      // "oldest kept" deterministic.
+      {
+        _id: IDS.formBillingDowngradeOldest,
+        tenantId: IDS.tenantBillingDowngrade,
+        entityDefId: IDS.entityBillingDowngrade,
+        name: "QA Billing Downgrade Oldest",
+        slug: "qa-billing-downgrade-oldest",
+        publicSlug: "qa-billing-downgrade/qa-billing-downgrade-oldest",
+        visibility: "public",
+        published: true,
+        enabled: true,
+        killSwitchAt: null,
+        killSwitchBy: null,
+        fields: CUSTOMER_FIELDS,
+        showBadge: true,
+        deletedAt: null,
+        ...base,
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+      },
+      {
+        _id: IDS.formBillingDowngradeMiddle,
+        tenantId: IDS.tenantBillingDowngrade,
+        entityDefId: IDS.entityBillingDowngrade,
+        name: "QA Billing Downgrade Middle",
+        slug: "qa-billing-downgrade-middle",
+        publicSlug: "qa-billing-downgrade/qa-billing-downgrade-middle",
+        visibility: "public",
+        published: true,
+        enabled: true,
+        killSwitchAt: null,
+        killSwitchBy: null,
+        fields: CUSTOMER_FIELDS,
+        showBadge: true,
+        deletedAt: null,
+        ...base,
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+      },
+      {
+        _id: IDS.formBillingDowngradeNewest,
+        tenantId: IDS.tenantBillingDowngrade,
+        entityDefId: IDS.entityBillingDowngrade,
+        name: "QA Billing Downgrade Newest",
+        slug: "qa-billing-downgrade-newest",
+        publicSlug: "qa-billing-downgrade/qa-billing-downgrade-newest",
+        visibility: "public",
+        published: true,
+        enabled: true,
+        killSwitchAt: null,
+        killSwitchBy: null,
+        fields: CUSTOMER_FIELDS,
+        showBadge: true,
+        deletedAt: null,
+        ...base,
+        createdAt: new Date("2026-01-03T00:00:00.000Z"),
+      },
     ]);
 
     await db.collection("usage_meters").insertMany([
@@ -424,6 +556,24 @@ async function main() {
         meter: "dashboards",
         period: LIFETIME_PERIOD,
         count: TIER_LIMITS.free.dashboards!,
+        ...base,
+      },
+      // GRAFT-15 AC4 — over Free's entities (3) and records (2,000) limits,
+      // so the downgrade webhook must freeze both read-only.
+      {
+        _id: oid(66),
+        tenantId: IDS.tenantBillingDowngrade,
+        meter: "entities",
+        period: LIFETIME_PERIOD,
+        count: 10,
+        ...base,
+      },
+      {
+        _id: oid(67),
+        tenantId: IDS.tenantBillingDowngrade,
+        meter: "records",
+        period: LIFETIME_PERIOD,
+        count: 3_000,
         ...base,
       },
     ]);

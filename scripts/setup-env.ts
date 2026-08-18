@@ -61,6 +61,17 @@ function buildSpec(env: "dev" | "qa"): EnvSpec {
       APP_URL: `http://localhost:${env === "dev" ? "3000" : "3100"}`,
       JWT_PRIVATE_KEY_PATH: ".keys/jwt-private.pem",
       JWT_PUBLIC_KEY_PATH: ".keys/jwt-public.pem",
+      // GRAFT-15 — dummy Stripe test-mode values. STRIPE_WEBHOOK_SECRET is
+      // fixed, not randomised like the Mongo/Redis credentials above: the
+      // Bruno webhook suite (bruno/billing/webhook-idempotency.bru) signs its
+      // fixture events with this exact literal, the same way seed-qa.ts's
+      // QA_PASSWORD is a fixed value shared with bruno/environments/*.bru
+      // rather than a per-machine secret. It is not a real Stripe credential
+      // — HMAC verification only needs both sides to agree.
+      STRIPE_SECRET_KEY: "sk_test_local_dummy_key",
+      STRIPE_WEBHOOK_SECRET: "whsec_qa_fixture_only_2026",
+      STRIPE_PRICE_PREMIUM_MONTHLY: "price_local_dummy_monthly",
+      STRIPE_PRICE_PREMIUM_ANNUAL: "price_local_dummy_annual",
     },
   };
 }
