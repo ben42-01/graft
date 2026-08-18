@@ -1,0 +1,42 @@
+meta {
+  name: A later step's PATCH merges with earlier steps instead of overwriting them
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/onboarding
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "step": "plugins",
+    "data": { "template": { "templateId": "trades-services" } }
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.step: eq plugins
+  res.body.data.data.template.templateId: eq trades-services
+  res.body.data.data.profile.name: eq Acme Free
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC2, AC7 — the profile step's earlier answers survive a plugins-step PATCH", function () {
+    expect(res.getBody().data.data.profile).to.eql({ name: "Acme Free", industry: "trades" });
+  });
+}
+
+docs {
+  AC2, AC7. Proves the merge is by step key, not a whole-document overwrite —
+  abandoning after this point still leaves every prior step's answers intact,
+  not silently dropped.
+}
