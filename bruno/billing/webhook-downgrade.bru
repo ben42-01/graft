@@ -1,0 +1,133 @@
+meta {
+  name: customer.subscription.deleted downgrades a Premium tenant without deleting any form
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/webhooks/stripe
+  body: text
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:text {
+  overwritten-by-script-pre-request
+}
+
+script:pre-request {
+  // qa-billing-downgrade (scripts/seed-qa.ts, tenantBillingDowngrade) starts
+  // Premium, already over Free's entities/records/activeForms limits, so this
+  // file can fire the real webhook directly — no prior checkout step needed,
+  // and no ordering dependency on any other file in this folder.
+  const axios = require("axios");
+  // Node's built-in `crypto` is not in this sandbox's require whitelist —
+  // see webhook-idempotency.bru's pre-request script for the full story.
+  // crypto-js's HMAC-SHA256 is byte-identical to Node's `crypto`.
+  const CryptoJS = require("crypto-js");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const TENANT_ID = "000000000000000000000006";
+
+  const secret = "whsec_qa_fixture_only_2026";
+  function signaturesFor(payload) {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signedPayload = `${timestamp}.${payload}`;
+    const v1 = CryptoJS.HmacSHA256(signedPayload, secret).toString(CryptoJS.enc.Hex);
+    return `t=${timestamp},v1=${v1}`;
+  }
+
+  const payload = JSON.stringify({
+    id: "evt_qa_billing_downgrade_1",
+    type: "customer.subscription.deleted",
+    data: {
+      object: {
+        customer: "cus_qa_billing_downgrade",
+        metadata: { tenantId: TENANT_ID },
+      },
+    },
+  });
+
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-billing-downgrade.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const authHeaders = { headers: { Authorization: `Bearer ${login.data.data.accessToken}` } };
+
+  // AC4 — before: 3 published forms, Premium's entities limit (25).
+  const formsBefore = await axios.get(`${baseUrl}/api/v1/forms`, authHeaders);
+  bru.setVar("billingDowngradeFormCountBefore", formsBefore.data.data.length);
+  const limitBefore = await axios.get(`${baseUrl}/api/v1/meters/entities`, authHeaders);
+  bru.setVar("billingDowngradeLimitBefore", limitBefore.data.data.limit);
+
+  req.setBody(payload, { raw: true });
+  req.setHeader("stripe-signature", signaturesFor(payload));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.received: eq true
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-billing-downgrade.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const authHeaders = { headers: { Authorization: `Bearer ${login.data.data.accessToken}` } };
+
+  const formsAfter = await axios.get(`${baseUrl}/api/v1/forms`, authHeaders);
+  bru.setVar("billingDowngradeFormsAfter", JSON.stringify(formsAfter.data.data));
+
+  const limitAfter = await axios.get(`${baseUrl}/api/v1/meters/entities`, authHeaders);
+  bru.setVar("billingDowngradeLimitAfter", limitAfter.data.data.limit);
+  bru.setVar("billingDowngradeReasonAfter", limitAfter.data.data.reason || null);
+}
+
+tests {
+  test("AC4 — the tenant's entities limit fell from Premium's to Free's", function () {
+    expect(bru.getVar("billingDowngradeLimitBefore")).to.equal(25);
+    expect(bru.getVar("billingDowngradeLimitAfter")).to.equal(3);
+  });
+
+  test("AC4 — the tenant's entities meter is now frozen read-only, not reset or deleted", function () {
+    expect(bru.getVar("billingDowngradeReasonAfter")).to.equal("read_only");
+  });
+
+  test("AC4 — no form was deleted: the same 3 forms are still listed after the downgrade", function () {
+    expect(bru.getVar("billingDowngradeFormCountBefore")).to.equal(3);
+    const forms = JSON.parse(bru.getVar("billingDowngradeFormsAfter"));
+    expect(forms).to.have.lengthOf(3);
+  });
+
+  test("AC4 — exactly one (the newest, over Free's activeForms limit of 2) was unpublished; the rest are untouched", function () {
+    const forms = JSON.parse(bru.getVar("billingDowngradeFormsAfter"));
+    const bySlug = Object.fromEntries(forms.map((f) => [f.slug, f]));
+    expect(bySlug["qa-billing-downgrade-oldest"].published).to.equal(true);
+    expect(bySlug["qa-billing-downgrade-middle"].published).to.equal(true);
+    expect(bySlug["qa-billing-downgrade-newest"].published).to.equal(false);
+    expect(bySlug["qa-billing-downgrade-newest"].publicSlug).to.be.null;
+    // Retained, not stubbed — the real definition survives.
+    expect(bySlug["qa-billing-downgrade-newest"].name).to.equal("QA Billing Downgrade Newest");
+  });
+}
+
+docs {
+  AC4. The precise document-count claim — "nothing is ever deleted on
+  downgrade" — is proven directly against a real MongoDB in
+  src/server/services/billing.integration.test.ts (collection
+  `countDocuments` before and after). This file proves the same transition is
+  reachable end to end over HTTP, black-box, through the real webhook: firing
+  `customer.subscription.deleted` against a Premium tenant already over
+  Free's limits actually downgrades it, actually unpublishes exactly the
+  right form (oldest kept, per docs/TIERS.md §4's "owner picks which stay
+  active" being unbuilt UX — see PR "Outside guidance"), and every form is
+  still listable afterward.
+}
