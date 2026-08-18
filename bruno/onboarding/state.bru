@@ -1,0 +1,34 @@
+meta {
+  name: A tenant with no onboarding history reads step "profile", data {}
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/onboarding
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.step: eq profile
+  res.body.data.completedAt: eq null
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC2 — resuming with nothing saved yet is the same as starting fresh", function () {
+    expect(res.getBody().data.data).to.eql({});
+  });
+}
+
+docs {
+  AC2. loginAccessToken (bruno/auth/login.bru) is a session for the qa-free
+  tenant (000000000000000000000001), which no earlier suite writes an
+  onboarding_state row for — this is a real first read, not a fixture.
+}

@@ -1,0 +1,54 @@
+meta {
+  name: Another tenant's onboarding progress is invisible and unaffected
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/v1/onboarding
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{switchedAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.step: eq profile
+  res.body.error: isUndefined
+}
+
+tests {
+  test("cross-tenant isolation — the premium tenant sees its own default state, not the free tenant's", function () {
+    expect(res.getBody().data.data).to.eql({});
+  });
+
+  test("cross-tenant isolation — reading as the premium tenant left the free tenant's progress untouched", function () {
+    const freeState = bru.getVar("onboardingFreeStateAfterCrossTenantRead");
+    expect(freeState.step).to.equal("plugins");
+    expect(freeState.data.profile.name).to.equal("Acme Free");
+  });
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const asFree = await axios.get(`${baseUrl}/api/v1/onboarding`, {
+    headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` },
+  });
+  bru.setVar("onboardingFreeStateAfterCrossTenantRead", asFree.data.data);
+}
+
+docs {
+  Cross-tenant isolation (required by the Test Contract — "onboarding state is
+  tenant-scoped"). switchedAccessToken (bruno/auth/switch-tenant.bru) is a
+  session for the qa-premium tenant (000000000000000000000002). By this point
+  in the folder the qa-free tenant is 2 steps into onboarding
+  (bruno/onboarding/merge.bru, seq 4) — the repository layer's ctx.tenantId
+  scoping (src/server/repositories/base.ts) means a different tenant's token
+  can never read or disturb it. The post-response script reads the free
+  tenant's state back (loginAccessToken, bruno/auth/login.bru) to prove the
+  premium-tenant read above left it exactly as merge.bru left it.
+}

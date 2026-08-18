@@ -1,0 +1,36 @@
+meta {
+  name: Closing the browser and returning resumes at the same step with prior input intact
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/onboarding
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.step: eq template
+  res.body.data.data.profile.name: eq Acme Free
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC2 — a fresh GET (the browser-reopen case) reads back exactly what patch-persists.bru wrote", function () {
+    const data = res.getBody().data;
+    expect(data.step).to.equal("template");
+    expect(data.data.profile).to.eql({ name: "Acme Free", industry: "trades" });
+  });
+}
+
+docs {
+  AC2. This is a second, independent request — no state carried in the Bruno
+  runner between it and patch-persists.bru other than the token — so a pass
+  here proves the round trip through MongoDB, not just an echo.
+}

@@ -40,6 +40,8 @@ const INDEXES: IndexDef[] = [
   },
   { collection: "form_submissions", keys: { tenantId: 1, formId: 1, createdAt: -1 } },
   { collection: "dashboards", keys: { tenantId: 1, ownerId: 1 } },
+  // One onboarding_state document per tenant (GRAFT-12 AC2, AC7).
+  { collection: "onboarding_state", keys: { tenantId: 1 }, options: { unique: true } },
 
   // Metering: one counter document per tenant/meter/period, atomically $inc'd
   {

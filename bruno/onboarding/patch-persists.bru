@@ -1,0 +1,35 @@
+meta {
+  name: PATCH persists the step and the step's answers
+  type: http
+  seq: 2
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/onboarding
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "step": "template",
+    "data": { "profile": { "name": "Acme Free", "industry": "trades" } }
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.step: eq template
+  res.body.data.data.profile.name: eq Acme Free
+  res.body.data.data.profile.industry: eq trades
+  res.body.error: isUndefined
+}
+
+docs {
+  AC2. Depends on bruno/onboarding/state.bru (seq 1) having run first in this
+  folder so there is no pre-existing row to collide with.
+}
