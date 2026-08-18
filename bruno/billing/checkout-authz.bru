@@ -1,0 +1,52 @@
+meta {
+  name: A member cannot start checkout — owner-only
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/billing/checkout
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{billingCheckoutMemberToken}}
+}
+
+body:json {
+  {
+    "plan": "monthly"
+  }
+}
+
+script:pre-request {
+  // member@qa-premium.test (scripts/seed-qa.ts) holds only the "member" role
+  // on the premium tenant — exactly the negative case AC7 asks for. Logged in
+  // here rather than depending on bruno/auth/login.bru's token, which is
+  // minted for a different user (both@qa.test) entirely.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "member@qa-premium.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  bru.setVar("billingCheckoutMemberToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq FORBIDDEN
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+docs {
+  AC7 — Constraints: "checkout is owner-only". A `member` never reaches Stripe:
+  src/server/services/billing.ts's `createCheckoutSession` checks
+  `ctx.roles.includes("owner")` before parsing the body or touching the
+  tenant's Stripe customer, so this 403 costs no Stripe API call either — see
+  the "refuses a non-owner" case in billing.test.ts for the same claim
+  exercised directly against the service.
+}

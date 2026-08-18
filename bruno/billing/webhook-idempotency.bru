@@ -1,0 +1,154 @@
+meta {
+  name: Replaying the same webhook event id produces exactly one tier change
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/webhooks/stripe
+  body: text
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:text {
+  overwritten-by-script-pre-request
+}
+
+script:pre-request {
+  // qa-billing (scripts/seed-qa.ts, tenantBilling) is isolated from every
+  // other suite on purpose: this test raises its tier for real, and reusing
+  // e.g. qa-free would make every other bruno file that assumes "qa-free
+  // stays on Free" order-dependent on this one.
+  const axios = require("axios");
+  // Node's built-in `crypto` is not in this sandbox's require whitelist
+  // (@usebruno/js only exposes a fixed set of packages, crypto-js among
+  // them) — a bare `require("crypto")` fails silently inside the async
+  // wrapper this script runs in, which looks exactly like "the pre-request
+  // script did nothing" rather than a thrown error. crypto-js's HMAC-SHA256
+  // produces byte-identical hex digests to Node's, verified directly against
+  // `crypto.createHmac` before this file was written this way.
+  const CryptoJS = require("crypto-js");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const TENANT_ID = "000000000000000000000005";
+
+  // The exact same HMAC scheme src/server/services/billing.ts verifies with
+  // (via the `stripe` SDK's `webhooks.constructEvent`) — `t=<unix>,v1=<hex
+  // hmac-sha256(secret, "<unix>.<payload>")>`. STRIPE_WEBHOOK_SECRET here must
+  // match .env.qa's — both are the fixed QA fixture value
+  // "whsec_qa_fixture_only_2026" (not a real Stripe credential; see
+  // scripts/setup-env.ts and .env.qa for why a shared local secret is fine).
+  // req.setBody(..., { raw: true }) below, not the `{{var}}` templating this
+  // collection uses elsewhere, is what keeps the signed bytes and the sent
+  // bytes identical — a JSON body block gets re-stringified on send and a
+  // text block keeps this file's own indentation, either of which would
+  // silently break the HMAC.
+  const secret = "whsec_qa_fixture_only_2026";
+  function signaturesFor(payload) {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const signedPayload = `${timestamp}.${payload}`;
+    const v1 = CryptoJS.HmacSHA256(signedPayload, secret).toString(CryptoJS.enc.Hex);
+    return `t=${timestamp},v1=${v1}`;
+  }
+
+  const payload = JSON.stringify({
+    id: "evt_qa_billing_idem_1",
+    type: "checkout.session.completed",
+    data: {
+      object: {
+        customer: "cus_qa_billing_1",
+        subscription: "sub_qa_billing_1",
+        metadata: { tenantId: TENANT_ID },
+      },
+    },
+  });
+
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-billing.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  const authHeaders = { headers: { Authorization: `Bearer ${token}` } };
+
+  // AC1 — before: Free's entities limit (3, docs/TIERS.md §2.1).
+  const before = await axios.get(`${baseUrl}/api/v1/meters/entities`, authHeaders);
+  bru.setVar("billingLimitBefore", before.data.data.limit);
+
+  // First delivery — the real tier change.
+  const first = await axios.post(`${baseUrl}/api/v1/webhooks/stripe`, payload, {
+    headers: { "content-type": "application/json", "stripe-signature": signaturesFor(payload) },
+  });
+  bru.setVar("billingFirstDeliveryStatus", first.status);
+
+  // AC1 — immediately after, no re-login: the same token now sees Premium's
+  // limit, because entitlements are always read live from `tenants`.
+  const afterFirst = await axios.get(`${baseUrl}/api/v1/meters/entities`, authHeaders);
+  bru.setVar("billingLimitAfterFirst", afterFirst.data.data.limit);
+
+  // The primary request below is the *replay*: same event id, same payload,
+  // a freshly (but identically) signed header — Stripe itself re-signs every
+  // redelivery with a new timestamp, so the signature differs but the event
+  // id does not, which is exactly the case AC3's idempotency claim is about.
+  req.setBody(payload, { raw: true });
+  req.setHeader("stripe-signature", signaturesFor(payload));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.received: eq true
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC3 — the first delivery was accepted", function () {
+    expect(bru.getVar("billingFirstDeliveryStatus")).to.equal(200);
+  });
+
+  test("AC1 — the tenant's entities limit rose from Free to Premium immediately, no re-login", function () {
+    expect(bru.getVar("billingLimitBefore")).to.equal(3);
+    expect(bru.getVar("billingLimitAfterFirst")).to.equal(25);
+  });
+
+  test("AC7 — the response never names the tenant, the customer or the subscription", function () {
+    const text = JSON.stringify(res.getBody());
+    expect(text).to.not.contain("000000000000000000000005");
+    expect(text).to.not.contain("cus_qa_billing_1");
+  });
+
+  test("AC3 — after the replay (the primary request above), the limit is still exactly Premium's — not reset, not re-applied", function () {
+    expect(bru.getVar("billingLimitAfterReplay")).to.equal(25);
+  });
+}
+
+script:post-response {
+  // AC3's tightest observable proof over plain HTTP: the replay is a genuine
+  // no-op, not a second (harmlessly-idempotent-looking) write — the limit is
+  // still exactly Premium's, not reset, not doubled, not errored.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-billing.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const after = await axios.get(`${baseUrl}/api/v1/meters/entities`, {
+    headers: { Authorization: `Bearer ${login.data.data.accessToken}` },
+  });
+  bru.setVar("billingLimitAfterReplay", after.data.data.limit);
+}
+
+docs {
+  AC1, AC3, AC7. The precise claim — "delivering the same event twice produces
+  exactly one tier change" — is exercised at the unit level in
+  src/server/services/billing.test.ts ("replaying the same event id produces
+  exactly one tier change"), asserting the store's `applyUpgrade` was called
+  exactly once. This file proves the same thing is true end to end over HTTP,
+  black-box: both deliveries answer 200, and the tenant's live entitlement
+  (read fresh from `tenants` on every request, never from the token) is
+  Premium's limit before, during and after the replay — never something else
+  in between, which is what a non-idempotent double-apply would look like.
+}

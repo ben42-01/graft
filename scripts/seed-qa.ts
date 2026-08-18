@@ -40,6 +40,11 @@ const IDS = {
   tenantPremium: oid(2),
   tenantAtQuota: oid(3),
   tenantDowngraded: oid(4),
+  // GRAFT-15 — isolated from the tenants above on purpose: the webhook tests
+  // mutate this tenant's tier in place, and reusing e.g. tenantFree would
+  // make billing tests order-dependent with every other suite that assumes
+  // qa-free stays on Free.
+  tenantBilling: oid(5),
   userFreeOwner: oid(11),
   userPremiumOwner: oid(12),
   userPremiumMember: oid(13),
@@ -49,6 +54,7 @@ const IDS = {
   // assertion written against those still holds exactly as it did.
   userTwoTenants: oid(16),
   userUnverified: oid(17),
+  userBillingOwner: oid(18),
   entityFreeCustomers: oid(21),
   entityPremiumCustomers: oid(22),
   entityDowngradedExtra: oid(23),
@@ -151,6 +157,18 @@ async function main() {
         settings: { currency: "EUR", timezone: "UTC", locale: "en" },
         ...base,
       },
+      {
+        // GRAFT-15 — starts Free with no Stripe identity yet; the webhook
+        // suite raises and lowers it through the real checkout/webhook path.
+        _id: IDS.tenantBilling,
+        name: "QA Billing Tenant",
+        slug: "qa-billing",
+        tier: "free",
+        limits: TIER_LIMITS.free,
+        billingAnchorDay: BILLING_ANCHOR_DAY,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
     ]);
 
     // One hash for all five: argon2id is deliberately slow, and five identical
@@ -226,6 +244,15 @@ async function main() {
         emailVerifiedAt: null,
         passwordHash,
         memberships: [{ tenantId: IDS.tenantFree, roles: ["member"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userBillingOwner,
+        email: "owner@qa-billing.test",
+        name: "QA Billing Owner",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantBilling, roles: ["owner"] }],
         ...base,
       },
     ]);

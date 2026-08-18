@@ -1,0 +1,72 @@
+meta {
+  name: An unsigned or wrongly-signed webhook payload is rejected and changes nothing
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/webhooks/stripe
+  body: text
+  auth: none
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:text {
+  {"id":"evt_qa_no_signature","type":"checkout.session.completed","data":{"object":{"metadata":{"tenantId":"000000000000000000000005"}}}}
+}
+
+script:pre-request {
+  // The second half of AC2 ("or wrongly-signed") — a header that *looks* right
+  // but doesn't verify. Run here, alongside the primary (no-header) request
+  // below, rather than as a second file: both are the same claim, "a signature
+  // the server cannot verify is a 400", just reached two different ways.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const payload = JSON.stringify({
+    id: "evt_qa_wrong_signature",
+    type: "checkout.session.completed",
+    data: { object: { metadata: { tenantId: "000000000000000000000005" } } },
+  });
+
+  const wrongSig = await axios.post(`${baseUrl}/api/v1/webhooks/stripe`, payload, {
+    headers: { "content-type": "application/json", "stripe-signature": "t=1,v1=not-a-real-signature" },
+    validateStatus: () => true,
+  });
+  bru.setVar("wrongSigStatus", wrongSig.status);
+  bru.setVar("wrongSigBody", JSON.stringify(wrongSig.data));
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC2 — a missing signature never reaches tier logic (no tenant/customer/subscription state in the response)", function () {
+    const text = JSON.stringify(res.getBody());
+    expect(text).to.not.contain("000000000000000000000005");
+  });
+
+  test("AC2 — a wrongly-signed payload is refused the same way", function () {
+    expect(bru.getVar("wrongSigStatus")).to.equal(400);
+    const body = JSON.parse(bru.getVar("wrongSigBody"));
+    expect(body.error.code).to.equal("VALIDATION_FAILED");
+    expect(body.data).to.be.undefined;
+  });
+}
+
+docs {
+  AC2. Two requests, same claim: the primary one above sends no
+  `stripe-signature` header at all; the pre-request script sends a second with
+  a header that is present but does not verify against
+  STRIPE_WEBHOOK_SECRET. Both are refused with 400 VALIDATION_FAILED before
+  `handleStripeWebhookEvent` (src/server/services/billing.ts) ever claims the
+  event id or looks at `metadata.tenantId` — proven directly (no store call
+  happens on either path) in src/server/services/billing.test.ts, which does
+  not need a running QA stack.
+}

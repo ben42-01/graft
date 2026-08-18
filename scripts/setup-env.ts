@@ -61,6 +61,15 @@ function buildSpec(env: "dev" | "qa"): EnvSpec {
       APP_URL: `http://localhost:${env === "dev" ? "3000" : "3100"}`,
       JWT_PRIVATE_KEY_PATH: ".keys/jwt-private.pem",
       JWT_PUBLIC_KEY_PATH: ".keys/jwt-public.pem",
+      // GRAFT-15 — dummy Stripe test-mode values. STRIPE_WEBHOOK_SECRET only
+      // has to match what signs the events this machine verifies, so a random
+      // local secret is exactly as good as a real one for dev/QA. The
+      // checkout happy path (which needs a *real* Stripe account) is not part
+      // of the automated gate — see billing.ts's module docs.
+      STRIPE_SECRET_KEY: "sk_test_local_dummy_key",
+      STRIPE_WEBHOOK_SECRET: `whsec_${secret()}`,
+      STRIPE_PRICE_PREMIUM_MONTHLY: "price_local_dummy_monthly",
+      STRIPE_PRICE_PREMIUM_ANNUAL: "price_local_dummy_annual",
     },
   };
 }
