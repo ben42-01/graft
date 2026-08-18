@@ -1,0 +1,56 @@
+meta {
+  name: Disabling a plugin on one tenant does not touch another tenant's state
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/plugins/contacts/disable
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{switchedAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.id: eq contacts
+  res.body.data.enabled: eq false
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC6 — the premium tenant's own contacts plugin is now disabled", function () {
+    expect(res.getBody().data.enabled).to.equal(false);
+  });
+
+  test("AC6 — the free tenant's contacts plugin is untouched by the premium tenant's disable", function () {
+    // Both qa-free and qa-premium are seeded with contacts enabled
+    // (scripts/seed-qa.ts). The write above is scoped by the repository
+    // layer's ctx.tenantId injection (src/server/repositories/base.ts) — one
+    // tenant's disable cannot reach another tenant's `plugins_enabled` row.
+    const freeContacts = bru
+      .getVar("pluginIsolationFreeCatalogue")
+      .find((p) => p.id === "contacts");
+    expect(freeContacts.enabled).to.equal(true);
+  });
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const asFree = await axios.get(`${baseUrl}/api/v1/plugins`, {
+    headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` },
+  });
+  bru.setVar("pluginIsolationFreeCatalogue", asFree.data.data);
+}
+
+docs {
+  AC6. switchedAccessToken (bruno/auth/switch-tenant.bru) is a session for the
+  qa-premium tenant. The post-response script reads the catalogue back as the
+  qa-free tenant (loginAccessToken, set by bruno/auth/login.bru, which the
+  alphabetically-earlier auth/ folder guarantees has already run) to prove the
+  disable above only ever touched the premium tenant's own row.
+}

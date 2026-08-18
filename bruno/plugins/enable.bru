@@ -1,0 +1,42 @@
+meta {
+  name: Enabling a plugin provisions its declared entity and form
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/plugins/scheduling/enable
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.id: eq scheduling
+  res.body.data.enabled: eq true
+  res.body.data.tier: eq free
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC1, AC7 — enabling scheduling provisions its entity + form through the normal APIs", function () {
+    // scheduling is not part of the qa-free tenant's seeded plugins_enabled
+    // rows (scripts/seed-qa.ts only seeds contacts + forms) — this is a real
+    // first activation, exercising provisioning end to end.
+    expect(res.getBody().data.enabled).to.equal(true);
+  });
+}
+
+docs {
+  AC1, AC7. loginAccessToken (GRAFT-03.2 fixtures) is a session for the qa-free
+  tenant. The provisioned "appointments" entity and "Booking Request" form are
+  ordinary entities/forms after this call — proven directly against a real
+  MongoDB (not this Bruno request) by
+  src/server/services/plugins.integration.test.ts, which does not need a
+  running QA stack to prove it. This request proves the HTTP contract: the
+  catalogue entry the client actually reads.
+}
