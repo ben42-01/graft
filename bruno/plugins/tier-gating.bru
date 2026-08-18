@@ -1,0 +1,37 @@
+meta {
+  name: A Free tenant cannot enable a Premium-tier plugin
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/plugins/invoicing/enable
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq FORBIDDEN
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC4 — tier eligibility is enforced server-side, not by the client hiding the button", function () {
+    // loginAccessToken is a session for the qa-free tenant; invoicing is
+    // Premium-tier in the catalog (src/server/plugins.ts). Refused before
+    // anything is provisioned or charged against the plugins quota.
+    expect(res.getBody().error.code).to.equal("FORBIDDEN");
+  });
+}
+
+docs {
+  AC4. The catalog entry itself (GET /api/v1/plugins) already reports
+  `eligible: false` for invoicing under this token — this request proves the
+  write path enforces the same rule, not just the read side.
+}

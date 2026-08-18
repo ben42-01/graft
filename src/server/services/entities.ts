@@ -337,6 +337,22 @@ export async function getEntity(
   return toView(doc);
 }
 
+/**
+ * GRAFT-14 — plugin provisioning is idempotent (enabling twice, or re-enabling
+ * after a disable, must not fail): a provisioner calls `createEntity` first and
+ * falls back to this lookup only on the CONFLICT it throws for an existing key,
+ * rather than checking-then-creating and racing itself.
+ */
+export async function getEntityByKey(
+  ctx: Ctx,
+  key: string,
+  overrides: Partial<EntityDeps> = {},
+): Promise<EntityView | null> {
+  const deps = resolveDeps(overrides);
+  const doc = await deps.repo.findOne(ctx, { key } as Filter<EntityDefDoc>);
+  return doc ? toView(doc) : null;
+}
+
 /** AC4, AC6 — the version bump lives here, next to the only place `fields` is written. */
 export async function updateEntity(
   ctx: Ctx,
