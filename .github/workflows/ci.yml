@@ -29,7 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     # docs/BACKEND.md §7.3 — the gate is a feedback loop; if it stops being fast
     # it stops being run. Fail loudly rather than drift into a 30-minute pipeline.
-    timeout-minutes: 15
+    # Bumped from 15: a cold Playwright-browser-cache run (first run after this
+    # change, or any cache-key invalidation) still pays the same slow-CDN
+    # download this margin exists for; steady-state cached runs finish well
+    # under this in practice.
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -73,6 +77,47 @@ jobs:
       # against it, then stops the server — see scripts/with-qa-app.ts.
       - name: Bruno contract tests
         run: npx dotenv -e .env.qa -- tsx scripts/with-qa-app.ts npm run test:api
+
+      # Bruno's own onboarding suite (bruno/onboarding/**) deliberately drives
+      # owner@qa-free.test's onboarding state to "plugins" (see
+      # bruno/onboarding/tenant-isolation.bru's docs block) — that's correct
+      # for Bruno, but e2e/onboarding.spec.ts assumes the same seeded user
+      # starts fresh at "profile". seed-qa.ts refuses to reseed onto a
+      # non-empty DB by design (the ephemeral-stack guard), so the fixtures
+      # need a full down/up/reseed cycle here, not just a second `qa:seed`.
+      - name: QA stack down (pre-e2e reseed)
+        run: npm run qa:db:down
+
+      - name: QA stack up (pre-e2e reseed)
+        run: npm run qa:db
+
+      - name: Reseed QA fixtures (pre-e2e reseed)
+        run: npm run qa:seed
+
+      # `npm ci` does not fetch browser binaries — @playwright/test has no
+      # postinstall hook for it (unlike Bruno, which needs no runtime download).
+      # Without this, the step below fails with "browserType.launch: Executable
+      # doesn't exist" on a clean runner. Only chromium is configured in
+      # playwright.config.ts.
+      #
+      # Cached: an uncached chromium download from Playwright's CDN was
+      # observed taking 8-10+ minutes on this runner (twice, on separate
+      # runs) against this job's 15-minute budget, killing the job before
+      # Playwright tests ever started — not a QA-stack or app problem, a
+      # cold-download problem. `playwright install` skips the download when
+      # the expected revision is already present at this cache path, so a
+      # cache hit reduces this step to the `--with-deps` OS package check.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright e2e tests
+        run: npx dotenv -e .env.qa -- tsx scripts/with-qa-app.ts npx playwright test
 
       # `down -v` — containers and volumes both. Runs even when an earlier step
       # failed, so a red run never leaves the stack behind. Skipped only when

@@ -10,7 +10,15 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: true,
+  // GRAFT-21: spec files share mutable QA fixture state (e.g. onboarding.spec.ts
+  // and dashboard-widgets.spec.ts both touch owner@qa-free.test's one seeded
+  // dashboard, 000000000000000000000047). Running them in parallel produced a
+  // real cross-file race — flaky failures/timeouts, not app bugs — once this
+  // suite was first run as a whole via `verify:full`. Serial execution trades
+  // a slower suite for a suite that's actually deterministic against the
+  // shared, non-isolated QA seed.
+  fullyParallel: false,
+  workers: 1,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: "list",
