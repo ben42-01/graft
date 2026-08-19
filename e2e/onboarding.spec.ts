@@ -18,6 +18,25 @@ import { expect, test } from "@playwright/test";
 test("business profile -> template -> plugins -> entity -> form -> dashboard -> done, with a mid-flow resume", async ({
   page,
 }) => {
+  // GRAFT-21: this is the single heaviest client bundle in the suite (three
+  // Selects, a Checkbox, GatedControl, and the full multi-step wizard, all in
+  // one "use client" page — src/app/(app)/onboarding/page.tsx) and, unlike
+  // the other spec files, gets no warm-cache benefit from an earlier test:
+  // Playwright gives every test its own browser context, so the JS this page
+  // needs is fetched cold here regardless of what dashboard-widgets.spec.ts
+  // (which also renders a Select) already exercised in its own context.
+  // Reproduced under CDP CPU + network throttling (40x CPU, 200kbps,
+  // 1500ms latency): this page's first render alone took ~21s against a
+  // ~1s baseline, consistent with the CI run that first surfaced this
+  // (default 30s timeout, exceeded on this test only, 3/3 attempts) —
+  // Playwright's "Install Playwright browsers" step in that same run took
+  // over 8 minutes for a ~115MB download that normally takes ~15s, i.e. the
+  // runner itself was severely network/resource-starved that run, not a
+  // deterministic app bug (server logs show every API call answering in
+  // single-digit milliseconds throughout). Doubled here, scoped to this one
+  // test only — not a global Playwright timeout change.
+  test.setTimeout(60_000);
+
   const login = await page.request.post("/api/v1/auth/login", {
     data: { email: "owner@qa-free.test", password: "qa-fixture-password-2026" },
   });
