@@ -74,6 +74,22 @@ jobs:
       - name: Bruno contract tests
         run: npx dotenv -e .env.qa -- tsx scripts/with-qa-app.ts npm run test:api
 
+      # Bruno's own onboarding suite (bruno/onboarding/**) deliberately drives
+      # owner@qa-free.test's onboarding state to "plugins" (see
+      # bruno/onboarding/tenant-isolation.bru's docs block) — that's correct
+      # for Bruno, but e2e/onboarding.spec.ts assumes the same seeded user
+      # starts fresh at "profile". seed-qa.ts refuses to reseed onto a
+      # non-empty DB by design (the ephemeral-stack guard), so the fixtures
+      # need a full down/up/reseed cycle here, not just a second `qa:seed`.
+      - name: QA stack down (pre-e2e reseed)
+        run: npm run qa:db:down
+
+      - name: QA stack up (pre-e2e reseed)
+        run: npm run qa:db
+
+      - name: Reseed QA fixtures (pre-e2e reseed)
+        run: npm run qa:seed
+
       # `npm ci` does not fetch browser binaries — @playwright/test has no
       # postinstall hook for it (unlike Bruno, which needs no runtime download).
       # Without this, the step below fails with "browserType.launch: Executable
