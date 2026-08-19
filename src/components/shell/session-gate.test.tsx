@@ -12,6 +12,7 @@ vi.mock("next-themes", () => ({
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace, push: vi.fn() }),
+  usePathname: () => "/dashboards",
 }));
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -26,7 +27,7 @@ describe("SessionGate", () => {
     replace.mockClear();
   });
 
-  it("AC4 — an unauthenticated visit redirects to /login instead of rendering the shell", async () => {
+  it("AC4 — an unauthenticated visit redirects to /login (GRAFT-18: with the path preserved) instead of rendering the shell", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 401 })));
 
     render(
@@ -38,7 +39,7 @@ describe("SessionGate", () => {
     // Never flashes the chrome — not even momentarily, before the redirect.
     expect(screen.queryByText("guarded content")).not.toBeInTheDocument();
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/login?redirect=%2Fdashboards"));
     expect(screen.queryByText("guarded content")).not.toBeInTheDocument();
 
     vi.unstubAllGlobals();
