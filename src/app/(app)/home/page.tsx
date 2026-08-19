@@ -9,6 +9,13 @@
  * tier `/me` already reported — Free tenants see "Add entity" disabled with
  * an inline explanation; Premium+ tenants see it enabled. Dashboard widgets
  * belong to GRAFT-13.
+ *
+ * Lives at `/home`, not `/` (GRAFT-19 AC8): the public marketing/pricing
+ * page now owns the root route (`src/app/(public)/page.tsx`), and Next.js
+ * route groups can't both resolve to `/` — this is the authenticated side
+ * of that split. Every former reference to "/" as the post-login landing
+ * (nav, the app shell logo, login/signup's already-authenticated bounce,
+ * `sanitizeRedirectTarget`'s default) now points at `/home`.
  */
 import { useEffect, useState } from "react";
 import { PlusIcon } from "lucide-react";

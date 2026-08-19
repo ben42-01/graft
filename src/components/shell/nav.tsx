@@ -7,7 +7,7 @@ import { LayoutDashboardIcon, LayoutGridIcon } from "lucide-react";
  * the record-list route belongs to its own contract (GRAFT-12).
  */
 const NAV_ITEMS = [
-  { href: "/", label: "Home", icon: LayoutDashboardIcon },
+  { href: "/home", label: "Home", icon: LayoutDashboardIcon },
   { href: "/dashboards", label: "Dashboards", icon: LayoutGridIcon },
 ] as const;
 

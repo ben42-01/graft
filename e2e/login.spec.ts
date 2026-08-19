@@ -8,7 +8,8 @@
  * Covers AC1 (unauthenticated -> /login with redirect preserved), AC2 (valid
  * login lands on the redirect target / AppShell), AC3 (invalid credentials ->
  * inline error, no navigation), AC6 (already-authenticated visit to /login
- * bounces to /), AC7 (open-redirect guard on the redirect param).
+ * bounces to /home — GRAFT-19 moved the authenticated landing off the root
+ * route), AC7 (open-redirect guard on the redirect param).
  */
 import { expect, test } from "@playwright/test";
 
@@ -48,7 +49,7 @@ test("AC3 — invalid credentials show an inline error and never navigate away",
   await expect(page).toHaveURL(/\/login/);
 });
 
-test("AC6 — an already-authenticated visitor hitting /login directly is bounced to /", async ({
+test("AC6 — an already-authenticated visitor hitting /login directly is bounced to /home", async ({
   page,
 }) => {
   const login = await page.request.post("/api/v1/auth/login", {
@@ -57,10 +58,10 @@ test("AC6 — an already-authenticated visitor hitting /login directly is bounce
   expect(login.ok()).toBeTruthy();
 
   await page.goto("/login");
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/home");
 });
 
-test("AC7 — an absolute or protocol-relative redirect target is ignored in favor of /", async ({
+test("AC7 — an absolute or protocol-relative redirect target is ignored in favor of /home", async ({
   page,
 }) => {
   await page.goto("/login?redirect=https%3A%2F%2Fevil.com");
@@ -68,5 +69,5 @@ test("AC7 — an absolute or protocol-relative redirect target is ignored in fav
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Log in" }).click();
 
-  await expect(page).toHaveURL("/");
+  await expect(page).toHaveURL("/home");
 });

@@ -11,22 +11,22 @@ describe("sanitizeRedirectTarget", () => {
     expect(sanitizeRedirectTarget("/dashboards")).toBe("/dashboards");
   });
 
-  it("falls back to / for null or empty", () => {
-    expect(sanitizeRedirectTarget(null)).toBe("/");
-    expect(sanitizeRedirectTarget(undefined)).toBe("/");
-    expect(sanitizeRedirectTarget("")).toBe("/");
+  it("falls back to /home for null or empty", () => {
+    expect(sanitizeRedirectTarget(null)).toBe("/home");
+    expect(sanitizeRedirectTarget(undefined)).toBe("/home");
+    expect(sanitizeRedirectTarget("")).toBe("/home");
   });
 
-  it("falls back to / for an absolute URL", () => {
-    expect(sanitizeRedirectTarget("https://evil.com")).toBe("/");
-    expect(sanitizeRedirectTarget("http://evil.com/path")).toBe("/");
+  it("falls back to /home for an absolute URL", () => {
+    expect(sanitizeRedirectTarget("https://evil.com")).toBe("/home");
+    expect(sanitizeRedirectTarget("http://evil.com/path")).toBe("/home");
   });
 
-  it("falls back to / for a protocol-relative URL", () => {
-    expect(sanitizeRedirectTarget("//evil.com")).toBe("/");
+  it("falls back to /home for a protocol-relative URL", () => {
+    expect(sanitizeRedirectTarget("//evil.com")).toBe("/home");
   });
 
-  it("falls back to / for a value that doesn't start with a slash", () => {
-    expect(sanitizeRedirectTarget("dashboards")).toBe("/");
+  it("falls back to /home for a value that doesn't start with a slash", () => {
+    expect(sanitizeRedirectTarget("dashboards")).toBe("/home");
   });
 });
