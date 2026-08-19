@@ -6,8 +6,12 @@
  * no authenticated chrome to flash before hydration — redirects to `/login`
  * on "unauthenticated", and only then mounts `AppShell`. The one place
  * `useMe()` is called for this section.
+ *
+ * GRAFT-18 AC1: the redirect carries the path the visitor actually wanted, so
+ * `/login` can send them back there after a successful sign-in instead of
+ * always landing on `/`.
  */
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
 import { AppShell } from "@/components/shell/app-shell";
@@ -17,12 +21,14 @@ import { useMe } from "@/lib/session";
 export function SessionGate({ children }: { children: ReactNode }) {
   const { status, me, switchTenant, logOut } = useMe();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (status === "unauthenticated") {
-      router.replace("/login");
+      const target = pathname ? `/login?redirect=${encodeURIComponent(pathname)}` : "/login";
+      router.replace(target);
     }
-  }, [status, router]);
+  }, [status, router, pathname]);
 
   if (status === "loading") {
     return <LoadingState label="Loading your workspace…" />;
