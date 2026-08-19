@@ -56,7 +56,7 @@ function LoginForm() {
   // AC6 — an already-authenticated visitor never sees the form.
   useEffect(() => {
     if (status === "authenticated") {
-      router.replace("/");
+      router.replace("/home");
     }
   }, [status, router]);
 
@@ -130,8 +130,12 @@ function LoginForm() {
 
 export default function LoginPage() {
   return (
-    <Suspense fallback={<LoadingState label="Loading…" />}>
-      <LoginForm />
-    </Suspense>
+    <div className="flex min-h-screen items-center justify-center px-4 py-12">
+      <div className="w-full max-w-sm">
+        <Suspense fallback={<LoadingState label="Loading…" />}>
+          <LoginForm />
+        </Suspense>
+      </div>
+    </div>
   );
 }

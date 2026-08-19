@@ -762,7 +762,9 @@ function DoneStep({ data }: { data: WizardData }) {
         <Button asChild>
           <a
             href={
-              data.dashboard?.dashboardId ? `/dashboards/${data.dashboard.dashboardId}` : "/"
+              data.dashboard?.dashboardId
+                ? `/dashboards/${data.dashboard.dashboardId}`
+                : "/home"
             }
           >
             Go to your dashboard

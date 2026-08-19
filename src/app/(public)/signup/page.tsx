@@ -49,7 +49,7 @@ async function signup(
   }
 }
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter();
   const { status } = useMe();
 
@@ -63,7 +63,7 @@ export default function SignupPage() {
   // AC6 — an already-authenticated visitor never sees the form.
   useEffect(() => {
     if (status === "authenticated") {
-      router.replace("/");
+      router.replace("/home");
     }
   }, [status, router]);
 
@@ -163,5 +163,15 @@ export default function SignupPage() {
         </CardFooter>
       </form>
     </Card>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <div className="flex min-h-screen items-center justify-center px-4 py-12">
+      <div className="w-full max-w-sm">
+        <SignupForm />
+      </div>
+    </div>
   );
 }

@@ -50,7 +50,7 @@ export function AppShell({
             : undefined
         }
       >
-        <Link href="/" className="mb-6 px-3 text-sm font-semibold tracking-tight">
+        <Link href="/home" className="mb-6 px-3 text-sm font-semibold tracking-tight">
           Graft
         </Link>
         <Nav />
