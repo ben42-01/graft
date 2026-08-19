@@ -29,7 +29,11 @@ jobs:
     runs-on: ubuntu-latest
     # docs/BACKEND.md §7.3 — the gate is a feedback loop; if it stops being fast
     # it stops being run. Fail loudly rather than drift into a 30-minute pipeline.
-    timeout-minutes: 15
+    # Bumped from 15: a cold Playwright-browser-cache run (first run after this
+    # change, or any cache-key invalidation) still pays the same slow-CDN
+    # download this margin exists for; steady-state cached runs finish well
+    # under this in practice.
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -95,6 +99,20 @@ jobs:
       # Without this, the step below fails with "browserType.launch: Executable
       # doesn't exist" on a clean runner. Only chromium is configured in
       # playwright.config.ts.
+      #
+      # Cached: an uncached chromium download from Playwright's CDN was
+      # observed taking 8-10+ minutes on this runner (twice, on separate
+      # runs) against this job's 15-minute budget, killing the job before
+      # Playwright tests ever started — not a QA-stack or app problem, a
+      # cold-download problem. `playwright install` skips the download when
+      # the expected revision is already present at this cache path, so a
+      # cache hit reduces this step to the `--with-deps` OS package check.
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
