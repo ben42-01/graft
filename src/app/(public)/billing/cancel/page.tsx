@@ -6,7 +6,7 @@
  */
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
 
 export default function BillingCancelPage() {
   return (
@@ -14,7 +14,9 @@ export default function BillingCancelPage() {
       <div className="w-full max-w-sm">
         <Card>
           <CardHeader>
-            <CardTitle>Checkout canceled</CardTitle>
+            {/* A real heading element, not CardTitle (a plain div with no
+             * implicit ARIA role) — this is the page's primary heading. */}
+            <h1 className="leading-none font-semibold">Checkout canceled</h1>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground">
