@@ -74,6 +74,17 @@ jobs:
       - name: Bruno contract tests
         run: npx dotenv -e .env.qa -- tsx scripts/with-qa-app.ts npm run test:api
 
+      # `npm ci` does not fetch browser binaries — @playwright/test has no
+      # postinstall hook for it (unlike Bruno, which needs no runtime download).
+      # Without this, the step below fails with "browserType.launch: Executable
+      # doesn't exist" on a clean runner. Only chromium is configured in
+      # playwright.config.ts.
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright e2e tests
+        run: npx dotenv -e .env.qa -- tsx scripts/with-qa-app.ts npx playwright test
+
       # `down -v` — containers and volumes both. Runs even when an earlier step
       # failed, so a red run never leaves the stack behind. Skipped only when
       # install never got far enough to generate .env.qa, in which case there is
