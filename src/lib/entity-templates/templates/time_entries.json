@@ -1,0 +1,48 @@
+{
+  "id": "time_entries",
+  "name": "Time entries",
+  "category": "People",
+  "description": "Hours worked, against a project or a job — the raw material for invoicing and payroll.",
+  "entity": {
+    "key": "time_entries",
+    "name": "Time entries",
+    "fields": [
+      {
+        "key": "person",
+        "label": "Person",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "worked_on",
+        "label": "Date",
+        "type": "date",
+        "required": true
+      },
+      {
+        "key": "hours",
+        "label": "Hours",
+        "type": "number",
+        "required": true
+      },
+      {
+        "key": "project",
+        "label": "Project",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "description",
+        "label": "What was done",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "billable",
+        "label": "Billable",
+        "type": "checkbox",
+        "required": false
+      }
+    ]
+  }
+}

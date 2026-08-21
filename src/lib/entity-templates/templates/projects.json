@@ -1,0 +1,55 @@
+{
+  "id": "projects",
+  "name": "Projects",
+  "category": "Operations",
+  "description": "Longer pieces of work with a budget and dates. Tasks and time entries usually hang off these.",
+  "entity": {
+    "key": "projects",
+    "name": "Projects",
+    "fields": [
+      {
+        "key": "name",
+        "label": "Project",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "client",
+        "label": "Client",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "select",
+        "required": false,
+        "options": ["Planned", "Active", "On hold", "Complete", "Cancelled"]
+      },
+      {
+        "key": "start_date",
+        "label": "Starts",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "due_date",
+        "label": "Due",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "budget",
+        "label": "Budget",
+        "type": "number",
+        "required": false
+      },
+      {
+        "key": "lead",
+        "label": "Project lead",
+        "type": "text",
+        "required": false
+      }
+    ]
+  }
+}

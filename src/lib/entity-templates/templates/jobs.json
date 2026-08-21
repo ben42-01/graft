@@ -1,0 +1,55 @@
+{
+  "id": "jobs",
+  "name": "Jobs",
+  "category": "Operations",
+  "description": "Work you carry out for a customer — installations, repairs, callouts. The backbone of most trade businesses.",
+  "entity": {
+    "key": "jobs",
+    "name": "Jobs",
+    "fields": [
+      {
+        "key": "reference",
+        "label": "Reference",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "customer",
+        "label": "Customer",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "description",
+        "label": "Description",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "select",
+        "required": false,
+        "options": ["Scheduled", "In progress", "On hold", "Complete", "Cancelled"]
+      },
+      {
+        "key": "scheduled_for",
+        "label": "Scheduled for",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "assigned_to",
+        "label": "Assigned to",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "price",
+        "label": "Price",
+        "type": "number",
+        "required": false
+      }
+    ]
+  }
+}

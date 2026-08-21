@@ -25,7 +25,7 @@ type RecordRow = { id: string; data: Record<string, unknown> };
 type State =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; fields: FieldDef[]; rows: RecordRow[] };
+  | { status: "ready"; name: string; fields: FieldDef[]; rows: RecordRow[] };
 
 async function load(entityId: string, limit: number): Promise<State> {
   try {
@@ -34,9 +34,14 @@ async function load(entityId: string, limit: number): Promise<State> {
       fetch(`/api/v1/entities/${entityId}/records?limit=${limit}`, { credentials: "include" }),
     ]);
     if (!entityRes.ok || !recordsRes.ok) return { status: "error" };
-    const entity = (await entityRes.json()) as { data: { fields: FieldDef[] } };
+    const entity = (await entityRes.json()) as { data: { name: string; fields: FieldDef[] } };
     const records = (await recordsRes.json()) as { data: RecordRow[] };
-    return { status: "ready", fields: entity.data.fields, rows: records.data };
+    return {
+      status: "ready",
+      name: entity.data.name,
+      fields: entity.data.fields,
+      rows: records.data,
+    };
   } catch {
     return { status: "error" };
   }
@@ -63,7 +68,11 @@ export function RecordListWidget({ widget }: WidgetProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">Record List</CardTitle>
+        {/* The entity's own name once it is known — "Record List" alone told
+         * the user nothing about which of their entities a card showed. */}
+        <CardTitle className="text-sm font-medium text-muted-foreground">
+          {state.status === "ready" ? state.name : "Record List"}
+        </CardTitle>
       </CardHeader>
       <CardContent>
         {state.status === "loading" ? <LoadingState label="Loading records…" /> : null}

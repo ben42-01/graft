@@ -7,10 +7,18 @@
  * `Sheet` below `sm:` (AC2); the tenant's `branding.primaryColor` (AC3) is
  * applied as a CSS var and used only as a thin accent, never a full-panel
  * background, so a tenant's brand colour can't produce an unreadable pair.
+ *
+ * The 2026-08-21 UI refinement swapped the rail's plain "Graft" text for the
+ * real lockup (`@/components/brand/graft-logo`) and gave the rail the same
+ * faint green wash the landing and auth pages carry, so an authenticated
+ * screen is recognisably the same product as the page the user signed up on.
+ * A tenant's own `primaryColor` still wins where it is set — it overrides the
+ * rail's top border, which is the one brand-accent slot the shell has.
  */
 import { MenuIcon } from "lucide-react";
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
+import { GraftLockup, GraftMark } from "@/components/brand/graft-logo";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Nav } from "@/components/shell/nav";
@@ -43,15 +51,15 @@ export function AppShell({
       }
     >
       <aside
-        className="hidden w-56 shrink-0 border-r border-border p-4 sm:flex sm:flex-col"
+        className="hidden w-56 shrink-0 flex-col border-r border-border bg-graft-green/[0.03] p-4 sm:flex"
         style={
           accentColor
             ? { borderTopColor: "var(--graft-tenant-accent)", borderTopWidth: 3 }
-            : undefined
+            : { borderTopColor: "var(--color-graft-green)", borderTopWidth: 3 }
         }
       >
-        <Link href="/home" className="mb-6 px-3 text-sm font-semibold tracking-tight">
-          Graft
+        <Link href="/home" aria-label="Graft home" className="mb-6 flex px-3">
+          <GraftLockup className="h-7" />
         </Link>
         <Nav />
       </aside>
@@ -69,6 +77,12 @@ export function AppShell({
             <MenuIcon className="size-4" />
           </Button>
 
+          {/* The rail's lockup is hidden below `sm:`, so the mark stands in
+           * for it — without one, the mobile header carries no brand at all. */}
+          <Link href="/home" aria-label="Graft home" className="flex sm:hidden">
+            <GraftMark className="size-6" />
+          </Link>
+
           <div className="min-w-0 flex-1">
             <TenantSwitcher
               activeTenantId={me.tenant.id}
@@ -78,7 +92,7 @@ export function AppShell({
           </div>
 
           <ThemeToggle />
-          <UserMenu email={me.user.email} onLogOut={onLogOut} />
+          <UserMenu me={me} onLogOut={onLogOut} />
         </header>
 
         <main className="min-w-0 flex-1 overflow-x-hidden p-4">{children}</main>
@@ -87,7 +101,10 @@ export function AppShell({
       <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
         <SheetContent side="left" className="sm:hidden">
           <SheetHeader>
-            <SheetTitle>Navigation</SheetTitle>
+            <SheetTitle className="flex items-center gap-2">
+              <GraftMark className="size-5" />
+              Navigation
+            </SheetTitle>
           </SheetHeader>
           <div className="px-4">
             <Nav onNavigate={() => setMobileNavOpen(false)} />

@@ -16,12 +16,39 @@
  */
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { AuthShell } from "@/components/brand/auth-shell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/shell/loading-state";
+import { errorMessage, isApiError } from "@/lib/api-error";
 import { useMe } from "@/lib/session";
+
+/**
+ * Mirrors `PASSWORD_MIN_LENGTH` in `src/server/auth/passwords.ts`, which is
+ * the source of truth and stays so — the server rejects anything shorter
+ * regardless of what this file says. It is duplicated rather than imported
+ * because that module also imports `@node-rs/argon2`, a native addon that has
+ * no business in a client bundle, and it sits under the protected path
+ * `src/server/auth/**` so the constant cannot be split out into its own
+ * module here. If the server minimum changes, change this too.
+ */
+const PASSWORD_MIN_LENGTH = 12;
+
+/** Mirrors `signupSchema`'s `businessName` bound in
+ * `src/server/services/accounts.ts`. Same caveat as above: the server is the
+ * one that enforces it — this only spares the user a round trip that comes
+ * back with zod's raw "String must contain at least 2 character(s)". */
+const BUSINESS_NAME_MIN_LENGTH = 2;
+
+/** Wire field names → the labels this form actually shows. */
+const SIGNUP_FIELD_LABELS = {
+  businessName: "Business name",
+  email: "Email",
+  password: "Password",
+};
 
 type SignupResult = { ok: true } | { ok: false; message: string };
 
@@ -37,11 +64,11 @@ async function signup(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ businessName, email, password }),
     });
-    const body = (await response.json().catch(() => null)) as
-      { data: unknown } | { error: { message: string } } | null;
-    if (!response.ok || !body || "error" in body) {
-      const message = body && "error" in body ? body.error.message : "Something went wrong.";
-      return { ok: false, message };
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok || !body || isApiError(body)) {
+      // The server's per-field reasons, not just its generic
+      // "Invalid request body" — see src/lib/api-error.ts.
+      return { ok: false, message: errorMessage(body, SIGNUP_FIELD_LABELS) };
     }
     return { ok: true };
   } catch {
@@ -73,22 +100,22 @@ function SignupForm() {
 
   if (done) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Check your email</CardTitle>
-        </CardHeader>
+      <AuthShell title="Check your email">
         <CardContent>
           <p className="text-sm text-muted-foreground">
             We sent a verification link to <span className="font-medium">{email}</span>. Follow
             it to activate your account, then log in.
           </p>
         </CardContent>
-        <CardFooter>
-          <a href="/login" className="text-sm text-primary underline-offset-4 hover:underline">
+        <CardFooter className="mt-6">
+          <a
+            href="/login"
+            className="text-sm font-medium text-graft-green underline-offset-4 hover:underline dark:text-graft-green-light"
+          >
             Back to log in
           </a>
         </CardFooter>
-      </Card>
+      </AuthShell>
     );
   }
 
@@ -106,10 +133,10 @@ function SignupForm() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Sign up</CardTitle>
-      </CardHeader>
+    <AuthShell
+      title="Sign up"
+      description="Create your workspace — free forever on one workspace, no card required."
+    >
       <form onSubmit={handleSubmit}>
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
@@ -118,6 +145,7 @@ function SignupForm() {
               id="signup-business"
               autoComplete="organization"
               required
+              minLength={BUSINESS_NAME_MIN_LENGTH}
               value={businessName}
               onChange={(e) => setBusinessName(e.target.value)}
             />
@@ -135,14 +163,17 @@ function SignupForm() {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="signup-password">Password</Label>
-            <Input
+            <PasswordInput
               id="signup-password"
-              type="password"
               autoComplete="new-password"
               required
+              minLength={PASSWORD_MIN_LENGTH}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
+            <p className="text-xs text-muted-foreground">
+              At least {PASSWORD_MIN_LENGTH} characters.
+            </p>
           </div>
           {error ? (
             <p role="alert" data-testid="form-error" className="text-sm text-destructive">
@@ -150,28 +181,25 @@ function SignupForm() {
             </p>
           ) : null}
         </CardContent>
-        <CardFooter className="flex flex-col gap-3">
+        <CardFooter className="mt-6 flex flex-col gap-3">
           <Button type="submit" className="w-full" disabled={submitting}>
             {submitting ? "Signing up…" : "Sign up"}
           </Button>
           <p className="text-sm text-muted-foreground">
             Already have an account?{" "}
-            <a href="/login" className="text-primary underline-offset-4 hover:underline">
+            <a
+              href="/login"
+              className="font-medium text-graft-green underline-offset-4 hover:underline dark:text-graft-green-light"
+            >
               Log in
             </a>
           </p>
         </CardFooter>
       </form>
-    </Card>
+    </AuthShell>
   );
 }
 
 export default function SignupPage() {
-  return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-12">
-      <div className="w-full max-w-sm">
-        <SignupForm />
-      </div>
-    </div>
-  );
+  return <SignupForm />;
 }

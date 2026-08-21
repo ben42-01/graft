@@ -12,6 +12,7 @@
  * used/limit, which is all the MVP report needs (see PR "Outside guidance").
  */
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { LockIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingState } from "@/components/shell/loading-state";
@@ -60,8 +61,16 @@ export function ChartWidget({ widget, canUseChart }: WidgetProps) {
             <div className="flex h-24 w-full items-center justify-center rounded-md border border-dashed">
               <LockIcon className="size-5 text-muted-foreground" aria-hidden="true" />
             </div>
+            {/* The lock used to name Premium with nowhere to go (2026-08-21
+             * UI refinement) — `/account` is the in-app checkout route. */}
             <p className="text-xs text-muted-foreground">
-              Upgrade to Premium to unlock the Chart widget.
+              Upgrade to Premium to unlock the Chart widget.{" "}
+              <Link
+                href="/account"
+                className="font-medium text-graft-green underline-offset-4 hover:underline dark:text-graft-green-light"
+              >
+                View plans
+              </Link>
             </p>
           </div>
         ) : null}

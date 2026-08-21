@@ -11,13 +11,19 @@
  */
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { AuthShell } from "@/components/brand/auth-shell";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { LoadingState } from "@/components/shell/loading-state";
+import { errorMessage, isApiError } from "@/lib/api-error";
 import { useMe } from "@/lib/session";
 import { sanitizeRedirectTarget } from "@/lib/safe-redirect";
+
+/** Wire field names → the labels this form actually shows. */
+const LOGIN_FIELD_LABELS = { email: "Email", password: "Password" };
 
 type LoginResult = { ok: true } | { ok: false; message: string };
 
@@ -29,11 +35,11 @@ async function login(email: string, password: string): Promise<LoginResult> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
-    const body = (await response.json().catch(() => null)) as
-      { data: unknown } | { error: { message: string } } | null;
-    if (!response.ok || !body || "error" in body) {
-      const message = body && "error" in body ? body.error.message : "Something went wrong.";
-      return { ok: false, message };
+    const body: unknown = await response.json().catch(() => null);
+    if (!response.ok || !body || isApiError(body)) {
+      // The server's per-field reasons, not just its generic
+      // "Invalid request body" — see src/lib/api-error.ts.
+      return { ok: false, message: errorMessage(body, LOGIN_FIELD_LABELS) };
     }
     return { ok: true };
   } catch {
@@ -78,10 +84,7 @@ function LoginForm() {
   };
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Log in</CardTitle>
-      </CardHeader>
+    <AuthShell title="Log in" description="Welcome back — pick up where you left off.">
       <form onSubmit={handleSubmit}>
         <CardContent className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
@@ -97,9 +100,8 @@ function LoginForm() {
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="login-password">Password</Label>
-            <Input
+            <PasswordInput
               id="login-password"
-              type="password"
               autoComplete="current-password"
               required
               value={password}
@@ -112,30 +114,29 @@ function LoginForm() {
             </p>
           ) : null}
         </CardContent>
-        <CardFooter className="flex flex-col gap-3">
+        <CardFooter className="mt-6 flex flex-col gap-3">
           <Button type="submit" className="w-full" disabled={submitting}>
             {submitting ? "Logging in…" : "Log in"}
           </Button>
           <p className="text-sm text-muted-foreground">
             No account?{" "}
-            <a href="/signup" className="text-primary underline-offset-4 hover:underline">
+            <a
+              href="/signup"
+              className="font-medium text-graft-green underline-offset-4 hover:underline dark:text-graft-green-light"
+            >
               Sign up
             </a>
           </p>
         </CardFooter>
       </form>
-    </Card>
+    </AuthShell>
   );
 }
 
 export default function LoginPage() {
   return (
-    <div className="flex min-h-screen items-center justify-center px-4 py-12">
-      <div className="w-full max-w-sm">
-        <Suspense fallback={<LoadingState label="Loading…" />}>
-          <LoginForm />
-        </Suspense>
-      </div>
-    </div>
+    <Suspense fallback={<LoadingState label="Loading…" />}>
+      <LoginForm />
+    </Suspense>
   );
 }
