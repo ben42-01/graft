@@ -30,7 +30,7 @@ test("AC2 — valid credentials set the session and land on the redirect target'
 }) => {
   await page.goto("/login?redirect=%2Fdashboards");
   await page.getByLabel("Email").fill(EMAIL);
-  await page.getByLabel("Password").fill(PASSWORD);
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Log in" }).click();
 
   await expect(page).toHaveURL(/\/dashboards$/);
@@ -42,7 +42,7 @@ test("AC3 — invalid credentials show an inline error and never navigate away",
 }) => {
   await page.goto("/login");
   await page.getByLabel("Email").fill(EMAIL);
-  await page.getByLabel("Password").fill("wrong-password-entirely");
+  await page.getByLabel("Password", { exact: true }).fill("wrong-password-entirely");
   await page.getByRole("button", { name: "Log in" }).click();
 
   await expect(page.getByTestId("form-error")).toHaveText(/invalid email or password/i);
@@ -66,7 +66,7 @@ test("AC7 — an absolute or protocol-relative redirect target is ignored in fav
 }) => {
   await page.goto("/login?redirect=https%3A%2F%2Fevil.com");
   await page.getByLabel("Email").fill(EMAIL);
-  await page.getByLabel("Password").fill(PASSWORD);
+  await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Log in" }).click();
 
   await expect(page).toHaveURL("/home");

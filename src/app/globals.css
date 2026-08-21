@@ -13,6 +13,16 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
+  /* Brand palette — logo/graft-brand-kit/BRAND.md. These are the *only*
+   * legal values for the mark and brand accents (BRAND.md rule 2); the
+   * --color-graft-{bg,panel,line,...} console tokens below are a separate,
+   * older UI-chrome set and are not brand colours. */
+  --color-graft-green: #16a34a;
+  --color-graft-green-deep: #15803d;
+  --color-graft-green-light: #4ade80;
+  --color-graft-ink: #0f172a;
+  --color-graft-indigo: #4f46e5;
+
   --color-graft-bg: #0b0d10;
   --color-graft-panel: #14181d;
   --color-graft-line: #232a32;
@@ -97,10 +107,19 @@
   * {
     @apply border-border outline-ring/50;
   }
-}
 
-html,
-body {
-  background: var(--color-graft-bg);
-  color: var(--color-graft-text);
+  /* The page ground has to come from the same `--background`/`--foreground`
+   * tokens `.dark` swaps, or the theme switcher only reaches the components
+   * that happen to name a colour class. This used to be a hardcoded
+   * `html, body { background: var(--color-graft-bg); color:
+   * var(--color-graft-text) }` — the dark-console palette, unconditionally.
+   * Backgrounds hid it (`(public)/layout.tsx` paints `bg-background` over the
+   * body) but the inherited *text* colour leaked through: in light mode every
+   * element without an explicit colour class — bare `<h1>`s, and the brand
+   * lockup, which paints from `currentColor` — rendered near-white on white.
+   * The dark-console `--color-graft-*` tokens survive above for the one place
+   * that asks for them by name (`src/app/dev/status/page.tsx`). */
+  body {
+    @apply bg-background text-foreground;
+  }
 }

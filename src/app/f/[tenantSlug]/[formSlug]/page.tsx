@@ -9,6 +9,7 @@
  * unpublished or killed alike (AC1, same collapse GRAFT-09 uses for AC9).
  */
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import type { Metadata } from "next";
 import { PoweredByBadge } from "@/components/public-form/powered-by-badge";
 import { PublicFormRenderer } from "@/components/public-form/public-form-renderer";
@@ -64,11 +65,16 @@ export default async function PublicFormPage({ params }: { params: Promise<Param
         primaryColor={page.branding.primaryColor}
       />
 
-      {page.showBadge ? (
-        <footer className="flex justify-center">
-          <PoweredByBadge />
-        </footer>
-      ) : null}
+      {/* The badge is Free-only (AC5), so it cannot carry the privacy link:
+       * someone handing over their details to a Premium tenant's form needs
+       * that link just as much. The footer is therefore always rendered,
+       * and the badge is what varies inside it. */}
+      <footer className="flex items-center justify-center gap-3 text-xs text-muted-foreground">
+        {page.showBadge ? <PoweredByBadge /> : null}
+        <Link href="/privacy" className="hover:text-foreground">
+          Privacy
+        </Link>
+      </footer>
     </main>
   );
 }

@@ -1,0 +1,55 @@
+{
+  "id": "deals",
+  "name": "Deals",
+  "category": "Sales & CRM",
+  "description": "Opportunities in progress, with a value and a close date — the pipeline view of your sales.",
+  "entity": {
+    "key": "deals",
+    "name": "Deals",
+    "fields": [
+      {
+        "key": "title",
+        "label": "Deal",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "customer",
+        "label": "Customer",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "value",
+        "label": "Value",
+        "type": "number",
+        "required": true
+      },
+      {
+        "key": "stage",
+        "label": "Stage",
+        "type": "select",
+        "required": false,
+        "options": ["Discovery", "Proposal", "Negotiation", "Won", "Lost"]
+      },
+      {
+        "key": "probability",
+        "label": "Probability %",
+        "type": "number",
+        "required": false
+      },
+      {
+        "key": "close_date",
+        "label": "Expected close",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "owner",
+        "label": "Owner",
+        "type": "text",
+        "required": false
+      }
+    ]
+  }
+}

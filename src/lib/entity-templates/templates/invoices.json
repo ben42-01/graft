@@ -1,0 +1,55 @@
+{
+  "id": "invoices",
+  "name": "Invoices",
+  "category": "Finance",
+  "description": "What you've billed and whether it's been paid. Track it here even if the invoice itself is issued elsewhere.",
+  "entity": {
+    "key": "invoices",
+    "name": "Invoices",
+    "fields": [
+      {
+        "key": "number",
+        "label": "Invoice number",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "customer",
+        "label": "Customer",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "amount",
+        "label": "Amount",
+        "type": "number",
+        "required": true
+      },
+      {
+        "key": "issued_on",
+        "label": "Issued",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "due_on",
+        "label": "Due",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "select",
+        "required": false,
+        "options": ["Draft", "Sent", "Paid", "Overdue", "Written off"]
+      },
+      {
+        "key": "paid",
+        "label": "Paid",
+        "type": "checkbox",
+        "required": false
+      }
+    ]
+  }
+}

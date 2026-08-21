@@ -33,6 +33,13 @@ test("AC1 — an unauthenticated visitor at / sees the marketing/pricing page", 
   ).toBeVisible();
   await expect(page.getByTestId("tier-free")).toBeVisible();
   await expect(page.getByTestId("tier-premium")).toBeVisible();
+
+  // The 2026-08-21 UI refinement put Enterprise behind the audience toggle
+  // (Individual / Team & Enterprise), so it is mounted but not on screen
+  // until that tab is picked. The card's *data* is still asserted on first
+  // paint by AC2 below, which reads attributes rather than visibility.
+  await expect(page.getByTestId("tier-enterprise")).not.toBeVisible();
+  await page.getByTestId("audience-team").click();
   await expect(page.getByTestId("tier-enterprise")).toBeVisible();
 });
 

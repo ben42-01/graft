@@ -1,0 +1,56 @@
+{
+  "id": "tickets",
+  "name": "Support tickets",
+  "category": "Support",
+  "description": "Customer problems and their state. Put a public form in front of it and customers can raise their own.",
+  "entity": {
+    "key": "tickets",
+    "name": "Support tickets",
+    "fields": [
+      {
+        "key": "subject",
+        "label": "Subject",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "requester_email",
+        "label": "Requester email",
+        "type": "email",
+        "required": true
+      },
+      {
+        "key": "description",
+        "label": "Description",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "select",
+        "required": false,
+        "options": ["New", "Open", "Waiting on customer", "Resolved", "Closed"]
+      },
+      {
+        "key": "priority",
+        "label": "Priority",
+        "type": "select",
+        "required": false,
+        "options": ["Low", "Normal", "High", "Urgent"]
+      },
+      {
+        "key": "opened_on",
+        "label": "Opened",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "assigned_to",
+        "label": "Assigned to",
+        "type": "text",
+        "required": false
+      }
+    ]
+  }
+}

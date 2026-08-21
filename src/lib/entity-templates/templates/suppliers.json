@@ -1,0 +1,54 @@
+{
+  "id": "suppliers",
+  "name": "Suppliers",
+  "category": "Inventory",
+  "description": "Who you buy from, and how long they take. Useful the moment you reorder anything regularly.",
+  "entity": {
+    "key": "suppliers",
+    "name": "Suppliers",
+    "fields": [
+      {
+        "key": "name",
+        "label": "Supplier",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "contact_name",
+        "label": "Contact",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "email",
+        "label": "Email",
+        "type": "email",
+        "required": false
+      },
+      {
+        "key": "phone",
+        "label": "Phone",
+        "type": "phone",
+        "required": false
+      },
+      {
+        "key": "lead_time_days",
+        "label": "Lead time (days)",
+        "type": "number",
+        "required": false
+      },
+      {
+        "key": "account_number",
+        "label": "Account number",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "preferred",
+        "label": "Preferred",
+        "type": "checkbox",
+        "required": false
+      }
+    ]
+  }
+}
