@@ -56,6 +56,10 @@ export const COLLECTIONS = [
   // Inventory & resource allocation (docs/BMS_EXTENSION.md §3.1).
   "inventory_pools",
   "resource_allocations",
+  // Orders, invoicing and the per-tenant invoice number sequence.
+  "orders",
+  "invoices",
+  "invoice_counters",
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];

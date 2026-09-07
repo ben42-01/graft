@@ -1,0 +1,36 @@
+meta {
+  name: The ledger shows what was invoiced and what is outstanding
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/api/v1/orders/{{createdOrderId}}/ledger
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.order.status: eq confirmed
+  res.body.data.invoicedMinor: eq 18600
+}
+
+tests {
+  const ledger = res.getBody().data;
+
+  test("outstanding is measured against the order, not against the invoices raised", function () {
+    // Only the deposit has been invoiced so far, but €186 of €620 is paid, so
+    // €434 is still owed on the job as a whole.
+    expect(ledger.outstandingMinor).to.equal(62000 - 18600);
+  });
+
+  test("every invoice against the order is listed", function () {
+    expect(ledger.invoices).to.have.lengthOf(1);
+    expect(ledger.invoices[0].kind).to.equal("deposit");
+  });
+}

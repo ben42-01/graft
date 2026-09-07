@@ -82,6 +82,24 @@ const INDEXES: IndexDef[] = [
     options: { expireAfterSeconds: 60 * 60 * 24 },
   },
 
+  // Orders & invoicing (docs/BMS_EXTENSION.md §2.2, Step 3).
+  { collection: "orders", keys: { tenantId: 1, status: 1, createdAt: -1 } },
+  // "Every order for this customer" — the contact screen's main query.
+  { collection: "orders", keys: { tenantId: 1, customerRecordId: 1 } },
+
+  // An invoice number is a promise: unique per tenant, and quoted by customers
+  // and accountants alike, so the uniqueness is enforced by the database rather
+  // than by the counter that allocates it.
+  { collection: "invoices", keys: { tenantId: 1, number: 1 }, options: { unique: true } },
+  { collection: "invoices", keys: { tenantId: 1, orderId: 1 } },
+  { collection: "invoices", keys: { tenantId: 1, status: 1, dueAt: 1 } },
+  // The sequence counter itself — one document per tenant per year, $inc'd.
+  {
+    collection: "invoice_counters",
+    keys: { tenantId: 1, year: 1 },
+    options: { unique: true },
+  },
+
   // Metering: one counter document per tenant/meter/period, atomically $inc'd
   {
     collection: "usage_meters",

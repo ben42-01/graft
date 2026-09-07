@@ -1,0 +1,34 @@
+meta {
+  name: A second live invoice of the same kind is refused
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/v1/invoices
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "orderId": "{{createdOrderId}}",
+    "kind": "deposit"
+  }
+}
+
+assert {
+  res.status: eq 409
+  res.body.error.code: eq CONFLICT
+  res.body.data: isUndefined
+}
+
+tests {
+  test("the refusal names the invoice already standing, so it can be voided", function () {
+    expect(res.getBody().error.message).to.match(/INV-\d{4}-\d{4,}/);
+  });
+}

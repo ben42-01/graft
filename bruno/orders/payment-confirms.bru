@@ -1,0 +1,48 @@
+meta {
+  name: Covering the deposit confirms the order
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/v1/orders/{{createdOrderId}}/payments
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "amountMinor": 8600,
+    "reference": "pi_qa_deposit_balance"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.status: eq confirmed
+  res.body.data.amountPaidMinor: eq 18600
+  res.body.data.confirmedAt: isDefined
+}
+
+tests {
+  const order = res.getBody().data;
+
+  test("confirmation is a consequence of the money, not a caller's opinion", function () {
+    // A payment provider knows how much arrived and nothing more; whether that
+    // is enough is the service's decision, made against the order's deposit.
+    expect(order.status).to.equal("confirmed");
+  });
+
+  test("payments accumulate rather than replacing one another", function () {
+    expect(order.payments).to.have.lengthOf(2);
+    expect(order.amountPaidMinor).to.equal(18600);
+  });
+
+  test("the balance still reflects the full order, not just the deposit", function () {
+    expect(order.balanceMinor).to.equal(order.totalMinor - 18600);
+  });
+}

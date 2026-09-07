@@ -1,0 +1,35 @@
+meta {
+  name: An issued invoice is voided, never edited or deleted
+  type: http
+  seq: 10
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/invoices/{{issuedInvoiceId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "status": "void"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq void
+  res.body.data.voidedAt: isDefined
+}
+
+tests {
+  test("the document survives — voiding is what leaves the trail", function () {
+    const invoice = res.getBody().data;
+    expect(invoice.number).to.match(/^INV-/);
+    expect(invoice.amountDueMinor).to.equal(18600);
+  });
+}
