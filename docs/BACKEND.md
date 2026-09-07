@@ -129,7 +129,9 @@ Rules:
 
 ### 7.3 CI Pipeline (GitHub Actions)
 
-1. lint + typecheck → 2. unit → 3. integration → 4. build → 5. spin ephemeral stack → 6. `bru run` → 7. Playwright smoke → 8. deploy preview.
+1. lint + typecheck → 2. unit → 3. integration → 4. build → 5. spin ephemeral stack → 6. `bru run` → 7. deploy preview.
+
+Playwright e2e (`docs/BACKEND.md` §7.2 "UI E2E" row) exists in `e2e/` but is deliberately not wired into this pipeline yet — the UI is still in active flux; re-add once it stabilizes.
 - Coverage gate 80% on services; dependency audit (`npm audit` + Dependabot); secret scanning (gitleaks); SAST (CodeQL).
 
 ## 8. Operational Readiness
