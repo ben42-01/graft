@@ -1,0 +1,44 @@
+meta {
+  name: Another tenant's pool cannot be read or held
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/v1/inventory/pools/000000000000000000000066/holds
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "startAt": "2030-07-01T10:00:00.000Z",
+    "endAt": "2030-07-01T12:00:00.000Z",
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("a real id belonging to another tenant reads as not found", function () {
+    // poolOtherTenant (scripts/seed-qa.ts) belongs to qa-at-quota. 404 rather
+    // than 403 so the existence of the row is not leaked — the same collapse
+    // bruno/forms/tenant-isolation.bru asserts for forms.
+    expect(res.getStatus()).to.equal(404);
+  });
+}
+
+docs {
+  Structural, not a check this route wrote: the repository layer scopes every
+  read by ctx.tenantId (src/server/repositories/base.ts).
+}

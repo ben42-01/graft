@@ -1,0 +1,40 @@
+meta {
+  name: The same window cannot be held twice
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/inventory/pools/000000000000000000000065/holds
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "startAt": "2030-06-15T10:00:00.000Z",
+    "endAt": "2030-06-15T14:00:00.000Z",
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 409
+  res.body.error.code: eq CONFLICT
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("a live hold occupies the resource just as a confirmed booking does", function () {
+    expect(res.getStatus()).to.equal(409);
+  });
+}
+
+docs {
+  hold.bru left a live hold over this exact window.
+}

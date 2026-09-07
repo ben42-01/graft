@@ -1,0 +1,35 @@
+meta {
+  name: Cancelling a booking gives the capacity back
+  type: http
+  seq: 8
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/inventory/allocations/{{heldAllocationId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "status": "cancelled"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq cancelled
+  res.body.data.expiresAt: isNull
+}
+
+tests {
+  test("nothing is deleted — the row is the record of what happened", function () {
+    // A cancelled allocation still exists and still says who had the boat and
+    // when. Only its claim on capacity is gone.
+    expect(res.getBody().data.id).to.equal(bru.getVar("heldAllocationId"));
+  });
+}

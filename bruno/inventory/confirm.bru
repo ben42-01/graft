@@ -1,0 +1,35 @@
+meta {
+  name: Confirming a hold drops its lease
+  type: http
+  seq: 7
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/inventory/allocations/{{heldAllocationId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "status": "confirmed"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq confirmed
+  res.body.data.expiresAt: isNull
+}
+
+tests {
+  test("a confirmed booking can no longer lapse", function () {
+    // The lease existed to stop a checkout being outbid mid-form. Once the
+    // booking is real, an expiry would silently release a sold resource.
+    expect(res.getBody().data.expiresAt).to.equal(null);
+  });
+}

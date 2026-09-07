@@ -53,6 +53,9 @@ export const COLLECTIONS = [
   // Tenant-uploaded objects (form carousel images today). Holds metadata only —
   // the bytes live in the S3-compatible bucket, keyed by `key`.
   "media",
+  // Inventory & resource allocation (docs/BMS_EXTENSION.md §3.1).
+  "inventory_pools",
+  "resource_allocations",
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];
