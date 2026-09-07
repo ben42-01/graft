@@ -1,0 +1,54 @@
+meta {
+  name: An invoice snapshots the order and takes the next number
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/v1/invoices
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "orderId": "{{createdOrderId}}",
+    "kind": "deposit"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.status: eq open
+  res.body.data.kind: eq deposit
+  res.body.data.amountDueMinor: eq 18600
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  bru.setVar("issuedInvoiceId", res.body.data.id);
+}
+
+tests {
+  const invoice = res.getBody().data;
+
+  test("the number is year-scoped and zero-padded", function () {
+    expect(invoice.number).to.match(/^INV-\d{4}-\d{4,}$/);
+  });
+
+  test("the line items are copied, not referenced", function () {
+    // A snapshot is the whole point of the document: what the customer was
+    // asked to pay, on the day they were asked.
+    expect(invoice.lineItems).to.have.lengthOf(2);
+    expect(invoice.orderTotalMinor).to.equal(62000);
+  });
+
+  test("a deposit invoice asks for the deposit, not the total", function () {
+    expect(invoice.amountDueMinor).to.equal(18600);
+    expect(invoice.amountDueMinor).to.be.below(invoice.orderTotalMinor);
+  });
+}

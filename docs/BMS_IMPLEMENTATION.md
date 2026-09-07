@@ -8,8 +8,8 @@ keys, JSONB columns, foreign keys. Graft is MongoDB. This document records what
 was actually built, and every place the implementation deliberately departs
 from the spec.
 
-Covers **Steps 1–2** (schema + the inventory and reservation engine). Steps 3
-and 4 append here as they land.
+Covers **Steps 1–3** (schema, the inventory and reservation engine, and
+invoicing). Step 4 appends here as it lands.
 
 ---
 
@@ -141,6 +141,109 @@ it shows buffer blocks as the occupied time they actually are.
 
 ---
 
+## 6a. Orders and invoicing (Step 3)
+
+### Money
+
+Integer **minor units** everywhere (`docs/BACKEND.md` §2). No float arithmetic
+touches a total.
+
+Rates on a record are authored in *major* units, because that is what a human
+types into a form — `hourly_rate: 150` means €150.00 — so `toMinor` is the
+single boundary where that becomes `15000`, and it rounds exactly once, at the
+edge. Everything downstream is integers.
+
+Rounding directions are deliberate and each is tested on its own:
+
+| Rule | Direction | Why |
+|---|---|---|
+| Major → minor | nearest | `12.345` is not a price anyone means to charge; resolve it once rather than refusing it. |
+| Duration → billable units | **up** | Four hours and one minute of a boat is five billable hours. Rounding down gives away 59 minutes. |
+| Percentage deposit | **down** | A deposit is a *part* of a total. A part that rounds up can exceed a sequence of parts that must sum to the whole. |
+| Order total | floored at 0 | A discount larger than the order is a data error, not a refund nobody authorised. |
+
+Zero-decimal currencies (JPY, KRW) are deliberately **not** special-cased:
+doing it correctly needs a currency-exponent table, and a wrong table is worse
+than a consistent one. Amounts are stored in hundredths throughout; a
+zero-decimal currency is a display concern.
+
+### The order state machine
+
+```
+draft → pending_payment → confirmed → in_progress → completed
+  └──────────────┴──────────────┴────────────┴──────→ cancelled
+```
+
+The transition table is **data, not `if` statements**, so "can an order go from
+completed back to draft" has one answer in one place. An illegal move is a 409
+that names both states *and lists what is allowed from here*, so a client never
+has to guess the graph.
+
+Two transitions have consequences beyond the document:
+
+- **`confirmed` confirms the order's allocations** — and does so **first**. If
+  a hold lapsed while the customer was paying, the confirmation fails and the
+  order stays where it was. An order that says "confirmed" while the boat it
+  booked has quietly lapsed is the worst failure this subsystem can have.
+- **`cancelled` releases them**, best-effort: an allocation someone already
+  released is not a reason to leave the order stuck in a state the business has
+  decided is over.
+
+### Payments
+
+`amountPaidMinor` only ever goes up, and only through `recordPayment`, which
+uses `$inc` + `$push` rather than read-modify-write — a webhook retry landing
+beside a manual entry must add up, not overwrite.
+
+**Confirmation is a consequence, not a request.** A payment provider knows how
+much arrived and nothing more; whether that is enough is decided against the
+order's own deposit (or its total, when there is no deposit).
+
+### Invoices
+
+- **A snapshot, not a view.** Line items, totals and currency are copied at
+  issue time. Rendering from the live order would let a later edit rewrite a
+  document someone has already received.
+- **Numbers are sequential and gapless**, per tenant per year
+  (`INV-2026-0001`), allocated by an atomic `$inc` on a counter document — not
+  by counting rows, which races and would miscount as soon as one was voided.
+  A unique index on `(tenantId, number)` is the backstop.
+- **A deposit invoice and a balance invoice always sum to the order.** The
+  balance is computed from the *deposit*, not from what has actually been paid,
+  so a part-paid deposit cannot inflate the balance above the agreed price.
+- **`void` is the only way back.** An issued invoice is never edited and never
+  deleted; a wrong one is voided and replaced.
+
+### API surface (Step 3)
+
+```
+GET    /api/v1/orders                                 ?status=
+POST   /api/v1/orders                                 priced once, starts as draft
+GET    /api/v1/orders/:orderId
+PATCH  /api/v1/orders/:orderId                        draft only
+DELETE /api/v1/orders/:orderId                        cancels, then soft-deletes
+POST   /api/v1/orders/:orderId/transitions            the state machine's only door
+POST   /api/v1/orders/:orderId/payments               record money received
+GET    /api/v1/orders/:orderId/ledger                 order + invoices + outstanding
+
+GET    /api/v1/invoices                               ?orderId= &status=
+POST   /api/v1/invoices                               kind: full | deposit | balance
+GET    /api/v1/invoices/:invoiceId
+PATCH  /api/v1/invoices/:invoiceId                    paid | void — nothing else
+```
+
+### Not done in Step 3
+
+**Stripe is not wired to orders.** `src/app/api/v1/webhooks/stripe/**` is a
+protected path in `.github/agent-policy.yml` and needs explicit human approval.
+The seam is ready and provider-agnostic: `recordPayment(ctx, orderId, {
+amountMinor, reference })` is everything a `payment_intent.succeeded` handler
+would need to call, and it already drives the confirmation. Wiring it is a
+handful of lines in the webhook route plus a checkout-session endpoint that
+stamps the order id into the session metadata.
+
+---
+
 ## 7. Where the guarantees are proven
 
 | Claim | Evidence |
@@ -150,3 +253,9 @@ it shows buffer blocks as the occupied time they actually are.
 | No double-booking under real concurrency | `src/server/services/availability.integration.test.ts` — 8 simultaneous holds on one asset, 12 on a capacity of 3, against `MongoMemoryReplSet` |
 | Cross-tenant isolation | same file, plus `bruno/inventory/tenant-isolation.bru` |
 | The HTTP contract end to end | `bruno/inventory/*.bru` (11 requests) against the QA stack |
+| Money arithmetic and every rounding rule | `src/server/services/pricing.test.ts` (33 tests) |
+| The order state machine and payment rules | `src/server/services/orders.test.ts` (27 tests) |
+| Invoice snapshotting, splitting and voiding | `src/server/services/invoices.test.ts` (21 tests) |
+| Booking → payment → confirmation, end to end | `src/server/services/orders.integration.test.ts` |
+| **Gapless invoice numbering under concurrency** | same file — 10 invoices issued simultaneously produce 0001–0010, no gaps, no duplicates |
+| The orders/invoices HTTP contract | `bruno/orders/*.bru` (11 requests) |

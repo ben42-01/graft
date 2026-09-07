@@ -1,0 +1,40 @@
+meta {
+  name: A part payment is recorded but does not confirm the order
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/orders/{{createdOrderId}}/payments
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "amountMinor": 10000,
+    "reference": "pi_qa_partial"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.status: eq pending_payment
+  res.body.data.amountPaidMinor: eq 10000
+}
+
+tests {
+  test("the provider's reference is kept against the payment", function () {
+    const payments = res.getBody().data.payments;
+    expect(payments).to.have.lengthOf(1);
+    expect(payments[0].reference).to.equal("pi_qa_partial");
+  });
+
+  test("€100 of an €186 deposit is not enough to confirm", function () {
+    expect(res.getBody().data.status).to.equal("pending_payment");
+  });
+}

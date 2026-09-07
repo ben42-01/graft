@@ -1,0 +1,82 @@
+meta {
+  name: An order is drafted and priced from its line items
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/orders
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "currency": "EUR",
+    "lineItems": [
+      {
+        "kind": "resource",
+        "description": "24ft Pontoon Boat — 4 hours",
+        "quantity": 1,
+        "unitAmountMinor": 60000
+      },
+      {
+        "kind": "addon",
+        "description": "Life jackets",
+        "quantity": 4,
+        "unitAmountMinor": 500
+      }
+    ],
+    "deposit": { "percent": 30 }
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.status: eq draft
+  res.body.data.currency: eq EUR
+  res.body.data.subtotalMinor: eq 62000
+  res.body.data.totalMinor: eq 62000
+  res.body.data.amountPaidMinor: eq 0
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  bru.setVar("createdOrderId", res.body.data.id);
+}
+
+tests {
+  const order = res.getBody().data;
+
+  test("money is integer minor units, never a float", function () {
+    // docs/BACKEND.md §2. A float in a total is how a cent goes missing.
+    for (const item of order.lineItems) {
+      expect(Number.isInteger(item.unitAmountMinor)).to.equal(true);
+      expect(Number.isInteger(item.amountMinor)).to.equal(true);
+    }
+    expect(Number.isInteger(order.totalMinor)).to.equal(true);
+  });
+
+  test("the line amount is computed by the server, not accepted from the client", function () {
+    // 4 life jackets at €5.00 = €20.00; the request never sent 2000.
+    expect(order.lineItems[1].amountMinor).to.equal(2000);
+  });
+
+  test("the deposit is derived from the total", function () {
+    // 30% of €620.00, rounded down.
+    expect(order.depositMinor).to.equal(18600);
+  });
+
+  test("the balance is derived, so it can never disagree with itself", function () {
+    expect(order.balanceMinor).to.equal(order.totalMinor - order.amountPaidMinor);
+  });
+}
+
+docs {
+  docs/BMS_EXTENSION.md §2.2. Requires bruno/auth/login.bru first
+  (loginAccessToken), which alphabetical folder order guarantees.
+}

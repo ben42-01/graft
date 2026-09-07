@@ -1,0 +1,35 @@
+meta {
+  name: An order awaiting payment can no longer be re-priced
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/orders/{{createdOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "lineItems": [
+      { "kind": "fee", "description": "Sneaky repricing", "quantity": 1, "unitAmountMinor": 1 }
+    ]
+  }
+}
+
+assert {
+  res.status: eq 409
+  res.body.error.code: eq CONFLICT
+  res.body.data: isUndefined
+}
+
+tests {
+  test("once a customer has been asked for money, the line items are what they agreed to", function () {
+    expect(res.getStatus()).to.equal(409);
+  });
+}

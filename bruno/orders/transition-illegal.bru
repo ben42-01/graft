@@ -1,0 +1,39 @@
+meta {
+  name: An illegal state transition is refused by name
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/orders/{{createdOrderId}}/transitions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "status": "in_progress"
+  }
+}
+
+assert {
+  res.status: eq 409
+  res.body.error.code: eq CONFLICT
+  res.body.data: isUndefined
+}
+
+tests {
+  test("the refusal lists what IS allowed, so a client never guesses the graph", function () {
+    // draft -> in_progress is not a transition; draft -> pending_payment,
+    // confirmed or cancelled are (docs/BMS_EXTENSION.md §2.2).
+    const details = res.getBody().error.details;
+    expect(details.from).to.equal("draft");
+    expect(details.to).to.equal("in_progress");
+    expect(details.allowed).to.include("pending_payment");
+    expect(details.allowed).to.not.include("in_progress");
+  });
+}

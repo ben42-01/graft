@@ -1,0 +1,30 @@
+meta {
+  name: Another tenant's order is not found
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/api/v1/orders/000000000000000000000099
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("an unknown or foreign order id reads as not found, never forbidden", function () {
+    // Structural: the repository layer scopes every read by ctx.tenantId
+    // (src/server/repositories/base.ts), so existence is never leaked.
+    expect(res.getStatus()).to.equal(404);
+  });
+}

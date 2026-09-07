@@ -1,0 +1,27 @@
+meta {
+  name: A draft moves to awaiting payment
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/orders/{{createdOrderId}}/transitions
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "status": "pending_payment"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq pending_payment
+  res.body.data.confirmedAt: isNull
+}
