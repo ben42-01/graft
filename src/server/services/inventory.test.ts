@@ -14,10 +14,13 @@ import type { RecordView } from "@/server/services/records";
 import {
   createPool,
   deletePool,
+  findPoolDoc,
   getPool,
+  listPools,
   INVENTORY_STRATEGIES,
   MAX_BUFFER_MINUTES,
   quantityFor,
+  toPoolView,
   updatePool,
   type InventoryDeps,
   type InventoryPoolDoc,
@@ -303,5 +306,85 @@ describe("getPool / deletePool", () => {
     const { repo, docs } = fakeRepo([seedPool()]);
     await deletePool(ctx, POOL_ID, { repo, getRecord: async () => record() });
     expect(docs.get(POOL_ID)?.deletedAt).toEqual(NOW);
+  });
+});
+
+describe("listPools", () => {
+  it("returns views, never raw documents", async () => {
+    const result = await listPools(ctx, {}, deps([seedPool()]));
+    expect(result.items[0]).not.toHaveProperty("tenantId");
+    expect(result.items[0]).toMatchObject({
+      recordId: RECORD_ID,
+      strategy: "individual_asset",
+    });
+  });
+
+  it("narrows to one entity type — the scheduler's main query", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const base = fakeRepo([seedPool()]).repo;
+    const spy: typeof base = {
+      ...base,
+      async listPage(_ctx, options) {
+        captured.push((options?.filter ?? {}) as Record<string, unknown>);
+        return { items: [seedPool()], meta: { limit: 25, hasMore: false, cursor: null } };
+      },
+    };
+
+    await listPools(
+      ctx,
+      { entityId: ENTITY_ID },
+      { repo: spy, getRecord: async () => record() },
+    );
+    expect((captured[0].entityDefId as ObjectId).toHexString()).toBe(ENTITY_ID);
+  });
+
+  it("applies no filter when no entity is named", async () => {
+    const captured: (Record<string, unknown> | undefined)[] = [];
+    const base = fakeRepo([]).repo;
+    const spy: typeof base = {
+      ...base,
+      async listPage(_ctx, options) {
+        captured.push(options?.filter as Record<string, unknown> | undefined);
+        return { items: [], meta: { limit: 25, hasMore: false, cursor: null } };
+      },
+    };
+
+    await listPools(ctx, {}, { repo: spy, getRecord: async () => record() });
+    expect(captured[0]).toBeUndefined();
+  });
+});
+
+describe("findPoolDoc", () => {
+  it("hands the engine the document, not a view", async () => {
+    const doc = await findPoolDoc(ctx, POOL_ID, deps([seedPool()]));
+    // availability.ts needs `tenantId` and `_id`, which a view deliberately drops.
+    expect(doc?.tenantId).toBeInstanceOf(ObjectId);
+    expect(doc?.allocationVersion).toBe(0);
+  });
+
+  it("returns null for a malformed id rather than throwing", async () => {
+    expect(await findPoolDoc(ctx, "not-an-id", deps([]))).toBeNull();
+  });
+
+  it("returns null for another tenant's pool", async () => {
+    expect(await findPoolDoc(ctx, POOL_ID, deps([]))).toBeNull();
+  });
+});
+
+describe("toPoolView", () => {
+  it("exposes ids as strings and hides the tenant", () => {
+    const view = toPoolView(seedPool());
+    expect(view).toMatchObject({ id: POOL_ID, entityId: ENTITY_ID, recordId: RECORD_ID });
+    expect(view).not.toHaveProperty("tenantId");
+    // `allocationVersion` is an internal concurrency guard, not an API field.
+    expect(view).not.toHaveProperty("allocationVersion");
+  });
+});
+
+describe("deletePool", () => {
+  it("404s for a pool this tenant cannot see", async () => {
+    await expect(deletePool(ctx, POOL_ID, deps([]))).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
   });
 });

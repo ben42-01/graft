@@ -16,8 +16,10 @@ import {
   blockedWindow,
   confirmAllocation,
   isAvailable,
+  listAllocations,
   overlapFilter,
   releaseAllocation,
+  toAllocationView,
   type AvailabilityDeps,
   type ResourceAllocationDoc,
 } from "./availability";
@@ -469,5 +471,92 @@ describe("releaseAllocation", () => {
     await expect(
       releaseAllocation(ctx, new ObjectId().toHexString(), "released", deps(pool(), [])),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("listAllocations — the master schedule's read", () => {
+  it("filters on the blocked window, so buffers count as occupied time", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const repo = fakeAllocations([allocation()]).repo;
+    const spy: typeof repo = {
+      ...repo,
+      async listPage(_ctx, options) {
+        captured.push((options?.filter ?? {}) as Record<string, unknown>);
+        return { items: [allocation()], meta: { limit: 25, hasMore: false, cursor: null } };
+      },
+    };
+
+    await listAllocations(
+      ctx,
+      { from: at(1).toISOString(), to: at(4).toISOString() },
+      { allocations: spy, findPool: async () => pool(), now: () => NOW },
+    );
+
+    // The booked window would miss a booking whose *buffer* reaches into the
+    // requested range — which is exactly what a scheduler must not miss.
+    expect(captured[0]).toHaveProperty("blockedFrom");
+    expect(captured[0]).toHaveProperty("blockedUntil");
+    expect(captured[0]).not.toHaveProperty("startAt");
+  });
+
+  it("narrows to one pool when asked", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const repo = fakeAllocations([]).repo;
+    const spy: typeof repo = {
+      ...repo,
+      async listPage(_ctx, options) {
+        captured.push((options?.filter ?? {}) as Record<string, unknown>);
+        return { items: [], meta: { limit: 25, hasMore: false, cursor: null } };
+      },
+    };
+
+    await listAllocations(ctx, { poolId: POOL_ID }, { allocations: spy });
+    expect((captured[0].poolId as ObjectId).toHexString()).toBe(POOL_ID);
+  });
+
+  it("applies no window at all when only half a range is given", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const repo = fakeAllocations([]).repo;
+    const spy: typeof repo = {
+      ...repo,
+      async listPage(_ctx, options) {
+        captured.push((options?.filter ?? {}) as Record<string, unknown>);
+        return { items: [], meta: { limit: 25, hasMore: false, cursor: null } };
+      },
+    };
+
+    // Half a range is not a range; filtering on it would silently answer a
+    // different question than the one asked.
+    await listAllocations(ctx, { from: at(1).toISOString() }, { allocations: spy });
+    expect(captured[0]).not.toHaveProperty("blockedFrom");
+  });
+
+  it("returns views, never raw documents", async () => {
+    const result = await listAllocations(
+      ctx,
+      {},
+      { allocations: fakeAllocations([allocation()]).repo },
+    );
+    expect(result.items[0]).not.toHaveProperty("tenantId");
+    expect(result.items[0]).toHaveProperty("poolId");
+  });
+
+  it("refuses a malformed pool id rather than querying with it", async () => {
+    await expect(
+      listAllocations(ctx, { poolId: "nope" }, { allocations: fakeAllocations([]).repo }),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+});
+
+describe("toAllocationView", () => {
+  it("exposes ids as strings and hides the tenant entirely", () => {
+    const view = toAllocationView(allocation({ holderId: new ObjectId(POOL_ID) }));
+    expect(view.poolId).toBe(POOL_ID);
+    expect(view.holderId).toBe(POOL_ID);
+    expect(view).not.toHaveProperty("tenantId");
+  });
+
+  it("reports a null holder for an allocation that belongs to no order yet", () => {
+    expect(toAllocationView(allocation({ holderId: null })).holderId).toBeNull();
   });
 });
