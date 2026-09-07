@@ -15,10 +15,12 @@ import type { Repository } from "@/server/repositories/base";
 import type { FieldDef } from "@/server/services/entities";
 import {
   attachFormImage,
+  findServablePublicMedia,
   removeFormImage,
   updateFormCarousel,
   requestFormImageUpload,
   type FormMediaDeps,
+  type PublicMediaDeps,
 } from "./form-media";
 import type { FormDoc } from "./forms";
 import type { MediaDoc, MediaView, UploadTicket } from "./media";
@@ -356,5 +358,91 @@ describe("removeFormImage", () => {
     await expect(removeFormImage(ctx, FORM_ID, mediaId(1), d.deps)).rejects.toMatchObject({
       code: "NOT_FOUND",
     });
+  });
+});
+
+/**
+ * The public read path is an *authorization* boundary, not a lookup: an image
+ * is served only while the form that owns it is published and enabled. Every
+ * way that can go wrong is a way a private photo becomes public, so each one
+ * is asserted separately.
+ */
+describe("findServablePublicMedia", () => {
+  const live = (over: Partial<WithId<FormDoc>> = {}) =>
+    seedForm({
+      published: true,
+      enabled: true,
+      carousel: [{ mediaId: new ObjectId(mediaId(1)), alt: "A boat" }],
+      ...over,
+    });
+
+  const publicDeps = (
+    media: WithId<MediaDoc> | null,
+    form: WithId<FormDoc> | null,
+  ): Partial<PublicMediaDeps> => ({
+    findReadyMedia: async () => media,
+    findOwningForm: async () => form,
+  });
+
+  it("serves an attached image on a published, enabled form", async () => {
+    const media = seedMedia(mediaId(1));
+    const found = await findServablePublicMedia(mediaId(1), publicDeps(media, live()));
+    expect(found).toEqual({ key: media.key, contentType: "image/png" });
+  });
+
+  it("serves nothing for an unknown or unready id", async () => {
+    expect(await findServablePublicMedia(mediaId(1), publicDeps(null, live()))).toBeNull();
+  });
+
+  it("goes dark when the form is unpublished", async () => {
+    const found = await findServablePublicMedia(
+      mediaId(1),
+      publicDeps(seedMedia(mediaId(1)), live({ published: false })),
+    );
+    expect(found).toBeNull();
+  });
+
+  it("goes dark when the kill switch is thrown", async () => {
+    const found = await findServablePublicMedia(
+      mediaId(1),
+      publicDeps(seedMedia(mediaId(1)), live({ enabled: false })),
+    );
+    expect(found).toBeNull();
+  });
+
+  it("goes dark when the form is gone", async () => {
+    const found = await findServablePublicMedia(
+      mediaId(1),
+      publicDeps(seedMedia(mediaId(1)), null),
+    );
+    expect(found).toBeNull();
+  });
+
+  it("refuses an image detached from the carousel, even before its object is swept", async () => {
+    const found = await findServablePublicMedia(
+      mediaId(1),
+      publicDeps(seedMedia(mediaId(1)), live({ carousel: [] })),
+    );
+    expect(found).toBeNull();
+  });
+
+  it("refuses media owned by something that is not a form", async () => {
+    const found = await findServablePublicMedia(
+      mediaId(1),
+      publicDeps(seedMedia(mediaId(1), { ownerType: "video" as never }), live()),
+    );
+    expect(found).toBeNull();
+  });
+
+  it("looks the form up under the media's own tenant, not a caller-supplied one", async () => {
+    const media = seedMedia(mediaId(1));
+    const findOwningForm = vi.fn(async () => live());
+
+    await findServablePublicMedia(mediaId(1), {
+      findReadyMedia: async () => media,
+      findOwningForm,
+    });
+
+    expect(findOwningForm).toHaveBeenCalledWith(media.ownerId, media.tenantId);
   });
 });

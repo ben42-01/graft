@@ -19,11 +19,16 @@ import {
   ALLOWED_IMAGE_TYPES,
   confirmUpload,
   deleteMedia,
+  findReadyMedia,
+  getMedia,
+  listMediaFor,
   MAX_IMAGE_BYTES,
   mediaUrl,
   megabytesFor,
+  presignedReadUrl,
   requestUpload,
   requestUploadSchema,
+  toMediaView,
   type MediaDoc,
 } from "./media";
 
@@ -335,5 +340,89 @@ describe("deleteMedia", () => {
 
     expect(store.remove).toHaveBeenCalledWith(doc.key);
     expect(docs.get(doc._id.toHexString())?.deletedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("the read helpers", () => {
+  const deps = (seed: WithId<MediaDoc>[]) => ({
+    repo: fakeRepo(seed).repo,
+    store: fakeStore(),
+    consumeQuota: async () => allowedQuota,
+    randomKey: () => "fixed",
+  });
+
+  it("lists only the ready media of one owner", async () => {
+    const ready = seedMedia({ status: "ready", sizeBytes: 4_096 });
+    const pending = seedMedia({ status: "pending" });
+    const elsewhere = seedMedia({
+      status: "ready",
+      ownerId: new ObjectId("0000000000000000000000cc"),
+    });
+
+    const rows = await listMediaFor(
+      ctx,
+      { type: "form", id: FORM_ID },
+      deps([ready, pending, elsewhere]),
+    );
+
+    expect(rows.map((row) => row._id.toHexString())).toEqual([ready._id.toHexString()]);
+  });
+
+  it("reads one row back whatever its status", async () => {
+    const pending = seedMedia();
+    const found = await getMedia(ctx, pending._id.toHexString(), deps([pending]));
+    expect(found?.status).toBe("pending");
+  });
+
+  it("returns null for a malformed id rather than throwing", async () => {
+    expect(await getMedia(ctx, "not-an-object-id", deps([]))).toBeNull();
+    expect(await findReadyMedia("not-an-object-id")).toBeNull();
+  });
+
+  it("returns null for another tenant's row", async () => {
+    const theirs = seedMedia({ tenantId: new ObjectId("0000000000000000000000ff") });
+    expect(await getMedia(ctx, theirs._id.toHexString(), deps([theirs]))).toBeNull();
+  });
+
+  it("finds a ready row without a ctx — the unauthenticated read path", async () => {
+    const ready = seedMedia({ status: "ready", sizeBytes: 4_096 });
+    const collection = {
+      findOne: vi.fn(async (filter: Record<string, unknown>) =>
+        filter.status === "ready" ? ready : null,
+      ),
+    };
+    const repo = {
+      ...fakeRepo([ready]).repo,
+      collection: (async () => collection) as never,
+    };
+
+    const found = await findReadyMedia(ready._id.toHexString(), {
+      repo,
+      store: fakeStore(),
+      consumeQuota: async () => allowedQuota,
+      randomKey: () => "fixed",
+    });
+
+    expect(found?._id.toHexString()).toBe(ready._id.toHexString());
+    // Only `ready`, and only rows that are not soft-deleted, are ever servable.
+    expect(collection.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready", deletedAt: null }),
+    );
+  });
+
+  it("hands out a presigned read URL for a key", async () => {
+    const url = await presignedReadUrl("tenants/a/forms/b/c.png", deps([]));
+    expect(url).toContain("sig=get");
+  });
+});
+
+describe("toMediaView", () => {
+  it("points a browser at this app, never at the bucket", () => {
+    const doc = seedMedia({ status: "ready", sizeBytes: 4_096 });
+    const view = toMediaView(doc);
+
+    expect(view.url).toBe(`/api/v1/public/media/${doc._id.toHexString()}`);
+    expect(view.url).not.toContain("bucket.test");
+    expect(view).toMatchObject({ status: "ready", sizeBytes: 4_096, contentType: "image/png" });
   });
 });
