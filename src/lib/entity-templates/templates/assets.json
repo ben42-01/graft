@@ -1,0 +1,56 @@
+{
+  "id": "assets",
+  "name": "Assets",
+  "category": "Inventory",
+  "description": "Equipment, vehicles and tools you own — what it is, where it is, and when it was last serviced.",
+  "entity": {
+    "key": "assets",
+    "name": "Assets",
+    "fields": [
+      {
+        "key": "tag",
+        "label": "Asset tag",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "name",
+        "label": "Name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "category",
+        "label": "Category",
+        "type": "select",
+        "required": false,
+        "options": ["Vehicle", "Machinery", "IT equipment", "Tools", "Furniture", "Other"]
+      },
+      {
+        "key": "location",
+        "label": "Location",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "purchased_on",
+        "label": "Purchased",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "serviced_on",
+        "label": "Last serviced",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "select",
+        "required": false,
+        "options": ["In service", "In repair", "Retired"]
+      }
+    ]
+  }
+}

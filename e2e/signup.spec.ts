@@ -13,7 +13,7 @@ test("AC4 — a valid signup calls the API, creates no client session, and shows
   await page.goto("/signup");
   await page.getByLabel("Business name").fill(`Signup E2E ${unique}`);
   await page.getByLabel("Email").fill(`signup-e2e-${unique}@qa.test`);
-  await page.getByLabel("Password").fill("a-perfectly-fine-password-2026");
+  await page.getByLabel("Password", { exact: true }).fill("a-perfectly-fine-password-2026");
   await page.getByRole("button", { name: "Sign up" }).click();
 
   await expect(page.getByText(/check your email/i)).toBeVisible();
@@ -30,7 +30,7 @@ test("AC5 — signing up with an email already in use surfaces the CONFLICT inli
   await page.goto("/signup");
   await page.getByLabel("Business name").fill("Duplicate Business E2E");
   await page.getByLabel("Email").fill("owner@qa-free.test");
-  await page.getByLabel("Password").fill("a-perfectly-fine-password-2026");
+  await page.getByLabel("Password", { exact: true }).fill("a-perfectly-fine-password-2026");
   await page.getByRole("button", { name: "Sign up" }).click();
 
   await expect(page.getByTestId("form-error")).toHaveText(/already exists/i);

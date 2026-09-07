@@ -1,0 +1,54 @@
+{
+  "id": "products",
+  "name": "Products",
+  "category": "Inventory",
+  "description": "What you sell, with a price and a stock count. The starting point for anything retail or wholesale.",
+  "entity": {
+    "key": "products",
+    "name": "Products",
+    "fields": [
+      {
+        "key": "sku",
+        "label": "SKU",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "name",
+        "label": "Name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "price",
+        "label": "Price",
+        "type": "number",
+        "required": true
+      },
+      {
+        "key": "cost",
+        "label": "Unit cost",
+        "type": "number",
+        "required": false
+      },
+      {
+        "key": "stock",
+        "label": "In stock",
+        "type": "number",
+        "required": false
+      },
+      {
+        "key": "category",
+        "label": "Category",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "active",
+        "label": "Active",
+        "type": "checkbox",
+        "required": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "id": "leads",
+  "name": "Leads",
+  "category": "Sales & CRM",
+  "description": "Enquiries you haven't won yet. Pair it with a public form so the web enquiries land here on their own.",
+  "entity": {
+    "key": "leads",
+    "name": "Leads",
+    "fields": [
+      {
+        "key": "name",
+        "label": "Name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "email",
+        "label": "Email",
+        "type": "email",
+        "required": false
+      },
+      {
+        "key": "phone",
+        "label": "Phone",
+        "type": "phone",
+        "required": false
+      },
+      {
+        "key": "source",
+        "label": "Source",
+        "type": "select",
+        "required": false,
+        "options": ["Website", "Referral", "Social", "Advert", "Walk-in", "Other"]
+      },
+      {
+        "key": "stage",
+        "label": "Stage",
+        "type": "select",
+        "required": false,
+        "options": ["New", "Contacted", "Qualified", "Proposal", "Won", "Lost"]
+      },
+      {
+        "key": "value",
+        "label": "Estimated value",
+        "type": "number",
+        "required": false
+      },
+      {
+        "key": "follow_up",
+        "label": "Follow up on",
+        "type": "date",
+        "required": false
+      }
+    ]
+  }
+}

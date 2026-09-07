@@ -1,0 +1,49 @@
+{
+  "id": "customers",
+  "name": "Customers",
+  "category": "Sales & CRM",
+  "description": "People or companies who buy from you. The most common first entity — almost everything else refers back to it.",
+  "entity": {
+    "key": "customers",
+    "name": "Customers",
+    "fields": [
+      {
+        "key": "name",
+        "label": "Name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "email",
+        "label": "Email",
+        "type": "email",
+        "required": false
+      },
+      {
+        "key": "phone",
+        "label": "Phone",
+        "type": "phone",
+        "required": false
+      },
+      {
+        "key": "company",
+        "label": "Company",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "select",
+        "required": false,
+        "options": ["Lead", "Active", "Dormant", "Lost"]
+      },
+      {
+        "key": "notes",
+        "label": "Notes",
+        "type": "text",
+        "required": false
+      }
+    ]
+  }
+}

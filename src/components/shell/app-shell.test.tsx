@@ -14,6 +14,7 @@ vi.mock("next-themes", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+  usePathname: () => "/home",
 }));
 
 const ME: MeResponse = {

@@ -1,0 +1,56 @@
+{
+  "id": "tasks",
+  "name": "Tasks",
+  "category": "Operations",
+  "description": "The to-do list, shared across the workspace. Small and deliberately generic — most teams adapt this one first.",
+  "entity": {
+    "key": "tasks",
+    "name": "Tasks",
+    "fields": [
+      {
+        "key": "title",
+        "label": "Task",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "assignee",
+        "label": "Assignee",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "select",
+        "required": false,
+        "options": ["To do", "In progress", "Blocked", "Done"]
+      },
+      {
+        "key": "priority",
+        "label": "Priority",
+        "type": "select",
+        "required": false,
+        "options": ["Low", "Normal", "High", "Urgent"]
+      },
+      {
+        "key": "due_date",
+        "label": "Due",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "project",
+        "label": "Project",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "done",
+        "label": "Done",
+        "type": "checkbox",
+        "required": false
+      }
+    ]
+  }
+}

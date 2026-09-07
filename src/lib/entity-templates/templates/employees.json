@@ -1,0 +1,55 @@
+{
+  "id": "employees",
+  "name": "Team members",
+  "category": "People",
+  "description": "Everyone who works for you, with role and start date. Note this is your own record of them — it does not create Graft logins.",
+  "entity": {
+    "key": "team_members",
+    "name": "Team members",
+    "fields": [
+      {
+        "key": "name",
+        "label": "Name",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "email",
+        "label": "Email",
+        "type": "email",
+        "required": false
+      },
+      {
+        "key": "phone",
+        "label": "Phone",
+        "type": "phone",
+        "required": false
+      },
+      {
+        "key": "role",
+        "label": "Role",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "employment_type",
+        "label": "Employment type",
+        "type": "select",
+        "required": false,
+        "options": ["Full time", "Part time", "Contractor", "Casual"]
+      },
+      {
+        "key": "started_on",
+        "label": "Started",
+        "type": "date",
+        "required": false
+      },
+      {
+        "key": "active",
+        "label": "Active",
+        "type": "checkbox",
+        "required": false
+      }
+    ]
+  }
+}

@@ -92,21 +92,34 @@ export type AccountDeps = {
  * The mailer seam. Until GRAFT sends real email, the token goes to the log so a
  * developer can complete the flow by hand. The address is included because this
  * line only ever exists in dev and QA — see the guard.
+ *
+ * The dev/QA branch writes straight to stdout rather than through
+ * `createLogger`: `redact()` (server/log.ts) blanket-strips any field named
+ * `email` or `token` in every environment — that deny-list is the security
+ * checklist's "no PII in logs" contract and must stay blunt, not learn a
+ * dev-mode exception. So this is the one line in the app that is allowed to
+ * print a live credential, and it only exists outside production.
  */
 const logVerificationToken = (event: VerificationIssued): void => {
-  const log = createLogger({ requestId: "auth.verification" });
   if (process.env.APP_ENV === "production") {
     // AC4 / §1.5: never write a live credential to a production log. The seam
     // stays, the value does not — a real mailer replaces this branch.
+    const log = createLogger({ requestId: "auth.verification" });
     log.info("auth.verification.issued", { userId: event.userId });
     return;
   }
-  log.info("auth.verification.issued", {
-    userId: event.userId,
-    email: event.email,
-    token: event.token,
-    expiresAt: event.expiresAt.toISOString(),
-  });
+  console.log(
+    JSON.stringify({
+      ts: new Date().toISOString(),
+      level: "info",
+      msg: "auth.verification.issued",
+      requestId: "auth.verification",
+      userId: event.userId,
+      email: event.email,
+      token: event.token,
+      expiresAt: event.expiresAt.toISOString(),
+    }),
+  );
 };
 
 function resolve(overrides: Partial<AccountDeps> = {}): AccountDeps {

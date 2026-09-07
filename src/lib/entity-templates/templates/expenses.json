@@ -1,0 +1,57 @@
+{
+  "id": "expenses",
+  "name": "Expenses",
+  "category": "Finance",
+  "description": "Money out — receipts, mileage, subscriptions. Categorised so you can total it at year end.",
+  "entity": {
+    "key": "expenses",
+    "name": "Expenses",
+    "fields": [
+      {
+        "key": "description",
+        "label": "Description",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "amount",
+        "label": "Amount",
+        "type": "number",
+        "required": true
+      },
+      {
+        "key": "spent_on",
+        "label": "Date",
+        "type": "date",
+        "required": true
+      },
+      {
+        "key": "category",
+        "label": "Category",
+        "type": "select",
+        "required": false,
+        "options": [
+          "Materials",
+          "Travel",
+          "Equipment",
+          "Software",
+          "Marketing",
+          "Office",
+          "Other"
+        ]
+      },
+      {
+        "key": "paid_by",
+        "label": "Paid by",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "reimbursable",
+        "label": "Reimbursable",
+        "type": "checkbox",
+        "required": false
+      }
+    ]
+  }
+}

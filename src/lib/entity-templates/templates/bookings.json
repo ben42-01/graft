@@ -1,0 +1,61 @@
+{
+  "id": "bookings",
+  "name": "Bookings",
+  "category": "Operations",
+  "description": "Appointments and reservations with a date and a service. Works well behind a public booking form.",
+  "entity": {
+    "key": "bookings",
+    "name": "Bookings",
+    "fields": [
+      {
+        "key": "customer_name",
+        "label": "Customer",
+        "type": "text",
+        "required": true
+      },
+      {
+        "key": "email",
+        "label": "Email",
+        "type": "email",
+        "required": false
+      },
+      {
+        "key": "phone",
+        "label": "Phone",
+        "type": "phone",
+        "required": false
+      },
+      {
+        "key": "service",
+        "label": "Service",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "booked_for",
+        "label": "Date",
+        "type": "date",
+        "required": true
+      },
+      {
+        "key": "start_time",
+        "label": "Start time",
+        "type": "text",
+        "required": false
+      },
+      {
+        "key": "party_size",
+        "label": "People",
+        "type": "number",
+        "required": false
+      },
+      {
+        "key": "status",
+        "label": "Status",
+        "type": "select",
+        "required": false,
+        "options": ["Requested", "Confirmed", "Seated", "No-show", "Cancelled"]
+      }
+    ]
+  }
+}
