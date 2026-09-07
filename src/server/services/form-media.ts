@@ -261,16 +261,38 @@ export async function removeFormImage(
  * it. Unknown, unattached, unpublished and killed all collapse to `null`, the
  * same 404 the form page itself gives.
  */
+export type PublicMediaDeps = {
+  findReadyMedia: (mediaId: string) => Promise<(MediaDoc & { _id: ObjectId }) | null>;
+  /** Scoped by the media row's own tenant, never by anything a caller sent. */
+  findOwningForm: (
+    formId: ObjectId,
+    tenantId: ObjectId,
+  ) => Promise<(FormDoc & { _id: ObjectId }) | null>;
+};
+
+function resolvePublicDeps(overrides: Partial<PublicMediaDeps> = {}): PublicMediaDeps {
+  return {
+    findReadyMedia: overrides.findReadyMedia ?? findReadyMedia,
+    findOwningForm:
+      overrides.findOwningForm ??
+      (async (formId, tenantId) => {
+        const db = await getDb();
+        return db
+          .collection<FormDoc>("forms")
+          .findOne({ _id: formId, tenantId, deletedAt: null });
+      }),
+  };
+}
+
 export async function findServablePublicMedia(
   mediaId: string,
+  overrides: Partial<PublicMediaDeps> = {},
 ): Promise<{ key: string; contentType: string } | null> {
-  const media = await findReadyMedia(mediaId);
+  const deps = resolvePublicDeps(overrides);
+  const media = await deps.findReadyMedia(mediaId);
   if (!media || media.ownerType !== "form") return null;
 
-  const db = await getDb();
-  const form = await db
-    .collection<FormDoc>("forms")
-    .findOne({ _id: media.ownerId, tenantId: media.tenantId, deletedAt: null });
+  const form = await deps.findOwningForm(media.ownerId, media.tenantId);
   if (!form || !isFormServable(form)) return null;
 
   // Still attached: a slide removed from the carousel is no longer public even
