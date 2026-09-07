@@ -19,6 +19,10 @@ import {
   canTransition,
   createOrder,
   deleteOrder,
+  getOrder,
+  listOrders,
+  priceOrder,
+  toOrderView,
   ORDER_STATUSES,
   recordPayment,
   TRANSITIONS,
@@ -465,5 +469,70 @@ describe("deleteOrder", () => {
     const { deps: d, released } = deps([seedOrder({ status: "completed" })]);
     await deleteOrder(ctx, ORDER_ID, d);
     expect(released).toEqual([]);
+  });
+});
+
+describe("listOrders", () => {
+  it("returns views, never raw documents", async () => {
+    const { deps: d } = deps([seedOrder()]);
+    const result = await listOrders(ctx, {}, d);
+    expect(result.items[0]).not.toHaveProperty("tenantId");
+    expect(result.items[0].balanceMinor).toBe(60_000);
+  });
+
+  it("narrows to one status — how a pipeline column is drawn", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const base = fakeRepo([seedOrder()]).repo;
+    const spy: typeof base = {
+      ...base,
+      async listPage(_ctx, options) {
+        captured.push((options?.filter ?? {}) as Record<string, unknown>);
+        return { items: [], meta: { limit: 25, hasMore: false, cursor: null } };
+      },
+    };
+
+    await listOrders(ctx, { status: "confirmed" }, { ...deps().deps, repo: spy });
+    expect(captured[0].status).toBe("confirmed");
+  });
+
+  it("refuses a status that is not in the state machine", async () => {
+    const { deps: d } = deps([]);
+    await expect(listOrders(ctx, { status: "shipped" }, d)).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+  });
+});
+
+describe("getOrder", () => {
+  it("404s for another tenant's order", async () => {
+    const { deps: d } = deps([]);
+    await expect(getOrder(ctx, ORDER_ID, d)).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+});
+
+describe("priceOrder", () => {
+  it("computes every amount and the totals in one pass", () => {
+    const priced = priceOrder([
+      { kind: "resource", description: "Boat", quantity: 1, unitAmountMinor: 60_000 },
+      { kind: "discount", description: "Repeat", quantity: 1, unitAmountMinor: -5_000 },
+    ]);
+
+    expect(priced.subtotalMinor).toBe(60_000);
+    expect(priced.discountMinor).toBe(5_000);
+    expect(priced.totalMinor).toBe(55_000);
+    expect(priced.lineItems[0].amountMinor).toBe(60_000);
+  });
+});
+
+describe("toOrderView", () => {
+  it("derives the balance rather than storing it", () => {
+    const view = toOrderView(seedOrder({ amountPaidMinor: 18_000 }));
+    // One fewer field that can disagree with itself.
+    expect(view.balanceMinor).toBe(view.totalMinor - view.amountPaidMinor);
+    expect(view).not.toHaveProperty("tenantId");
+  });
+
+  it("reports a null customer for an order nobody has been attached to", () => {
+    expect(toOrderView(seedOrder({ customerRecordId: null })).customerRecordId).toBeNull();
   });
 });

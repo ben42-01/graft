@@ -16,6 +16,8 @@ import {
   getInvoice,
   issueInvoice,
   ledgerForOrder,
+  listInvoices,
+  toInvoiceView,
   updateInvoiceStatus,
   type InvoiceDeps,
   type InvoiceDoc,
@@ -347,5 +349,65 @@ describe("ledgerForOrder", () => {
     const ledger = await ledgerForOrder(ctx, ORDER_ID, d);
     expect(ledger.invoices).toHaveLength(2);
     expect(ledger.invoicedMinor).toBe(55_000);
+  });
+});
+
+describe("listInvoices", () => {
+  it("returns views, never raw documents", async () => {
+    const result = await listInvoices(ctx, {}, deps([seedInvoice()]));
+    expect(result.items[0]).not.toHaveProperty("tenantId");
+    expect(result.items[0].number).toBe("INV-2026-0001");
+  });
+
+  it("narrows to one order", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const base = fakeRepo([seedInvoice()]).repo;
+    const spy: typeof base = {
+      ...base,
+      async listPage(_ctx, options) {
+        captured.push((options?.filter ?? {}) as Record<string, unknown>);
+        return { items: [], meta: { limit: 25, hasMore: false, cursor: null } };
+      },
+    };
+
+    await listInvoices(ctx, { orderId: ORDER_ID }, { ...deps(), repo: spy });
+    expect((captured[0].orderId as ObjectId).toHexString()).toBe(ORDER_ID);
+  });
+
+  it("narrows to one status — how an unpaid list is drawn", async () => {
+    const captured: Record<string, unknown>[] = [];
+    const base = fakeRepo([]).repo;
+    const spy: typeof base = {
+      ...base,
+      async listPage(_ctx, options) {
+        captured.push((options?.filter ?? {}) as Record<string, unknown>);
+        return { items: [], meta: { limit: 25, hasMore: false, cursor: null } };
+      },
+    };
+
+    await listInvoices(ctx, { status: "open" }, { ...deps(), repo: spy });
+    expect(captured[0].status).toBe("open");
+  });
+
+  it("refuses a malformed order id rather than querying with it", async () => {
+    await expect(listInvoices(ctx, { orderId: "nope" }, deps([]))).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+  });
+});
+
+describe("getInvoice", () => {
+  it("404s for another tenant's invoice", async () => {
+    await expect(getInvoice(ctx, INVOICE_ID, deps([]))).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+});
+
+describe("toInvoiceView", () => {
+  it("exposes the order id as a string and hides the tenant", () => {
+    const view = toInvoiceView(seedInvoice());
+    expect(view.orderId).toBe(ORDER_ID);
+    expect(view).not.toHaveProperty("tenantId");
   });
 });
