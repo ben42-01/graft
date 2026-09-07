@@ -1,0 +1,42 @@
+meta {
+  name: An SVG is refused — it is a script host, not a photo
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/v1/forms/{{createdFormId}}/media
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "contentType": "image/svg+xml",
+    "sizeBytes": 2048
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("the content type allow-list is an allow-list", function () {
+    // These objects are served to anonymous visitors on a public form page; an
+    // SVG there is stored XSS with extra steps. Raster formats only.
+    expect(res.getStatus()).to.equal(400);
+  });
+}
+
+docs {
+  src/server/services/media.ts ALLOWED_IMAGE_TYPES. The same schema also caps
+  the declared size, proven in src/server/services/media.test.ts.
+}

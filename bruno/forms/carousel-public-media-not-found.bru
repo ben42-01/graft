@@ -1,0 +1,32 @@
+meta {
+  name: An unknown media id is a 404, unauthenticated and unrevealing
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/api/v1/public/media/0000000000000000000000ff
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.data: isUndefined
+}
+
+tests {
+  test("no token is needed, and nothing is disclosed", function () {
+    // Unknown, detached, unpublished and killed all collapse to the same 404,
+    // the same way the public form page itself does (GRAFT-10 AC1) — so an id
+    // cannot be probed to learn whether a form exists or was taken down.
+    expect(res.getStatus()).to.equal(404);
+  });
+}
+
+docs {
+  src/server/services/form-media.ts findServablePublicMedia. Authorization is
+  the owning form's: an image is public only while its form is published and
+  enabled.
+}

@@ -35,6 +35,7 @@ const DRAFT = {
   published: false,
   enabled: true,
   fields: [ENTITY.fields[0]],
+  carousel: [],
 };
 
 function jsonResponse(body: unknown, status = 200): Response {

@@ -133,6 +133,7 @@ Widgets are declared as JSON config, rendered by a **Widget Registry**, so dashb
 - Built in the Form Builder, bound to an entity (e.g. "Booking Request").
 - Published to a public URL: `graft.app/f/{tenantSlug}/{formSlug}` (custom domains on Enterprise).
 - Auto-generated **Open Graph card** (business logo, colors, headline) so the link looks like a proper advert when shared on social media.
+- **Product carousel**: up to 3 photos the business uploads in the form builder, rendered above the fields on the public page. Every tier — it costs `storage_mb`, not the `form_file_uploads` entitlement, which gates *submitter* uploads (a different, untrusted surface).
 - Submissions land in `form_submissions` and create/update `records`, triggering notifications or automations.
 - Anti-abuse: rate limiting, CAPTCHA option, spam filtering.
 - Free tier: limited submissions/month; Premium: higher limits + branding removal; Enterprise: unlimited + custom domain.

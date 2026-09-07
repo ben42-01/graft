@@ -1,0 +1,43 @@
+meta {
+  name: Another tenant's form cannot be given carousel images
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000032/media
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "contentType": "image/png",
+    "sizeBytes": 2048
+  }
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("uploading into another tenant's form is not found, not forbidden", function () {
+    // 000000000000000000000032 is formAtQuota (scripts/seed-qa.ts), owned by
+    // the at-quota tenant. The repository scopes the lookup by ctx.tenantId,
+    // so no URL is ever minted and existence is not leaked.
+    expect(res.getStatus()).to.equal(404);
+  });
+}
+
+docs {
+  Cross-tenant isolation for the media surface, matching tenant-isolation.bru
+  for the form surface itself.
+}

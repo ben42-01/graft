@@ -33,6 +33,7 @@ import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
 import { mongoAccountStore, type AccountStore } from "@/server/auth/accounts-store";
 import { getEntity as getEntityDefault, type EntityView, type FieldDef } from "./entities";
+import { mediaUrl } from "./media";
 import { consumeQuota as consumeQuotaDefault, type Meter, type QuotaResult } from "./meters";
 import { createRepository, type Repository } from "@/server/repositories/base";
 
@@ -82,6 +83,32 @@ export const updateFormSchema = z
     message: "Nothing to update",
   });
 
+/**
+ * How many product photos a form's carousel may carry. Three is a product
+ * decision, not a technical ceiling: a shareable advert wants a hero image and
+ * at most a couple of supporting shots, and a public form page that scrolls
+ * past its own fields has stopped being a form.
+ */
+export const MAX_CAROUSEL_IMAGES = 3;
+
+/**
+ * One slide. `alt` is required rather than optional — this renders on a public
+ * page for anonymous visitors, so a missing alternative text is an
+ * accessibility defect the builder should be made to fix, not a default the
+ * server silently accepts. Empty string is still allowed for the genuinely
+ * decorative case; it just has to be chosen.
+ */
+export const carouselItemSchema = z.object({
+  mediaId: objectIdHex,
+  alt: z.string().trim().max(160).default(""),
+});
+
+export const updateCarouselSchema = z.object({
+  images: z.array(carouselItemSchema).max(MAX_CAROUSEL_IMAGES),
+});
+
+export type UpdateCarouselInput = z.input<typeof updateCarouselSchema>;
+
 export const listFormsQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.union([z.string(), z.number()]).optional(),
@@ -106,6 +133,13 @@ export type FormDoc = {
   killSwitchAt: Date | null;
   killSwitchBy: ObjectId | null;
   fields: FieldDef[];
+  /**
+   * The product carousel shown above the fields on the public page. Ordered —
+   * position in the array *is* slide order, so a reorder is a whole-array
+   * write rather than an index nobody keeps consistent. Absent on documents
+   * written before carousels existed, which `toView` reads as empty.
+   */
+  carousel?: { mediaId: ObjectId; alt: string }[];
   /** Constraints — Free retains this; read by GRAFT-10. */
   showBadge: boolean;
   deletedAt: Date | null;
@@ -125,13 +159,26 @@ export type FormView = {
   killSwitchAt: Date | null;
   killSwitchBy: string | null;
   fields: FieldDef[];
+  /** Slide order, each already carrying the URL a browser fetches it from. */
+  carousel: CarouselItemView[];
   showBadge: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
 
+export type CarouselItemView = { mediaId: string; alt: string; url: string };
+
 const isDuplicateKey = (error: unknown): boolean =>
   error instanceof MongoServerError && error.code === 11000;
+
+/** Absent (pre-carousel documents) and empty are the same thing to a reader. */
+export function toCarouselView(carousel: FormDoc["carousel"]): CarouselItemView[] {
+  return (carousel ?? []).map((item) => ({
+    mediaId: item.mediaId.toHexString(),
+    alt: item.alt,
+    url: mediaUrl(item.mediaId.toHexString()),
+  }));
+}
 
 function toView(doc: { _id: ObjectId } & FormDoc): FormView {
   return {
@@ -146,6 +193,7 @@ function toView(doc: { _id: ObjectId } & FormDoc): FormView {
     killSwitchAt: doc.killSwitchAt,
     killSwitchBy: doc.killSwitchBy ? doc.killSwitchBy.toHexString() : null,
     fields: doc.fields,
+    carousel: toCarouselView(doc.carousel),
     showBadge: doc.showBadge,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -252,6 +300,7 @@ export async function createForm(
       killSwitchAt: null,
       killSwitchBy: null,
       fields,
+      carousel: [],
       showBadge: true,
       deletedAt: null,
     });

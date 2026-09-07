@@ -18,6 +18,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { CheckIcon, CopyIcon, ExternalLinkIcon, Trash2Icon } from "lucide-react";
+import { CarouselEditor, type CarouselItem } from "@/components/forms/carousel-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -37,6 +38,7 @@ type FormView = {
   published: boolean;
   enabled: boolean;
   fields: FieldLike[];
+  carousel: CarouselItem[];
 };
 
 type EntityView = { id: string; name: string; fields: FieldLike[] };
@@ -275,6 +277,22 @@ export default function FormPage() {
             ) : null}
           </CardContent>
         </Card>
+      ) : null}
+
+      {/* Internal forms have no public page to show a carousel on, so the
+       * control is not rendered for them at all rather than rendered inert. */}
+      {form.visibility === "public" ? (
+        <CarouselEditor
+          formId={form.id}
+          images={form.carousel}
+          onChange={(carousel) =>
+            setState((current) =>
+              current.status === "ready"
+                ? { ...current, form: { ...current.form, carousel } }
+                : current,
+            )
+          }
+        />
       ) : null}
 
       <Card>
