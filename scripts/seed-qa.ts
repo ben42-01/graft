@@ -77,7 +77,21 @@ const IDS = {
   formBillingDowngradeMiddle: oid(35),
   formBillingDowngradeNewest: oid(36),
   recordFreeFirst: oid(41),
+  // BMS inventory (docs/BMS_EXTENSION.md §2.1). A bookable resource needs an
+  // entity to be an instance of, a record to *be* the instance, and a pool to
+  // say how it may be allocated — so all three are seeded rather than built by
+  // the Bruno suite, which would then be testing its own setup.
+  entityFreeRentals: oid(26),
+  recordFreeBoat: oid(46),
+  poolFreeBoat: oid(101),
+  // Owned by qa-at-quota, so the isolation cases have a real id to quote.
+  poolOtherTenant: oid(102),
 } as const;
+
+const RENTAL_FIELDS = [
+  { key: "name", label: "Name", type: "text" as const, required: true },
+  { key: "hourly_rate", label: "Hourly rate", type: "number" as const, required: false },
+];
 
 const CUSTOMER_FIELDS = [
   { key: "name", label: "Name", type: "text", required: true },
@@ -304,6 +318,17 @@ async function main() {
 
     await db.collection("entity_defs").insertMany([
       {
+        // BMS — the schema a bookable resource is an instance of.
+        _id: IDS.entityFreeRentals,
+        tenantId: IDS.tenantFree,
+        key: "rental_items",
+        name: "Rental Items",
+        fields: RENTAL_FIELDS,
+        schemaVersion: 1,
+        readOnly: false,
+        ...base,
+      },
+      {
         _id: IDS.entityFreeCustomers,
         tenantId: IDS.tenantFree,
         key: "customers",
@@ -352,6 +377,53 @@ async function main() {
         fields: CUSTOMER_FIELDS,
         schemaVersion: 1,
         readOnly: false,
+        ...base,
+      },
+    ]);
+
+    // BMS — the bookable resource itself. On `rental_items`, not `customers`,
+    // so the "exactly 3 records" count below stays exactly 3: record lists are
+    // per-entity, and nothing enumerates a tenant's records across entities.
+    await db.collection("records").insertOne({
+      _id: IDS.recordFreeBoat,
+      tenantId: IDS.tenantFree,
+      entityDefId: IDS.entityFreeRentals,
+      schemaVersion: 1,
+      data: { name: "24ft Pontoon Boat", hourly_rate: 150 },
+      deletedAt: null,
+      ...base,
+    });
+
+    await db.collection("inventory_pools").insertMany([
+      {
+        _id: IDS.poolFreeBoat,
+        tenantId: IDS.tenantFree,
+        entityDefId: IDS.entityFreeRentals,
+        recordId: IDS.recordFreeBoat,
+        strategy: "individual_asset",
+        totalQuantity: 1,
+        // 30 minutes of cleaning between hires — the worked example in
+        // docs/BMS_EXTENSION.md §3.2, so the Bruno suite can assert on a
+        // buffer that is actually doing something.
+        bufferMinutes: 30,
+        autoLockOnCheckout: true,
+        allocationVersion: 0,
+        deletedAt: null,
+        ...base,
+      },
+      {
+        // Exists only so the isolation cases have a real id belonging to
+        // someone else — the same role formAtQuota plays for forms.
+        _id: IDS.poolOtherTenant,
+        tenantId: IDS.tenantAtQuota,
+        entityDefId: IDS.entityAtQuotaCustomers,
+        recordId: oid(47),
+        strategy: "pooled_quantity",
+        totalQuantity: 10,
+        bufferMinutes: 0,
+        autoLockOnCheckout: true,
+        allocationVersion: 0,
+        deletedAt: null,
         ...base,
       },
     ]);

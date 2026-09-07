@@ -1,0 +1,45 @@
+meta {
+  name: A seeded pool reports its strategy, capacity and turnaround
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/inventory/pools/000000000000000000000065
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.strategy: eq individual_asset
+  res.body.data.totalQuantity: eq 1
+  res.body.data.bufferMinutes: eq 30
+  res.body.data.autoLockOnCheckout: eq true
+  res.body.error: isUndefined
+}
+
+tests {
+  const pool = res.getBody().data;
+
+  test("the pool points at the bookable record, not at the schema", function () {
+    // poolFreeBoat -> recordFreeBoat ("24ft Pontoon Boat"), whose entity is
+    // entityFreeRentals (scripts/seed-qa.ts). docs/BMS_EXTENSION.md §3.2's
+    // worked example is an instance, which is why a pool hangs off a record.
+    expect(pool.recordId).to.equal("00000000000000000000002e");
+    expect(pool.entityId).to.equal("00000000000000000000001a");
+  });
+
+  test("an individually tracked asset is a capacity of exactly one", function () {
+    expect(pool.totalQuantity).to.equal(1);
+  });
+}
+
+docs {
+  docs/BMS_EXTENSION.md §2.1, Step 1. Requires bruno/auth/login.bru first
+  (loginAccessToken), which alphabetical folder order guarantees.
+}

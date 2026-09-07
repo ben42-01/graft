@@ -1,0 +1,41 @@
+meta {
+  name: An unbooked window is available
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/inventory/pools/000000000000000000000065/availability?startAt=2030-06-15T10:00:00.000Z&endAt=2030-06-15T14:00:00.000Z&quantity=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.available: eq true
+  res.body.data.capacity: eq 1
+  res.body.data.used: eq 0
+  res.body.data.remaining: eq 1
+  res.body.data.bufferMinutes: eq 30
+}
+
+tests {
+  test("the overbooking-protection API answers with the arithmetic, not just a boolean", function () {
+    // §2.1 calls for is_available(entity, range, quantity) as the single
+    // source of truth. A caller that only gets `false` cannot tell "sold out"
+    // from "you asked for more than exists", so capacity/used/remaining ride
+    // along with the verdict.
+    const data = res.getBody().data;
+    expect(data.requested).to.equal(1);
+    expect(data.remaining).to.equal(data.capacity - data.used);
+  });
+}
+
+docs {
+  Deliberately read-only and racy — the answer is true at the instant it is
+  given. hold.bru is what makes it stay true.
+}

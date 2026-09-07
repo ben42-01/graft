@@ -1,0 +1,30 @@
+meta {
+  name: The turnaround buffer blocks a booking that is too soon after
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/v1/inventory/pools/000000000000000000000065/availability?startAt=2030-06-15T14:15:00.000Z&endAt=2030-06-15T16:00:00.000Z&quantity=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.available: eq false
+  res.body.data.used: eq 1
+}
+
+tests {
+  test("15 minutes after the hire ends is inside the 30-minute clean", function () {
+    // The boat is physically free at 14:00, but the pool declares 30 minutes
+    // of turnaround, so 14:15 is not bookable and 14:30 is (§2.1 "Buffer Time
+    // Engine"). availability-after-buffer.bru asserts the other half.
+    expect(res.getBody().data.available).to.equal(false);
+  });
+}

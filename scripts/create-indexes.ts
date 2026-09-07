@@ -48,6 +48,40 @@ const INDEXES: IndexDef[] = [
   // abandoned `pending` rows.
   { collection: "media", keys: { tenantId: 1, ownerType: 1, ownerId: 1, status: 1 } },
 
+  // Inventory (docs/BMS_EXTENSION.md §3.1, Step 1). One pool per bookable
+  // record — the uniqueness is the model, not an optimisation.
+  {
+    collection: "inventory_pools",
+    keys: { tenantId: 1, recordId: 1 },
+    options: { unique: true },
+  },
+  // "Every bookable thing of this type", which is how a scheduler enumerates
+  // resources before drawing a timeline.
+  { collection: "inventory_pools", keys: { tenantId: 1, entityDefId: 1 } },
+
+  // The availability query, and the reason it can be fast: §3.1 Step 1 asks
+  // for "(entity_id, start_time, end_time)". The pool is the tighter prefix
+  // here (a pool belongs to exactly one entity type), and the range is over
+  // the *blocked* window — buffers baked in at write time — because that is
+  // what an overlap actually means (src/server/services/availability.ts).
+  {
+    collection: "resource_allocations",
+    keys: { tenantId: 1, poolId: 1, blockedFrom: 1, blockedUntil: 1 },
+  },
+  // "Everything allocated to this order", for an invoice or a cancellation.
+  { collection: "resource_allocations", keys: { tenantId: 1, holderId: 1 } },
+  // Abandoned checkout holds are swept by Mongo rather than by a cron we would
+  // forget. Deliberately *after* the lease expires, not at it: availability
+  // already ignores a lapsed hold the instant it lapses, so this only reclaims
+  // space — and the day's grace keeps abandoned checkouts readable for anyone
+  // asking why a customer did not complete one. Confirmed rows carry
+  // `expiresAt: null` and the TTL monitor skips them.
+  {
+    collection: "resource_allocations",
+    keys: { expiresAt: 1 },
+    options: { expireAfterSeconds: 60 * 60 * 24 },
+  },
+
   // Metering: one counter document per tenant/meter/period, atomically $inc'd
   {
     collection: "usage_meters",

@@ -1,0 +1,60 @@
+meta {
+  name: A checkout takes a pessimistic hold with a lease
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/inventory/pools/000000000000000000000065/holds
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "startAt": "2030-06-15T10:00:00.000Z",
+    "endAt": "2030-06-15T14:00:00.000Z",
+    "quantity": 1
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.status: eq held
+  res.body.data.quantity: eq 1
+  res.body.data.expiresAt: isDefined
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  bru.setVar("heldAllocationId", res.body.data.id);
+}
+
+tests {
+  const held = res.getBody().data;
+
+  test("the lease is short and in the future", function () {
+    const expires = new Date(held.expiresAt).getTime();
+    expect(expires).to.be.greaterThan(Date.now());
+    // Default is 10 minutes (DEFAULT_HOLD_MINUTES); an hour is the hard cap.
+    expect(expires - Date.now()).to.be.at.most(61 * 60 * 1000);
+  });
+
+  test("the stored window carries the turnaround buffer on both ends", function () {
+    // The pool's 30-minute buffer is baked in at write time, which is what
+    // makes an overlap test a plain range comparison.
+    expect(new Date(held.blockedFrom).toISOString()).to.equal("2030-06-15T09:30:00.000Z");
+    expect(new Date(held.blockedUntil).toISOString()).to.equal("2030-06-15T14:30:00.000Z");
+  });
+}
+
+docs {
+  docs/BMS_EXTENSION.md §2.1 "Pessimistic Time-Locking". That two concurrent
+  holds cannot both win is a property of a real transaction and is proven in
+  src/server/services/availability.integration.test.ts, which fires eight at
+  once; Bruno runs sequentially and cannot express it.
+}

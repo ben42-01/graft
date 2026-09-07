@@ -1,0 +1,29 @@
+meta {
+  name: A booking starting exactly when the turnaround ends is allowed
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/v1/inventory/pools/000000000000000000000065/availability?startAt=2030-06-15T14:30:00.000Z&endAt=2030-06-15T16:00:00.000Z&quantity=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.available: eq true
+  res.body.data.used: eq 0
+}
+
+tests {
+  test("the buffer is applied once, not to both sides", function () {
+    // The stored allocation carries the buffer; the request does not. Applying
+    // it to both would demand an hour's gap where 30 minutes was configured.
+    expect(res.getBody().data.available).to.equal(true);
+  });
+}

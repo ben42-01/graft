@@ -1,0 +1,27 @@
+meta {
+  name: The window is available again once the booking is cancelled
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{baseUrl}}/api/v1/inventory/pools/000000000000000000000065/availability?startAt=2030-06-15T10:00:00.000Z&endAt=2030-06-15T14:00:00.000Z&quantity=1
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.available: eq true
+  res.body.data.used: eq 0
+}
+
+tests {
+  test("a cancelled allocation consumes no capacity", function () {
+    expect(res.getBody().data.remaining).to.equal(1);
+  });
+}
