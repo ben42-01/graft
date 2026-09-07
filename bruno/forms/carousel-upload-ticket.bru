@@ -1,0 +1,61 @@
+meta {
+  name: Requesting a carousel upload returns a presigned URL, not a byte sink
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/v1/forms/{{createdFormId}}/media
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "contentType": "image/png",
+    "sizeBytes": 20480
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.mediaId: isDefined
+  res.body.data.uploadUrl: isDefined
+  res.body.data.contentType: eq image/png
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  bru.setVar("carouselMediaId", res.body.data.mediaId);
+}
+
+tests {
+  const ticket = res.getBody().data;
+
+  test("the upload goes straight to the bucket, not through this API", function () {
+    // The signed URL must point at the object store, and must carry a
+    // signature — an unsigned bucket URL would mean a world-writable bucket.
+    expect(ticket.uploadUrl).to.match(/^https?:\/\//);
+    expect(ticket.uploadUrl).to.match(/X-Amz-Signature=/);
+  });
+
+  test("the URL is short-lived", function () {
+    expect(ticket.expiresInSeconds).to.be.a("number");
+    expect(ticket.expiresInSeconds).to.be.at.most(900);
+  });
+
+  test("the key is namespaced under the tenant", function () {
+    expect(decodeURIComponent(ticket.uploadUrl)).to.include("tenants/");
+  });
+}
+
+docs {
+  Step one of the two-step upload (docs/BACKEND.md §4). `createdFormId` comes
+  from create.bru earlier in this folder. Nothing is metered by this call —
+  storage is charged on confirm, which is what carousel-confirm-without-upload
+  .bru exercises the failure half of.
+}

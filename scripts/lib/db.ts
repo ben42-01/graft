@@ -50,6 +50,9 @@ export const COLLECTIONS = [
   // Stripe webhook dedup log (GRAFT-15 AC3). `_id` is the Stripe event id, so
   // uniqueness is free — no separate index needed.
   "billing_webhook_events",
+  // Tenant-uploaded objects (form carousel images today). Holds metadata only —
+  // the bytes live in the S3-compatible bucket, keyed by `key`.
+  "media",
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];

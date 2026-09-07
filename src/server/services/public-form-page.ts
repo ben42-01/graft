@@ -19,7 +19,12 @@
  *     path: there is no authenticated user to build one for, and this page
  *     must read no cookie (AC7).
  */
-import { findByPublicSlug as findByPublicSlugDefault, formSlugSchema } from "./forms";
+import {
+  findByPublicSlug as findByPublicSlugDefault,
+  formSlugSchema,
+  toCarouselView,
+  type CarouselItemView,
+} from "./forms";
 import type { FieldDef } from "./entities";
 import { isFormServable } from "./forms";
 import {
@@ -32,6 +37,8 @@ import { TIER_FEATURES } from "@/server/tiers";
 export type PublicFormPageData = {
   formName: string;
   fields: FieldDef[];
+  /** Product photos the business attached; empty for most forms. */
+  carousel: CarouselItemView[];
   tenantName: string;
   tenantSlug: string;
   formSlug: string;
@@ -98,6 +105,7 @@ export async function getPublicFormPage(
   return {
     formName: form.name,
     fields: form.fields,
+    carousel: toCarouselView(form.carousel),
     tenantName: tenant.name,
     tenantSlug: tenantParsed.data,
     formSlug: formParsed.data,

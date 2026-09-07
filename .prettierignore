@@ -5,3 +5,6 @@ package-lock.json
 bruno
 logo
 *.md
+
+# Agent scratch — untracked working notes, not source
+.claude/scratch

@@ -73,6 +73,9 @@ describe("getPublicFormPage", () => {
     expect(page).toEqual({
       formName: "Contact",
       fields: form().fields,
+      // Empty rather than absent: a form with no product photos still reports
+      // a carousel, so the page never has to distinguish the two.
+      carousel: [],
       tenantName: "Acme",
       tenantSlug: "acme",
       formSlug: "contact",

@@ -127,11 +127,27 @@ services:
     image: redis:7-alpine
     ports: ["6379:6379"]
 
+  # Object storage for tenant uploads (docs/BACKEND.md §4). S3-compatible, so
+  # dev, QA and production run the same application code path.
+  minio:
+    image: minio/minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports: ["9000:9000", "9001:9001"]   # API, browser console
+    environment:
+      MINIO_ROOT_USER: graft_media
+      MINIO_ROOT_PASSWORD: dev_media_change_me
+      MINIO_API_CORS_ALLOW_ORIGIN: http://localhost:3000
+    volumes:
+      - graft_dev_minio:/data
+
 volumes:
   graft_dev_data:
+  graft_dev_minio:
 ```
 
-QA compose is identical except: different container names, port `27018`, **no named volume** (ephemeral — `down -v` wipes it), and DB `graft_qa`.
+QA compose is identical except: different container names, ports `27018`/`9002`, **no named volume** (ephemeral — `down -v` wipes it), and DB `graft_qa`.
+
+The bucket itself is created by `scripts/ensure-bucket.ts` (`npm run storage:bucket`, and part of `dev:seed`/`qa:seed`), not by a one-shot compose service — a container that exits confuses `docker compose up --wait`, and a managed production bucket has no compose file at all. It is idempotent, like `create-indexes.ts`.
 
 ### 4.2 mongo-init/01-create-users.js (least-privilege app user)
 

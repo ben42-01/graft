@@ -43,6 +43,11 @@ const INDEXES: IndexDef[] = [
   // One onboarding_state document per tenant (GRAFT-12 AC2, AC7).
   { collection: "onboarding_state", keys: { tenantId: 1 }, options: { unique: true } },
 
+  // Media: the only query is "the ready objects owned by this thing", which is
+  // how a form builder lists its carousel and how orphan sweeping will find
+  // abandoned `pending` rows.
+  { collection: "media", keys: { tenantId: 1, ownerType: 1, ownerId: 1, status: 1 } },
+
   // Metering: one counter document per tenant/meter/period, atomically $inc'd
   {
     collection: "usage_meters",

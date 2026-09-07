@@ -154,6 +154,8 @@ vite.config.ts.timestamp-*
 
 # Agent worktrees — transient, never committed
 .claude/worktrees/
+# Agent working notes — reviews, diffs, issue drafts. Not source.
+.claude/scratch/
 
 # Playwright
 /test-results/

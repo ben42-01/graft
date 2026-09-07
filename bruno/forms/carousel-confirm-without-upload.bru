@@ -1,0 +1,41 @@
+meta {
+  name: Confirming an upload that never landed is refused
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/api/v1/forms/{{createdFormId}}/media/{{carouselMediaId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "alt": "A product photo that was never uploaded"
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.data: isUndefined
+}
+
+tests {
+  test("the bucket, not the client, decides whether an object exists", function () {
+    // carousel-upload-ticket.bru minted a URL but never PUT anything to it, so
+    // the HEAD in confirmUpload finds nothing and the slide is not created.
+    expect(res.getStatus()).to.equal(400);
+  });
+}
+
+docs {
+  The half of the two-step upload that catches an abandoned or forged confirm.
+  A successful end-to-end upload needs a real binary PUT to the presigned URL,
+  which is a Playwright concern (e2e/), not a Bruno one.
+}

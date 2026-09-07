@@ -11,6 +11,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import type { Metadata } from "next";
+import { FormCarousel } from "@/components/public-form/form-carousel";
 import { PoweredByBadge } from "@/components/public-form/powered-by-badge";
 import { PublicFormRenderer } from "@/components/public-form/public-form-renderer";
 import { buildFormOgMetadata, getPublicFormPage } from "@/server/services/public-form-page";
@@ -57,6 +58,11 @@ export default async function PublicFormPage({ params }: { params: Promise<Param
         ) : null}
         <h1 className="text-2xl font-semibold tracking-tight">{page.formName}</h1>
       </header>
+
+      {/* Above the fields, not below: the photos are what makes a shared link
+       * read as an advert, and a visitor who has to scroll past a form to see
+       * what is being offered has already been asked for their details. */}
+      <FormCarousel images={page.carousel} />
 
       <PublicFormRenderer
         tenantSlug={page.tenantSlug}
