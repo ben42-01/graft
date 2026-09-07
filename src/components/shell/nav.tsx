@@ -3,10 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BlocksIcon,
   BookOpenIcon,
   CreditCardIcon,
   DatabaseIcon,
   FileTextIcon,
+  KanbanIcon,
   LayoutDashboardIcon,
   LayoutGridIcon,
 } from "lucide-react";
@@ -31,7 +33,16 @@ const NAV_ITEMS = [
   { href: "/home", label: "Home", icon: LayoutDashboardIcon },
   { href: "/entities", label: "Entities", icon: DatabaseIcon },
   { href: "/forms", label: "Forms", icon: FileTextIcon },
+  // The BMS operational layer (docs/BMS_EXTENSION.md §2.3). Sits after the
+  // things it is built on — an operations board with no resources and no
+  // orders has nothing to show — and before Dashboards, which is the
+  // composable view rather than the day's work.
+  { href: "/operations", label: "Operations", icon: KanbanIcon },
   { href: "/dashboards", label: "Dashboards", icon: LayoutGridIcon },
+  // `/api/v1/plugins/*` shipped in GRAFT-14 with no screen over it, which read
+  // as a broken product rather than an unfinished one: a tenant could be told
+  // their plan includes every plugin and have nowhere to turn one on.
+  { href: "/plugins", label: "Plugins", icon: BlocksIcon },
   { href: "/guide", label: "Guide", icon: BookOpenIcon },
   { href: "/account", label: "Account", icon: CreditCardIcon },
 ] as const;

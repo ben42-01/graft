@@ -8,8 +8,8 @@ keys, JSONB columns, foreign keys. Graft is MongoDB. This document records what
 was actually built, and every place the implementation deliberately departs
 from the spec.
 
-Covers **Steps 1–3** (schema, the inventory and reservation engine, and
-invoicing). Step 4 appends here as it lands.
+Covers **all four steps**: schema, the inventory and reservation engine,
+invoicing, and the operational command dashboard.
 
 ---
 
@@ -244,6 +244,66 @@ stamps the order id into the session metadata.
 
 ---
 
+## 6b. The Operational Command Dashboard (Step 4)
+
+One screen, `/operations`, with three views. It is **composed from endpoints
+that already exist** — orders, allocations and pools are three plain reads —
+rather than from a bespoke `/dashboard` endpoint returning a shape only this
+screen understands. A view with its own server contract goes stale the first
+time anything else changes.
+
+### Pipeline (Kanban)
+
+- **Drag-and-drop is not the only way to move a card.** Native HTML5 drag
+  events are unusable with a keyboard and largely invisible to a screen reader,
+  so every card carries a "Move to" select listing exactly the transitions the
+  server allows. The pointer path is a convenience over that, not a replacement.
+- **The moves offered come from the server's own transition table**, mirrored in
+  the component, so the board cannot suggest something the API will refuse.
+- **Moves are optimistic and revert on refusal**, with the reason shown. The
+  optimistic state is *kept* on success and cleared only when a genuinely new
+  list arrives from the server — clearing it immediately would snap the card
+  back until the refetch landed.
+- Column colours are deliberately **not** a red/green good/bad scale. A
+  cancelled order is a normal business outcome, and colouring it as an error
+  makes a board of ordinary work look alarming.
+
+### Schedule (master timeline)
+
+- **Buffer blocks are drawn, not hidden.** A bar spans `blockedFrom`–
+  `blockedUntil` with the turnaround hatched. A scheduler showing only booked
+  hours makes the gaps look bookable when they are not — the exact question
+  this view exists to answer.
+- **Every bar is a real button with a text label** naming the resource, both
+  times, the quantity and the turnaround. A timeline of coloured `div`s is
+  invisible to anyone not looking at it.
+- **Colour never carries the only meaning**: a hold is marked by a dashed
+  outline *and* the word "Hold", not by hue.
+- Bars are positioned in percentages of the visible window, so it is a CSS
+  layout that reflows rather than a canvas that must be redrawn.
+
+### Today (daily dispatch)
+
+Four panels, each something someone has to *do*: starting today, out now, due
+back today, money owed. Counts nobody acts on belong on a dashboard widget, not
+here. `buildDispatch` is pure and runs against the viewer's own clock, so the
+day boundary is theirs rather than the server's.
+
+**"Unsigned waivers" (§2.3) is deliberately absent.** A waiver is a
+tenant-defined form field, not a platform concept; inventing a `waiverSigned`
+flag would bake one business's compliance model into the product. It belongs to
+the Forms plugin once a form can be marked required-before-collection.
+
+### Also in this step: the Plugins screen
+
+Not part of §2.3, but `/api/v1/plugins/*` had shipped with no screen over it —
+which reads as a broken product rather than an unfinished one, since a tenant
+could be told their plan includes every plugin and have nowhere to turn one on.
+A plugin the tier does not permit is **shown, disabled, with the reason and a
+route to upgrade**, following the existing `GatedControl` pattern.
+
+---
+
 ## 7. Where the guarantees are proven
 
 | Claim | Evidence |
@@ -259,3 +319,7 @@ stamps the order id into the session metadata.
 | Booking → payment → confirmation, end to end | `src/server/services/orders.integration.test.ts` |
 | **Gapless invoice numbering under concurrency** | same file — 10 invoices issued simultaneously produce 0001–0010, no gaps, no duplicates |
 | The orders/invoices HTTP contract | `bruno/orders/*.bru` (11 requests) |
+| Dispatch partitioning (starting / out now / due back / owed) | `src/components/operations/daily-dispatch.test.tsx` (14 tests) |
+| Kanban accessibility, optimistic move and revert | `src/components/operations/order-board.test.tsx` (10 tests) |
+| Timeline labels, buffers and hold distinction | `src/components/operations/resource-timeline.test.tsx` (9 tests) |
+| The plugins screen, including tier gating | `src/app/(app)/plugins/page.test.tsx` (7 tests) |
