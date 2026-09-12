@@ -181,3 +181,177 @@ export function FlowIllustration() {
     </svg>
   );
 }
+
+/* ---------------------------------------------------------------------------
+ * Booking (2026-09-12).
+ *
+ * The booking section originally shipped as prose alone, which made the page's
+ * own visual language say "afterthought" about the one concept readers
+ * actually get wrong. The confusion is a *shape* confusion — people model one
+ * entity where the product needs two — and a shape confusion is what a diagram
+ * is for, so the two-entity split is drawn before it is explained.
+ * ------------------------------------------------------------------------ */
+
+/** The resource: many records under one shape, each carrying a rate. */
+export function ResourceIllustration() {
+  return (
+    <Svg label="resource">
+      {/* Two offset cards behind the front one: ten boats, not one. */}
+      <rect x="38" y="12" width="140" height="82" rx="8" className={FRAME} opacity="0.35" />
+      <rect x="30" y="18" width="140" height="82" rx="8" className={FRAME} opacity="0.6" />
+      <rect x="22" y="24" width="140" height="82" rx="8" className={FRAME} />
+      <rect x="22" y="24" width="140" height="20" rx="8" className={ACCENT} opacity="0.12" />
+      <rect x="34" y="31" width="44" height="6" rx="3" className={ACCENT} />
+      <rect x="34" y="56" width="38" height="6" rx="3" className={INK} />
+      <rect x="82" y="56" width="66" height="6" rx="3" className={INK} opacity="0.5" />
+      {/* The rate row is the one with a required key, so it is the lit one. */}
+      <rect x="34" y="74" width="38" height="6" rx="3" className={ACCENT} />
+      <rect x="82" y="74" width="30" height="6" rx="3" className={ACCENT} opacity="0.45" />
+    </Svg>
+  );
+}
+
+/** The request: one submission, which is also the customer. */
+export function RequestIllustration() {
+  return (
+    <Svg label="request">
+      <rect x="26" y="14" width="148" height="92" rx="8" className={FRAME} />
+      {/* A person, because this record is a someone and not a something. */}
+      <circle cx="48" cy="36" r="9" className={ACCENT} opacity="0.25" />
+      <circle cx="48" cy="33" r="3.5" className={ACCENT} />
+      <path
+        d="M42 41 a6 6 0 0 1 12 0"
+        className="stroke-current text-graft-green"
+        strokeWidth="2"
+      />
+      <rect x="66" y="28" width="52" height="6" rx="3" className={INK} />
+      <rect x="66" y="39" width="76" height="5" rx="2.5" className={INK} opacity="0.5" />
+      <line x1="26" y1="56" x2="174" y2="56" className={FRAME} />
+      {/* Start and end, the two fields the booking settings point at. */}
+      {[66, 84].map((y, index) => (
+        <g key={y}>
+          <rect x="38" y={y} width="30" height="6" rx="3" className={INK} />
+          <rect
+            x="78"
+            y={y}
+            width="46"
+            height="6"
+            rx="3"
+            className={ACCENT}
+            opacity={index === 0 ? 0.8 : 0.5}
+          />
+        </g>
+      ))}
+    </Svg>
+  );
+}
+
+/** Capacity: a booked window, its turnaround gap, and what is left. */
+export function CapacityIllustration() {
+  return (
+    <Svg label="capacity">
+      <line x1="16" y1="88" x2="184" y2="88" className={FRAME} />
+      {[16, 58, 100, 142, 184].map((x) => (
+        <line key={x} x1={x} y1="84" x2={x} y2="92" className={FRAME} />
+      ))}
+      {/* Taken. */}
+      <rect x="30" y="40" width="52" height="20" rx="5" className={ACCENT} opacity="0.85" />
+      {/* The turnaround gap the engine bakes into the stored allocation. */}
+      <rect x="82" y="40" width="16" height="20" rx="3" className={ACCENT} opacity="0.18" />
+      <path d="M82 66 H98" className="stroke-current text-muted-foreground/50" />
+      {/* Still free, and bookable right up to the boundary. */}
+      <rect
+        x="104"
+        y="40"
+        width="60"
+        height="20"
+        rx="5"
+        className={FRAME}
+        strokeDasharray="4 3"
+      />
+    </Svg>
+  );
+}
+
+/** The form: a catalogue pick in, an order and a held slot out. */
+export function BookingFormIllustration() {
+  return (
+    <Svg label="booking-form">
+      <rect x="10" y="18" width="64" height="84" rx="8" className={FRAME} />
+      {/* The catalogue: four things, one chosen. */}
+      {[0, 1].map((row) =>
+        [0, 1].map((col) => (
+          <rect
+            key={`${row}-${col}`}
+            x={20 + col * 22}
+            y={28 + row * 22}
+            width="18"
+            height="18"
+            rx="4"
+            className={row === 0 && col === 0 ? ACCENT : INK}
+            opacity={row === 0 && col === 0 ? 1 : 0.35}
+          />
+        )),
+      )}
+      <rect x="20" y="80" width="30" height="9" rx="4.5" className={ACCENT} />
+      <path d="M82 60 H112" className="stroke-current text-graft-green" />
+      <path d="M106 54 L112 60 L106 66" className="stroke-current text-graft-green" />
+      {/* One submission, two operational consequences. */}
+      <rect x="120" y="26" width="70" height="30" rx="6" className={FRAME} />
+      <rect x="130" y="37" width="34" height="6" rx="3" className={ACCENT} />
+      <rect x="120" y="64" width="70" height="30" rx="6" className={FRAME} />
+      <rect x="130" y="75" width="44" height="6" rx="3" className={ACCENT} opacity="0.5" />
+    </Svg>
+  );
+}
+
+/**
+ * The booking shape in one line: the resource is picked, the request is
+ * written, and the request *is* the customer — the edge everyone misses.
+ */
+export function BookingFlowIllustration() {
+  return (
+    <svg
+      viewBox="0 0 320 116"
+      role="img"
+      aria-hidden="true"
+      className="h-28 w-full max-w-md"
+      fill="none"
+      strokeWidth="1.5"
+    >
+      {/* Resource entity — stacked, because there are many of them. */}
+      <rect x="20" y="30" width="46" height="34" rx="6" className={FRAME} opacity="0.4" />
+      <rect x="14" y="36" width="46" height="34" rx="6" className={FRAME} />
+      <rect x="24" y="46" width="26" height="6" rx="3" className={INK} />
+      <rect x="24" y="56" width="16" height="4" rx="2" className={ACCENT} />
+
+      {/* The form doing the picking. */}
+      <rect
+        x="137"
+        y="36"
+        width="46"
+        height="34"
+        rx="6"
+        className="stroke-current text-graft-green"
+      />
+      <rect x="147" y="46" width="26" height="6" rx="3" className={ACCENT} opacity="0.55" />
+      <rect x="147" y="56" width="16" height="4" rx="2" className={INK} />
+
+      {/* Request record — one person, and the customer of the order. */}
+      <rect x="260" y="36" width="46" height="34" rx="6" className={FRAME} />
+      <circle cx="275" cy="49" r="3.5" className={ACCENT} />
+      <path
+        d="M269 57 a6 6 0 0 1 12 0"
+        className="stroke-current text-graft-green"
+        strokeWidth="2"
+      />
+      <rect x="288" y="46" width="10" height="4" rx="2" className={INK} opacity="0.6" />
+      <rect x="288" y="54" width="10" height="4" rx="2" className={INK} opacity="0.6" />
+
+      <path d="M64 53 H131" className="stroke-current text-graft-green" />
+      <path d="M125 47 L131 53 L125 59" className="stroke-current text-graft-green" />
+      <path d="M187 53 H254" className="stroke-current text-graft-green" />
+      <path d="M248 47 L254 53 L248 59" className="stroke-current text-graft-green" />
+    </svg>
+  );
+}

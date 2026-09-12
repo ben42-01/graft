@@ -83,7 +83,12 @@ export function draftFieldsFrom(
     key: field.key,
     keyEdited: true,
     type: field.type as OfferedFieldType,
-    required: field.required ?? false,
+    // Entities saved before `fieldDefSchema` refused this can still carry a
+    // required image. The checkbox for it is disabled, so leaving the flag as
+    // stored would strand the editor: un-tickable, and refused on save.
+    // Normalising on load lets opening Fields & settings and saving be the
+    // whole repair.
+    required: field.type === "image" ? false : (field.required ?? false),
     options: field.options?.join(", ") ?? "",
     persisted,
   }));
@@ -101,6 +106,10 @@ export function splitOptions(value: string): string[] {
 export function patchDraftField(field: DraftField, patch: Partial<DraftField>): DraftField {
   const next = { ...field, ...patch };
   if (patch.label !== undefined && !next.keyEdited) next.key = toIdentifier(patch.label);
+  // Retyping a required field to `image` would otherwise carry the flag into a
+  // state the server refuses, with the offending checkbox now disabled and so
+  // impossible to untick. Dropping it here keeps the row self-consistent.
+  if (next.type === "image") next.required = false;
   return next;
 }
 
@@ -119,6 +128,11 @@ export function validateFields(fields: DraftField[]): string | null {
     seen.add(field.key);
     if (field.type === "select" && splitOptions(field.options).length === 0) {
       return `"${field.label}" is a choice list, so it needs at least one option.`;
+    }
+    // A picture is uploaded against a record that already exists, so a
+    // required one can never be supplied — see `fieldDefSchema`.
+    if (field.type === "image" && field.required) {
+      return `"${field.label}" is a picture, so it cannot be required — it is added after the record is created.`;
     }
   }
   return null;

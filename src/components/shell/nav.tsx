@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BlocksIcon,
   BookOpenIcon,
+  ExternalLinkIcon,
   CreditCardIcon,
   DatabaseIcon,
   FileTextIcon,
@@ -33,8 +34,22 @@ import { cn } from "@/lib/utils";
  * created but never opened, edited or filled with records, and nothing
  * anywhere explained how the pieces fit. Order matters here — it is the
  * order the product is used in (define a shape, fill it, read it back).
+ *
+ * 2026-09-12 — "Guide" opens in a new tab. It is the one entry here nobody
+ * navigates *to*: it is read while doing something else, and a same-tab jump
+ * threw away whatever half-built entity or form prompted the question. The
+ * rest of the rail stays same-tab, because those are destinations rather
+ * than references.
  */
-const NAV_ITEMS = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof BookOpenIcon;
+  /** Opens in a new tab — reference material, not a destination. */
+  newTab?: boolean;
+};
+
+const NAV_ITEMS: NavItem[] = [
   { href: "/home", label: "Overview", icon: LayoutDashboardIcon },
   { href: "/entities", label: "Entities", icon: DatabaseIcon },
   { href: "/forms", label: "Forms", icon: FileTextIcon },
@@ -46,23 +61,26 @@ const NAV_ITEMS = [
   // as a broken product rather than an unfinished one: a tenant could be told
   // their plan includes every plugin and have nowhere to turn one on.
   { href: "/plugins", label: "Plugins", icon: BlocksIcon },
-  { href: "/guide", label: "Guide", icon: BookOpenIcon },
+  { href: "/guide", label: "Guide", icon: BookOpenIcon, newTab: true },
   { href: "/account", label: "Account", icon: CreditCardIcon },
-] as const;
+];
 
 export function Nav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
 
   return (
     <nav aria-label="Primary" className="flex flex-col gap-1">
-      {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+      {NAV_ITEMS.map(({ href, label, icon: Icon, newTab }) => {
         // Prefix match so `/dashboards/:id` still highlights "Dashboards".
         const active = pathname === href || pathname?.startsWith(`${href}/`);
         return (
           <Link
             key={href}
             href={href}
-            onClick={onNavigate}
+            // A new tab leaves this one where it was, so the sheet that opened
+            // it should not close underneath the user.
+            onClick={newTab ? undefined : onNavigate}
+            {...(newTab ? { target: "_blank", rel: "noopener noreferrer" } : {})}
             aria-current={active ? "page" : undefined}
             className={cn(
               "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
@@ -73,6 +91,12 @@ export function Nav({ onNavigate }: { onNavigate?: () => void }) {
           >
             <Icon className="size-4" />
             {label}
+            {newTab ? (
+              <>
+                <ExternalLinkIcon className="size-3 opacity-50" aria-hidden="true" />
+                <span className="sr-only">(opens in a new tab)</span>
+              </>
+            ) : null}
           </Link>
         );
       })}

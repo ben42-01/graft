@@ -60,7 +60,12 @@ services:
   # a signed-URL bug cannot be a production-only surprise. Credentials come from
   # .env.qa like every other password in this file.
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # quay.io, not Docker Hub: MinIO withdrew the community images from
+    # Docker Hub, and `minio/minio` now answers every pull with "repository
+    # does not exist or may require docker login". A developer whose machine
+    # still had the layers cached saw nothing wrong; CI, which always pulls
+    # fresh, failed on every run. Same tag, same digest, different registry.
+    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
     container_name: graft-qa-minio
     command: ["server", "/data", "--console-address", ":9001"]
     ports:

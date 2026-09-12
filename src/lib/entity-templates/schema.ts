@@ -35,6 +35,12 @@ export const templateFieldSchema = z
   .refine((field) => field.type === "select" || field.options === undefined, {
     message: "Only a choice list may carry options",
     path: ["options"],
+  })
+  // A picture is uploaded against a record that already exists, so a template
+  // shipping a required one would create an entity nobody can add a record to.
+  .refine((field) => field.type !== "image" || !field.required, {
+    message: "A picture cannot be required — it is uploaded after the record is created",
+    path: ["required"],
   });
 
 export const entityTemplateSchema = z

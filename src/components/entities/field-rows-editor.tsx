@@ -129,9 +129,20 @@ export function FieldRowsEditor({
               </div>
             ) : null}
 
-            <label className="flex h-8 items-center gap-1.5 text-xs text-muted-foreground">
+            {/* A picture is uploaded after its record exists, so requiring one
+                makes the entity un-fillable — refused by `fieldDefSchema`, and
+                not offered here so the mistake cannot be made. */}
+            <label
+              className="flex h-8 items-center gap-1.5 text-xs text-muted-foreground has-disabled:opacity-50"
+              title={
+                field.type === "image"
+                  ? "A picture is added after the record is created, so it cannot be required"
+                  : undefined
+              }
+            >
               <Checkbox
                 checked={field.required}
+                disabled={field.type === "image"}
                 aria-label={`${field.label || "Field"} required`}
                 onCheckedChange={(checked) =>
                   update(field.rowId, { required: checked === true })

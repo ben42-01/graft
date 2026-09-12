@@ -1,5 +1,5 @@
 meta {
-  name: Verify email (dev) — spend a token copied from the log
+  name: Verify email — spend the seeded token
   type: http
   seq: 13
 }
@@ -12,7 +12,7 @@ post {
 
 body:json {
   {
-    "token": "tlj1mQ1rNQjsNUS-YwDVU8TlTdoagH6acQf0zEOl5ZM"
+    "token": "qa0verify0000000000000000000000000000000001"
   }
 }
 
@@ -21,14 +21,20 @@ assert {
 }
 
 docs {
-  There is no UI for this yet and email isn't wired up (docs/BACKEND.md), so in
-  dev/QA the token only ever shows up in stdout as an
-  `auth.verification.issued` JSON log line
-  (src/server/services/accounts.ts:103-123) — that branch is the one place
-  allowed to print a live credential, and only outside production.
-  
-  To use this request: grab the `token` field off that log line for the
-  account you just signed up, set it as the `verificationToken` var on this
-  request or in the environment, then Send. A 204 means the account is
+  Spends the token the QA seed plants for `unverified@qa.test`
+  (scripts/seed-qa.ts, `VERIFICATION_TOKEN`). A 204 means the account is
   activated and can log in.
+  
+  It has to be seeded rather than obtained: a live token is only ever *logged*,
+  as an `auth.verification.issued` line (src/server/services/accounts.ts) —
+  that branch is the one place allowed to print a live credential, and only
+  outside production — and is never returned in a response body. So no amount
+  of signing up from here can get hold of one.
+  
+  One-shot: claiming the token deletes it, so this passes once per seed. CI
+  reseeds every run. Locally, re-run `npm run qa:seed` before sending it again.
+  
+  Against a dev stack rather than QA, this token does not exist. Copy one off
+  the `auth.verification.issued` log line for the account you just signed up
+  and paste it into the body instead.
 }
