@@ -25,6 +25,7 @@ import {
   ChevronDownIcon,
   ChevronRightIcon,
   FileTextIcon,
+  CalendarCheckIcon,
   PencilIcon,
   PlusIcon,
   Trash2Icon,
@@ -46,6 +47,7 @@ import { ErrorState } from "@/components/shell/error-state";
 import { LoadingState } from "@/components/shell/loading-state";
 import { FieldRowsEditor } from "@/components/entities/field-rows-editor";
 import { RecordDialog, type RecordRow } from "@/components/entities/record-dialog";
+import { BookableDialog, type PoolView } from "@/components/entities/bookable-dialog";
 import {
   draftFieldsFrom,
   removedKeys,
@@ -87,6 +89,15 @@ export default function EntityPage() {
     open: false,
     editing: null,
   });
+
+  /**
+   * The pools of this entity, by record id. Loaded once for the page rather
+   * than per row: pools cluster onto very few entity types (a rental business
+   * has "Rental Items", not one entity per boat), so this is a single request
+   * however many records are on screen.
+   */
+  const [pools, setPools] = useState<Map<string, PoolView>>(new Map());
+  const [bookableFor, setBookableFor] = useState<RecordRow | null>(null);
 
   const [schemaOpen, setSchemaOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -132,10 +143,26 @@ export default function EntityPage() {
     [entityId],
   );
 
+  const loadPools = useCallback(async () => {
+    try {
+      const response = await fetch(`/api/v1/inventory/pools?entityId=${entityId}&limit=100`, {
+        credentials: "include",
+      });
+      // A failure here costs the bookable column, not the page: records are
+      // what this screen is for, and they loaded.
+      if (!response.ok) return;
+      const body = (await response.json()) as { data: PoolView[] };
+      setPools(new Map(body.data.map((pool) => [pool.recordId, pool])));
+    } catch {
+      // Same reasoning.
+    }
+  }, [entityId]);
+
   useEffect(() => {
     void loadEntity();
     void loadRecords(null);
-  }, [loadEntity, loadRecords]);
+    void loadPools();
+  }, [loadEntity, loadRecords, loadPools]);
 
   async function deleteRecord(recordId: string) {
     const response = await fetch(`/api/v1/entities/${entityId}/records/${recordId}`, {
@@ -268,7 +295,8 @@ export default function EntityPage() {
                     {entity.fields.map((field) => (
                       <TableHead key={field.key}>{field.label}</TableHead>
                     ))}
-                    <TableHead className="w-24 text-right">Actions</TableHead>
+                    <TableHead className="w-28">Bookable</TableHead>
+                    <TableHead className="w-32 text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -289,7 +317,21 @@ export default function EntityPage() {
                           )}
                         </TableCell>
                       ))}
+                      <TableCell>
+                        <BookableCell pool={pools.get(row.id) ?? null} />
+                      </TableCell>
                       <TableCell className="text-right">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label={
+                            pools.has(row.id) ? "Edit booking setup" : "Make bookable"
+                          }
+                          onClick={() => setBookableFor(row)}
+                        >
+                          <CalendarCheckIcon />
+                        </Button>
                         <Button
                           type="button"
                           variant="ghost"
@@ -440,7 +482,55 @@ export default function EntityPage() {
         editing={recordDialog.editing}
         onSaved={() => void loadRecords(null)}
       />
+
+      {/* Keyed on the record so the dialog re-seeds per row rather than
+       * showing the last one's answers against this one. */}
+      {bookableFor ? (
+        <BookableDialog
+          key={bookableFor.id}
+          open
+          onOpenChange={(open) => {
+            if (!open) setBookableFor(null);
+          }}
+          entityId={entityId}
+          recordId={bookableFor.id}
+          recordLabel={recordLabel(bookableFor, entity.fields)}
+          pool={pools.get(bookableFor.id) ?? null}
+          onSaved={() => void loadPools()}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * What to call a record in a dialog title. Mirrors the precedence the
+ * operations timeline and the booking bridge use (`resourceName`), falling
+ * back to the first text value rather than to an id — an ObjectId in a title
+ * tells the reader nothing about which boat they are configuring.
+ */
+function recordLabel(row: RecordRow, fields: FieldLike[]): string {
+  for (const key of ["name", "title", "label"]) {
+    const value = row.data[key];
+    if (typeof value === "string" && value.trim() !== "") return value.trim();
+  }
+  const firstText = fields.find((field) => field.type === "text");
+  const fallback = firstText ? row.data[firstText.key] : undefined;
+  return typeof fallback === "string" && fallback.trim() !== ""
+    ? fallback.trim()
+    : "this record";
+}
+
+/** The bookable state of one record, as a word rather than a bare tick. */
+function BookableCell({ pool }: { pool: PoolView | null }) {
+  if (!pool) return <span className="text-xs text-muted-foreground">Not bookable</span>;
+  return (
+    <span className="text-xs">
+      {pool.strategy === "individual_asset" ? "Bookable" : `Bookable · ${pool.totalQuantity}`}
+      {pool.bufferMinutes > 0 ? (
+        <span className="text-muted-foreground"> · +{pool.bufferMinutes}m</span>
+      ) : null}
+    </span>
   );
 }
 
