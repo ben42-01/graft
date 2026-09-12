@@ -1,0 +1,27 @@
+meta {
+  name: An intent the flow does not have is refused
+  type: http
+  seq: 5
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/setup
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "intent": "invoicing"
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.data: isUndefined
+}

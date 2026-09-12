@@ -1,0 +1,36 @@
+meta {
+  name: A later step keeps what an earlier step answered
+  type: http
+  seq: 3
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/setup
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "recordCount": 2,
+    "step": "records"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.recordCount: eq 2
+  res.body.data.step: eq records
+  res.body.data.thingLabel: eq Kilns
+  res.body.data.intent: eq bookings
+  res.body.error: isUndefined
+}
+
+docs {
+  The merge is what makes going back a step safe: each screen sends only what
+  it just did, so no screen can blank an answer it never asked about.
+}
