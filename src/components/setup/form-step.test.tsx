@@ -24,7 +24,9 @@ const requestFields: FieldLike[] = [
   { key: "name", label: "Their name", type: "text", required: true },
   { key: "email", label: "Email", type: "email", required: true },
   { key: "starts_at", label: "From", type: "date", required: true },
-  { key: "ends_at", label: "Until", type: "date", required: false },
+  // Required, like the flow creates it: a mapped end is mandatory to the
+  // booking engine, so an optional one is refused at configuration time.
+  { key: "ends_at", label: "Until", type: "date", required: true },
   { key: "selected_item", label: "Chosen item", type: "text", required: false },
 ];
 
@@ -97,12 +99,18 @@ describe("FormStep — booking runs", () => {
     expect(body.catalogue.imageField).toBe("photo");
   });
 
-  it("never asks the visitor for the chosen item — the server writes it", async () => {
+  it("keeps the chosen item in the form's field list, or every submission 400s", async () => {
+    // The server validates a submission against the form's own field list
+    // *after* writing the catalogue selection into it. A form that omits the
+    // key the selection lands in refuses every submission it ever receives
+    // with "Unrecognized key(s): selected_item". The visitor never sees an
+    // input for it — the renderer filters it out — but the form must declare
+    // it.
     render(<FormStep {...props} intent="bookings" />);
     await submit();
 
     const keys = sentBody().fields.map((field: { key: string }) => field.key);
-    expect(keys).not.toContain("selected_item");
+    expect(keys).toContain("selected_item");
     expect(keys).toContain("email");
   });
 
@@ -166,5 +174,37 @@ describe("FormStep — after creation", () => {
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     expect(fetchMock.mock.calls[0][0]).toBe("/api/v1/forms/f1/publish");
+  });
+});
+
+describe("FormStep — an end the visitor could leave blank", () => {
+  it("refuses to map an optional end field, which the engine would reject at submit time", () => {
+    render(
+      <FormStep
+        {...props}
+        intent="bookings"
+        requestFields={requestFields.map((field) =>
+          field.key === "ends_at" ? { ...field, required: false } : field,
+        )}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /create the form/i })).toBeDisabled();
+    expect(screen.getByText(/cannot be worked out/i)).toBeInTheDocument();
+  });
+
+  it("is happy with no end field at all, because that is a fixed-duration booking", async () => {
+    render(
+      <FormStep
+        {...props}
+        intent="bookings"
+        requestFields={requestFields.filter((field) => field.key !== "ends_at")}
+      />,
+    );
+
+    await submit();
+    const body = sentBody();
+    expect(body.booking.endKey).toBeNull();
+    expect(body.booking.durationMinutes).toBe(60);
   });
 });

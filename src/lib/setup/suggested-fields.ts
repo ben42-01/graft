@@ -29,10 +29,12 @@ export type SuggestedField = {
 /**
  * The key the chosen item lands in on a request record.
  *
- * The server owns this field's value (`resolveSelection` overwrites it and
- * refuses a selection outside the form's own catalogue), so the flow creates
- * it, excludes it from the public form's fields, and tells the user what it
- * is for rather than leaving an unexplained column in their list.
+ * The server owns this field's value: `resolveSelection` overwrites it and
+ * refuses a selection outside the form's own catalogue. It still belongs in
+ * the form's declared field list — the submission is validated against that
+ * list *after* the selection is written into it — but the renderer never
+ * draws an input for it. The flow creates it and says what it is for, rather
+ * than leaving an unexplained column in the user's list.
  */
 export const SELECTION_FIELD: SuggestedField = {
   key: "selected_item",
@@ -106,7 +108,18 @@ export function suggestedRequestFields(intent: SetupIntent | null): SuggestedFie
         required: true,
         note: "When the booking starts. Availability is checked against this.",
       },
-      { key: "ends_at", label: "Until", type: "date", required: false },
+      {
+        key: "ends_at",
+        label: "Until",
+        type: "date",
+        required: true,
+        // Required because the booking engine treats a mapped end field as
+        // mandatory: a blank one is refused at submit time, so an optional
+        // "Until" is a box the form invites a visitor to skip and then
+        // rejects them for skipping. Forms that would rather not ask map no
+        // end field at all and take a fixed duration instead.
+        note: "A booking needs both ends. If yours are always the same length, delete this and choose a fixed duration at the form step.",
+      },
       SELECTION_FIELD,
     ];
   }

@@ -112,6 +112,11 @@ export function FormStep({
    * saying it here means the failure arrives before the click rather than
    * after it.
    */
+  const endField =
+    mapping.endKey === NONE
+      ? null
+      : (requestFields.find((field) => field.key === mapping.endKey) ?? null);
+
   const invalid = !name.trim()
     ? "Give the form a name."
     : !selectionField
@@ -120,7 +125,13 @@ export function FormStep({
         ? "Add a date field to the requests list, so a booking has a start time."
         : booking && mapping.rateKey === NONE
           ? "Choose which field holds the price, or bookings will be raised at zero."
-          : null;
+          : booking && endField && !endField.required
+            ? // A mapped end is mandatory to the booking engine, which has no
+              // second answer for "until when" — so an optional one is a box
+              // the form invites a visitor to skip and then rejects them for
+              // skipping, naming a field it called optional.
+              `Make "${endField.label}" required on the requests list, or pick a fixed duration instead — a booking with no end cannot be worked out.`
+            : null;
 
   async function create() {
     if (invalid || !selectionField) return;
@@ -136,12 +147,13 @@ export function FormStep({
           name: name.trim(),
           slug: toIdentifier(name).replace(/_/g, "-") || "requests",
           visibility: "public",
-          // The chosen item is written by the server from the catalogue
-          // selection, so asking a visitor for it would be asking them to
-          // forge it.
-          fields: requestFields
-            .filter((field) => field.key !== selectionField.key)
-            .map((field) => ({ key: field.key })),
+          // The selection key belongs in this list even though no visitor
+          // ever fills it in. A submission is validated against the *form's*
+          // field list, and `resolveSelection` writes the chosen record into
+          // `data` under this key before that check runs — leave it out and
+          // every submission is refused as an unrecognised key. The renderer
+          // is what hides it from the visitor, not its absence here.
+          fields: requestFields.map((field) => ({ key: field.key })),
           catalogue: {
             entityId: resourceEntityId,
             fields: resourceFields
