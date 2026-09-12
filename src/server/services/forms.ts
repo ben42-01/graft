@@ -155,6 +155,20 @@ export const bookingSchema = z
     /** A `number` field: how many of a pooled resource. Absent means one. */
     quantityKey: fieldKey.nullable().default(null),
     rateBasis: z.enum(RATE_BASES).default("hourly"),
+    /**
+     * A `number` field **on the resource's entity** holding its rate, and a
+     * text field holding its name. Both used to be conventions — `hourly_rate`
+     * / `daily_rate` / `flat_rate`, and `name` / `title` / `label` — which is
+     * to say they were invisible: a tenant who called the field `price` got a
+     * booking priced at zero and an order line reading "Booked resource", with
+     * nothing anywhere saying why. Named explicitly, they are chosen from a
+     * dropdown of fields that demonstrably exist.
+     *
+     * Null means "fall back to the old convention", which is what every form
+     * configured before this shipped will do.
+     */
+    rateKey: fieldKey.nullable().default(null),
+    labelKey: fieldKey.nullable().default(null),
     /** Charged upfront, as a percent of the total. Null means no deposit. */
     depositPercent: z.number().int().min(1).max(100).nullable().default(null),
   })
@@ -322,6 +336,9 @@ export type BookingConfig = {
   durationMinutes: number | null;
   quantityKey: string | null;
   rateBasis: (typeof RATE_BASES)[number];
+  /** Both null on forms stored before the mapping existed — see the schema. */
+  rateKey: string | null;
+  labelKey: string | null;
   depositPercent: number | null;
 };
 
@@ -553,6 +570,14 @@ export function resolveBooking(
   input: z.infer<typeof bookingSchema>,
   formFields: readonly FieldDef[],
   catalogue: CatalogueConfig | null,
+  /**
+   * The *catalogue* entity's fields. `rateKey` and `labelKey` name fields on
+   * the resource being booked, not on the form's own entity, so they are
+   * checked against a different list from every other key here. Defaults to
+   * empty because both are nullable: a config that sets neither never reads
+   * it.
+   */
+  resourceFields: readonly FieldDef[] = [],
 ): BookingConfig {
   const byKey = new Map(formFields.map((field) => [field.key, field]));
 
@@ -600,12 +625,38 @@ export function resolveBooking(
   }
   if (input.quantityKey !== null) requireField(input.quantityKey, "number", "number field");
 
+  // The rate and the label live on the thing being booked, so they are checked
+  // against the catalogue entity. Same reasoning as the date fields above: a
+  // rate pointing at a text field would price every booking at zero, and the
+  // builder is the only place that can still be told about it.
+  const resourceByKey = new Map(resourceFields.map((field) => [field.key, field]));
+  const requireResourceField = (key: string, type: FieldDef["type"], purpose: string) => {
+    const field = resourceByKey.get(key);
+    if (!field) {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: { booking: `Unknown field "${key}" on the catalogue entity` },
+      });
+    }
+    if (field.type !== type) {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: { booking: `Field "${key}" must be a ${type} field to hold ${purpose}` },
+      });
+    }
+  };
+
+  if (input.rateKey !== null) requireResourceField(input.rateKey, "number", "a rate");
+  if (input.labelKey !== null) requireResourceField(input.labelKey, "text", "a resource name");
+
   return {
     startKey: input.startKey,
     endKey: input.endKey,
     durationMinutes: input.durationMinutes,
     quantityKey: input.quantityKey,
     rateBasis: input.rateBasis,
+    rateKey: input.rateKey,
+    labelKey: input.labelKey,
     depositPercent: input.depositPercent,
   };
 }
@@ -625,14 +676,15 @@ export async function createForm(
 
   const entity = await deps.getEntity(ctx, parsed.entityId);
   const fields = resolveFormFields(parsed.fields, entity.fields);
+  const catalogueEntityFields = parsed.catalogue
+    ? (await deps.getEntity(ctx, parsed.catalogue.entityId)).fields
+    : [];
   const catalogue = parsed.catalogue
-    ? resolveCatalogue(
-        parsed.catalogue,
-        (await deps.getEntity(ctx, parsed.catalogue.entityId)).fields,
-        entity.fields,
-      )
+    ? resolveCatalogue(parsed.catalogue, catalogueEntityFields, entity.fields)
     : null;
-  const booking = parsed.booking ? resolveBooking(parsed.booking, fields, catalogue) : null;
+  const booking = parsed.booking
+    ? resolveBooking(parsed.booking, fields, catalogue, catalogueEntityFields)
+    : null;
 
   if (await deps.repo.findOne(ctx, { slug: parsed.slug } as Filter<FormDoc>)) {
     throw new AppError("CONFLICT", "A form with that slug already exists");
@@ -727,12 +779,26 @@ export async function updateForm(
   // the booking config together must be checked as one state, or it would be
   // possible to keep a booking config pointing at a field being removed.
   let booking: BookingConfig | null | undefined;
+
+  // `rateKey`/`labelKey` name fields on the *resource*, so resolving a booking
+  // needs the catalogue entity's fields — including when this call leaves the
+  // catalogue untouched and the effective one is the stored config's.
+  const effectiveCatalogue = catalogue !== undefined ? catalogue : (existing.catalogue ?? null);
+  const needsResourceFields =
+    parsed.booking !== undefined ||
+    (existing.booking !== null && (fields !== undefined || catalogue !== undefined));
+  const resourceFields =
+    effectiveCatalogue && needsResourceFields
+      ? (await deps.getEntity(ctx, effectiveCatalogue.entityDefId.toHexString())).fields
+      : [];
+
   if (parsed.booking !== undefined) {
     booking = parsed.booking
       ? resolveBooking(
           parsed.booking,
           fields ?? existing.fields,
-          catalogue !== undefined ? catalogue : (existing.catalogue ?? null),
+          effectiveCatalogue,
+          resourceFields,
         )
       : null;
   }
@@ -751,7 +817,8 @@ export async function updateForm(
     resolveBooking(
       existing.booking,
       fields ?? existing.fields,
-      catalogue !== undefined ? catalogue : (existing.catalogue ?? null),
+      effectiveCatalogue,
+      resourceFields,
     );
   }
 

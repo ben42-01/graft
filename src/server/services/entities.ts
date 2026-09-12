@@ -80,6 +80,19 @@ export const fieldDefSchema = z
   .refine((f) => f.type !== "select" || (f.options && f.options.length > 0), {
     message: "A select field needs at least one option",
     path: ["options"],
+  })
+  /**
+   * An image field can never be required, because it can never be satisfied at
+   * creation: its value is a media id written by the upload's own confirm
+   * request (record-media.ts), and that request needs a record to attach the
+   * object to. Marking it required therefore made the entity permanently
+   * un-fillable — every POST /records omitted the key and failed the compiled
+   * schema — with nothing anywhere saying why. Refused here rather than
+   * quietly ignored, so the mistake is reported at the point it is made.
+   */
+  .refine((f) => f.type !== "image" || !f.required, {
+    message: "An image cannot be required — it is uploaded after the record is created",
+    path: ["required"],
   });
 
 export type FieldDef = z.infer<typeof fieldDefSchema>;

@@ -111,8 +111,19 @@ describe("rateFromRecord", () => {
     expect(rateFromRecord({ hourly_rate: "150.50" }, "hourly")).toBe(150.5);
   });
 
+  it("reads the configured field in preference to the convention", () => {
+    // The regression this mapping exists for: a tenant who named the field
+    // `price` used to get null here, and a booking priced at zero.
+    expect(rateFromRecord({ price: 150 }, "hourly", "price")).toBe(150);
+    // An explicit mapping wins outright — it is not a fallback chain.
+    expect(rateFromRecord({ price: 150, hourly_rate: 999 }, "hourly", "price")).toBe(150);
+    // And a null mapping is the old convention, for forms built before it.
+    expect(rateFromRecord({ hourly_rate: 999 }, "hourly", null)).toBe(999);
+  });
+
   it("returns null rather than guessing when there is no usable rate", () => {
     expect(rateFromRecord({}, "hourly")).toBeNull();
+    expect(rateFromRecord({ hourly_rate: 150 }, "hourly", "price")).toBeNull();
     expect(rateFromRecord({ hourly_rate: "" }, "hourly")).toBeNull();
     expect(rateFromRecord({ hourly_rate: "free" }, "hourly")).toBeNull();
     expect(rateFromRecord({ hourly_rate: null }, "hourly")).toBeNull();

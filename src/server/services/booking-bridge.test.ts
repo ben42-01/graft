@@ -49,6 +49,8 @@ const booking = (over: Partial<BookingConfig> = {}): BookingConfig => ({
   durationMinutes: null,
   quantityKey: null,
   rateBasis: "hourly",
+  rateKey: null,
+  labelKey: null,
   depositPercent: null,
   ...over,
 });
@@ -187,9 +189,16 @@ describe("resourceName", () => {
     expect(resourceName({ label: "L" })).toBe("L");
   });
 
+  it("uses the configured label field instead of the convention", () => {
+    expect(resourceName({ boat_name: "Cobra", name: "ignored" }, "boat_name")).toBe("Cobra");
+  });
+
   it("falls back rather than showing an id to a customer", () => {
     expect(resourceName({})).toBe("Booked resource");
     expect(resourceName({ name: "   " })).toBe("Booked resource");
+    // A mapping that points at an empty or absent field does not silently
+    // fall back to the convention — it was configured, and it is wrong.
+    expect(resourceName({ name: "Boat" }, "boat_name")).toBe("Booked resource");
   });
 });
 

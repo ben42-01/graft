@@ -22,6 +22,7 @@ import {
   compileFieldSchema,
   createEntity,
   deleteEntity,
+  fieldDefSchema,
   getCompiledSchema,
   nextSchemaVersion,
   updateEntity,
@@ -176,6 +177,43 @@ describe("compileFieldSchema", () => {
   it("makes a non-required field optional", () => {
     const schema = compileFieldSchema(field({ required: false }));
     expect(schema.safeParse(undefined).success).toBe(true);
+  });
+});
+
+describe("fieldDefSchema — a picture cannot be required", () => {
+  /**
+   * Regression: a required `image` made the entity permanently un-fillable.
+   * The record dialog never sends an image value (it is written by the
+   * upload's own confirm request, which needs the record to already exist),
+   * so every POST /records failed the compiled schema with no way to recover
+   * except editing the field.
+   */
+  it("refuses a required image, naming the offending flag", () => {
+    const result = fieldDefSchema.safeParse({
+      key: "photo",
+      label: "Photo",
+      type: "image",
+      required: true,
+    });
+
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    const issue = result.error.issues[0];
+    expect(issue?.path).toEqual(["required"]);
+    expect(issue?.message).toMatch(/cannot be required/);
+  });
+
+  it("accepts an optional image, and a required field of any other type", () => {
+    expect(
+      fieldDefSchema.safeParse({ key: "photo", label: "Photo", type: "image" }).success,
+    ).toBe(true);
+    expect(
+      fieldDefSchema.safeParse({ key: "photo", label: "Photo", type: "image", required: false })
+        .success,
+    ).toBe(true);
+    expect(fieldDefSchema.safeParse(field({ type: "text", required: true })).success).toBe(
+      true,
+    );
   });
 });
 

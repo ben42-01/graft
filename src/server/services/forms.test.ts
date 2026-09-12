@@ -546,9 +546,18 @@ describe("resolveBooking", () => {
     durationMinutes: null as number | null,
     quantityKey: null as string | null,
     rateBasis: "hourly" as const,
+    rateKey: null as string | null,
+    labelKey: null as string | null,
     depositPercent: null as number | null,
     ...over,
   });
+
+  /** The catalogue entity — what `rateKey` and `labelKey` are checked against. */
+  const resourceFields: FieldDef[] = [
+    { key: "boat_name", label: "Boat", type: "text", required: true },
+    { key: "price_per_hour", label: "Price", type: "number", required: false },
+    { key: "moored_at", label: "Moored at", type: "text", required: false },
+  ];
 
   it("resolves a complete config unchanged", () => {
     expect(resolveBooking(input(), formFields, catalogue())).toEqual({
@@ -557,8 +566,43 @@ describe("resolveBooking", () => {
       durationMinutes: null,
       quantityKey: null,
       rateBasis: "hourly",
+      rateKey: null,
+      labelKey: null,
       depositPercent: null,
     });
+  });
+
+  it("resolves rate and label mappings against the catalogue entity", () => {
+    expect(
+      resolveBooking(
+        input({ rateKey: "price_per_hour", labelKey: "boat_name" }),
+        formFields,
+        catalogue(),
+        resourceFields,
+      ),
+    ).toMatchObject({ rateKey: "price_per_hour", labelKey: "boat_name" });
+  });
+
+  it("refuses a rate key that is not on the catalogue entity", () => {
+    // "people" is a number field on the *form*, which is the mistake this
+    // check exists to catch: the rate lives on the thing being booked.
+    expect(() =>
+      resolveBooking(input({ rateKey: "people" }), formFields, catalogue(), resourceFields),
+    ).toThrow(AppError);
+  });
+
+  it("refuses a rate key that is not a number, and a label key that is not text", () => {
+    expect(() =>
+      resolveBooking(input({ rateKey: "boat_name" }), formFields, catalogue(), resourceFields),
+    ).toThrow(AppError);
+    expect(() =>
+      resolveBooking(
+        input({ labelKey: "price_per_hour" }),
+        formFields,
+        catalogue(),
+        resourceFields,
+      ),
+    ).toThrow(AppError);
   });
 
   it("refuses booking mode without a catalogue — there is nothing to book", () => {

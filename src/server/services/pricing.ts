@@ -106,9 +106,21 @@ export function toMinor(major: number): number {
 
 export const toMajor = (minor: number): number => minor / MINOR_UNITS_PER_MAJOR;
 
-/** Reads a rate off a record's `data`, tolerating a string a form produced. */
-export function rateFromRecord(data: Record<string, unknown>, basis: RateBasis): number | null {
-  const raw = data[RATE_KEYS[basis]];
+/**
+ * Reads a rate off a record's `data`, tolerating a string a form produced.
+ *
+ * `key` is the field the booking form was configured to price from. It is
+ * optional only for the forms configured before that mapping existed, which
+ * fall back to `RATE_KEYS` — the convention this parameter exists to retire.
+ * The convention was invisible: a rate field named `price` was simply never
+ * found, and the booking priced at zero with nothing reported anywhere.
+ */
+export function rateFromRecord(
+  data: Record<string, unknown>,
+  basis: RateBasis,
+  key?: string | null,
+): number | null {
+  const raw = data[key ?? RATE_KEYS[basis]];
   if (typeof raw === "number" && Number.isFinite(raw)) return raw;
   if (typeof raw === "string" && raw.trim() !== "") {
     const parsed = Number(raw);
@@ -166,12 +178,14 @@ export function resourceLineItem(input: {
   endAt: Date;
   /** How many of a pooled resource; always 1 for an individual asset. */
   quantity?: number;
+  /** The resource field holding the rate; null falls back to `RATE_KEYS`. */
+  rateKey?: string | null;
   poolId?: string;
   allocationId?: string;
   recordId?: string;
 }): LineItem {
   const units = billableUnits(input.startAt, input.endAt, input.basis);
-  const rate = rateFromRecord(input.data, input.basis) ?? 0;
+  const rate = rateFromRecord(input.data, input.basis, input.rateKey) ?? 0;
   const quantity = input.quantity ?? 1;
 
   // The *unit* is one booking of this resource for its whole duration, so the

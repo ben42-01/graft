@@ -335,6 +335,12 @@ export default function FormPage() {
         <BookingEditor
           booking={form.booking}
           formFields={form.fields}
+          // The rate and the resource's name live on the catalogue entity, not
+          // on the entity this form writes into.
+          resourceFields={
+            state.entities.find((entity) => entity.id === form.catalogue?.entityId)?.fields ??
+            []
+          }
           hasSelection={form.catalogue?.selectionKey != null}
           busy={busy}
           onSave={(booking) => void patch({ booking }, () => void load())}

@@ -17,6 +17,13 @@
  *   - **End field or fixed duration, never both.** A radio, not two inputs
  *     that quietly disagree — the server's `bookingSchema` rejects having both
  *     precisely because there would be no defensible answer at submit time.
+ *   - **The rate and the name are mapped, not conventions.** They used to be
+ *     read off the resource record by well-known key — `hourly_rate`, `name` —
+ *     which this panel could only communicate as a sentence telling the
+ *     builder what to go and call their field. A tenant who called it `price`
+ *     got bookings priced at zero, with nothing reported. They are dropdowns
+ *     now, over the catalogue entity's own fields, so a mapping that does not
+ *     exist cannot be chosen.
  *
  * Saved with an explicit button, like every other panel here: this decides
  * what happens to a customer's money.
@@ -50,6 +57,9 @@ export type BookingView = {
   durationMinutes: number | null;
   quantityKey: string | null;
   rateBasis: (typeof RATE_BASES)[number]["value"];
+  /** Fields on the *catalogue* entity. Null means the legacy convention. */
+  rateKey: string | null;
+  labelKey: string | null;
   depositPercent: number | null;
 };
 
@@ -59,6 +69,9 @@ export function BookingEditor({
   booking,
   /** The fields of the entity this form writes to — where the dates live. */
   formFields,
+  /** The fields of the entity the catalogue browses — where the rate and the
+   * resource's name live. Empty until a catalogue entity is chosen. */
+  resourceFields,
   /** Whether the catalogue names a selection field; without it, booking is
    * impossible and the server will refuse it. */
   hasSelection,
@@ -67,12 +80,15 @@ export function BookingEditor({
 }: {
   booking: BookingView | null;
   formFields: FieldLike[];
+  resourceFields: FieldLike[];
   hasSelection: boolean;
   busy: boolean;
   onSave: (next: BookingView | null) => void;
 }) {
   const dateFields = formFields.filter((field) => field.type === "date");
   const numberFields = formFields.filter((field) => field.type === "number");
+  const resourceNumberFields = resourceFields.filter((field) => field.type === "number");
+  const resourceTextFields = resourceFields.filter((field) => field.type === "text");
 
   const [enabled, setEnabled] = useState(booking !== null);
   /**
@@ -98,6 +114,8 @@ export function BookingEditor({
       durationMinutes: DEFAULT_DURATION_MINUTES,
       quantityKey: null,
       rateBasis: "hourly",
+      rateKey: null,
+      labelKey: null,
       depositPercent: null,
     },
   );
@@ -296,8 +314,77 @@ export function BookingEditor({
                 </SelectContent>
               </Select>
               <p className="mt-1 text-xs text-muted-foreground">
-                The price comes from each catalogue record&apos;s <code>{basis.rateKey}</code>{" "}
-                field. A record without one is booked at zero rather than refused.
+                How the rate is multiplied — {basis.label.toLowerCase()} of the booking.
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="booking-rate-key" className="mb-1 block text-xs">
+                Price comes from
+              </Label>
+              <Select
+                value={draft.rateKey ?? "none"}
+                onValueChange={(value) =>
+                  setDraft((d) => ({ ...d, rateKey: value === "none" ? null : value }))
+                }
+                disabled={busy || resourceNumberFields.length === 0}
+              >
+                <SelectTrigger
+                  id="booking-rate-key"
+                  aria-label="Price comes from"
+                  className="w-full max-w-xs"
+                >
+                  <SelectValue placeholder="Choose a number field…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not set</SelectItem>
+                  {resourceNumberFields.map((field) => (
+                    <SelectItem key={field.key} value={field.key}>
+                      {field.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {resourceNumberFields.length === 0
+                  ? "The catalogue entity has no number field, so there is nothing to price from. Add one to it first."
+                  : draft.rateKey === null
+                    ? "Not set: every booking from this form is priced at zero."
+                    : "Read off each catalogue record. A record that leaves it blank is booked at zero rather than refused."}
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="booking-label-key" className="mb-1 block text-xs">
+                Name the resource by
+              </Label>
+              <Select
+                value={draft.labelKey ?? "none"}
+                onValueChange={(value) =>
+                  setDraft((d) => ({ ...d, labelKey: value === "none" ? null : value }))
+                }
+                disabled={busy || resourceTextFields.length === 0}
+              >
+                <SelectTrigger
+                  id="booking-label-key"
+                  aria-label="Name the resource by"
+                  className="w-full max-w-xs"
+                >
+                  <SelectValue placeholder="Choose a text field…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Not set</SelectItem>
+                  {resourceTextFields.map((field) => (
+                    <SelectItem key={field.key} value={field.key}>
+                      {field.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {draft.labelKey === null
+                  ? "Not set: orders fall back to a field called name, then title, then label."
+                  : "What the order and the invoice call the thing that was booked."}
               </p>
             </div>
 

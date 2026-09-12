@@ -20,9 +20,16 @@ const formFields: FieldLike[] = [
   { key: "people", label: "People", type: "number" },
 ];
 
+/** The catalogue entity — what the rate and label mappings choose from. */
+const resourceFields: FieldLike[] = [
+  { key: "boat_name", label: "Boat", type: "text" },
+  { key: "price_per_hour", label: "Price per hour", type: "number" },
+];
+
 const props = {
   booking: null as BookingView | null,
   formFields,
+  resourceFields,
   hasSelection: true,
   busy: false,
   onSave: vi.fn(),
@@ -139,6 +146,8 @@ describe("BookingEditor", () => {
           durationMinutes: null,
           quantityKey: null,
           rateBasis: "hourly",
+          rateKey: null,
+          labelKey: null,
           depositPercent: null,
         }}
         onSave={onSave}
@@ -152,12 +161,41 @@ describe("BookingEditor", () => {
     expect(onSave).toHaveBeenCalledWith(null);
   });
 
-  it("names the rate field each basis reads, so the builder knows what to fill in", async () => {
+  it("offers the catalogue entity's own fields as the rate and the name", async () => {
+    const onSave = vi.fn();
+    render(<BookingEditor {...props} onSave={onSave} />);
+    await enable();
+
+    await choose("Booking starts at", "From");
+    await choose("Booking ends at", "Until");
+    // Typed: only numbers can be a rate, only text can be a name. Offering a
+    // text field as the rate is the mistake that used to price at zero.
+    await choose("Price comes from", "Price per hour");
+    await choose("Name the resource by", "Boat");
+
+    await userEvent
+      .setup({ pointerEventsCheck: 0 })
+      .click(screen.getByRole("button", { name: /save bookings/i }));
+
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ rateKey: "price_per_hour", labelKey: "boat_name" }),
+    );
+  });
+
+  it("warns that an unmapped rate prices every booking at zero", async () => {
     render(<BookingEditor {...props} />);
     await enable();
 
-    expect(screen.getByText("hourly_rate")).toBeInTheDocument();
-    await choose("Charge", "Per day");
-    expect(screen.getByText("daily_rate")).toBeInTheDocument();
+    expect(screen.getByText(/priced at zero/i)).toBeInTheDocument();
+  });
+
+  it("says what to do when the catalogue entity has nothing to price from", async () => {
+    render(
+      <BookingEditor {...props} resourceFields={[{ key: "n", label: "N", type: "text" }]} />,
+    );
+    await enable();
+
+    expect(screen.getByRole("combobox", { name: "Price comes from" })).toBeDisabled();
+    expect(screen.getByText(/no number field/i)).toBeInTheDocument();
   });
 });

@@ -131,9 +131,18 @@ export function planBooking(
  * same three keys for the operations timeline — the two have to agree, or the
  * board and the invoice would name the same boat differently.
  */
-export function resourceName(data: Record<string, unknown>): string {
-  for (const key of ["name", "title", "label"]) {
-    const value = data[key];
+/**
+ * What the order line calls the thing that was booked.
+ *
+ * `key` is the field the form was configured to label resources by. Without
+ * one — every form configured before that mapping existed — this falls back to
+ * the `name`/`title`/`label` convention, which is what made a resource whose
+ * name lived under any other key silently appear on the invoice as "Booked
+ * resource".
+ */
+export function resourceName(data: Record<string, unknown>, key?: string | null): string {
+  for (const candidate of key ? [key] : ["name", "title", "label"]) {
+    const value = data[candidate];
     if (typeof value === "string" && value.trim() !== "") return value.trim();
   }
   return "Booked resource";
@@ -270,9 +279,10 @@ export async function bridgeBooking(
   }
 
   const lineItem = resourceLineItem({
-    name: resourceName(resource.data),
+    name: resourceName(resource.data, booking.labelKey),
     data: resource.data,
     basis: booking.rateBasis,
+    rateKey: booking.rateKey,
     startAt: plan.startAt,
     endAt: plan.endAt,
     quantity: plan.quantity,

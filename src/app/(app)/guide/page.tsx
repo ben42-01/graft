@@ -8,6 +8,13 @@
  * in a link to the screen that performs it, so the guide is a route into the
  * product rather than a page about it.
  *
+ * 2026-09-12 — "Taking bookings" was added. The booking path asks a tenant to
+ * model *two* entities (the resource and the request) and nothing said so, so
+ * the obvious reading — one "Boats" entity that somehow also holds the
+ * customer — produced a form that could not be bridged. The section states the
+ * two-entity shape, names the exact field keys the pricing and bridge code
+ * match on, and calls out the two settings that cannot be changed later.
+ *
  * A server component — static explanation, no session needed.
  */
 import type { Metadata } from "next";
@@ -16,11 +23,16 @@ import { ArrowRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  BookingFlowIllustration,
+  BookingFormIllustration,
+  CapacityIllustration,
   DashboardIllustration,
   EntityIllustration,
   FlowIllustration,
   FormIllustration,
   RecordsIllustration,
+  RequestIllustration,
+  ResourceIllustration,
 } from "@/components/guide/illustrations";
 
 export const metadata: Metadata = { title: "Getting started — Graft" };
@@ -80,6 +92,102 @@ const STEPS: Step[] = [
   },
 ];
 
+/**
+ * Deliberately not merged into STEPS: these are not a fifth thing everyone
+ * does, they are a branch most workspaces never take. Presenting them as
+ * "step 5" would imply the core loop is incomplete without them. They get the
+ * same cards and the same illustrations, though — the section is optional, not
+ * secondary, and rendering it as bare prose read as an afterthought.
+ */
+const BOOKING_STEPS: Step[] = [
+  {
+    title: "Make the resource entity",
+    what: "One entity for the things you rent out, with one record per thing.",
+    illustration: ResourceIllustration,
+    detail:
+      "One record per thing that can be booked — ten boats means ten records. Give it a text field for its name and a number field for its price, in whole currency units, so 150 means 150.00. Call them whatever suits you: the booking form asks which field is which, so there are no special names to get right. A resource that leaves its price blank still books; it just prices at zero.",
+    href: "/entities",
+    cta: "Open Entities",
+  },
+  {
+    title: "Make the request entity",
+    what: "A second, separate entity for what the customer tells you.",
+    illustration: RequestIllustration,
+    detail:
+      "This is the one people miss. It is a separate entity holding what the customer tells you — their name, email and phone, the start date, the end date. Each submission becomes one record here, and that record is the customer. You do not need a Customers entity, and linking one will not help: the booking path reads the submission itself.",
+    href: "/entities",
+    cta: "Open Entities",
+  },
+  {
+    title: "Make each resource bookable",
+    what: "Start bookings on each record so it has capacity that can run out.",
+    illustration: CapacityIllustration,
+    detail:
+      "Open a resource record and start bookings on it. Until you do, it has no capacity: the request is still accepted and still raises an order, but nothing checks whether the boat is free, so ten people can take the same morning. Choose how it is counted — one specific thing, a quantity of interchangeable ones, or concurrent slots — and set a turnaround gap if you need one between bookings.",
+    href: "/entities",
+    cta: "Open a record",
+  },
+  {
+    title: "Build the booking form",
+    what: "One form on the request entity, showing the resources as a catalogue.",
+    illustration: BookingFormIllustration,
+    detail:
+      "Create a form on the request entity, not the resource entity. Its catalogue lists the resource entity so the visitor picks which boat. Its booking settings are where every field is matched up: which of your date fields is the start and which is the end, and — on the resource — which field holds the price and which holds the name to print on the order. Publish it, and a submission writes the record, blocks the boat for that window and opens a draft order in one go.",
+    href: "/forms",
+    cta: "Build a form",
+  },
+];
+
+/**
+ * One step, as a card. Shared by the core loop and the booking branch so the
+ * two cannot drift apart visually — the moment they do, one of them starts
+ * looking like the real documentation and the other like a footnote.
+ */
+function StepCard({
+  step,
+  eyebrow,
+  // The core steps sit directly under the page h1; the booking ones sit under
+  // that section's own h2, so they are a level deeper.
+  as: Heading = "h2",
+}: {
+  step: Step;
+  eyebrow: string;
+  as?: "h2" | "h3";
+}) {
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
+        <div className="flex shrink-0 justify-center sm:w-56">
+          <step.illustration />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <p className="text-xs font-medium tracking-wide text-graft-green uppercase dark:text-graft-green-light">
+            {eyebrow}
+          </p>
+          <Heading className="text-lg font-semibold tracking-tight">{step.title}</Heading>
+          <p className="text-sm font-medium">{step.what}</p>
+          <p className="text-sm leading-relaxed text-muted-foreground">{step.detail}</p>
+          {step.detailExtra ? (
+            <p className="text-sm leading-relaxed text-muted-foreground">{step.detailExtra}</p>
+          ) : null}
+          {step.note ? (
+            <p className="mt-1 rounded-md border border-graft-warn/40 bg-graft-warn/5 px-3 py-2 text-xs text-muted-foreground">
+              {step.note}
+            </p>
+          ) : null}
+          {step.href && step.cta ? (
+            <Button asChild size="sm" variant="outline" className="mt-1 self-start">
+              <Link href={step.href}>
+                {step.cta} <ArrowRightIcon />
+              </Link>
+            </Button>
+          ) : null}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function GuidePage() {
   return (
     <div className="mx-auto flex max-w-3xl flex-col gap-10">
@@ -97,46 +205,73 @@ export default function GuidePage() {
         <p className="text-center text-xs text-muted-foreground">
           A form writes records · an entity holds them · a dashboard reads them
         </p>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Renting something out by the hour or the day — boats, rooms, equipment, a
+          person&apos;s time? The four parts still apply, and there is one more shape to learn:{" "}
+          <Link href="#taking-bookings" className="underline underline-offset-4">
+            taking bookings
+          </Link>{" "}
+          needs two entities rather than one.
+        </p>
       </header>
 
       <ol className="flex flex-col gap-5">
         {STEPS.map((step, index) => (
           <li key={step.title}>
-            <Card>
-              <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-start sm:gap-6">
-                <div className="flex shrink-0 justify-center sm:w-56">
-                  <step.illustration />
-                </div>
-                <div className="flex min-w-0 flex-1 flex-col gap-2">
-                  <p className="text-xs font-medium tracking-wide text-graft-green uppercase dark:text-graft-green-light">
-                    Step {index + 1}
-                  </p>
-                  <h2 className="text-lg font-semibold tracking-tight">{step.title}</h2>
-                  <p className="text-sm font-medium">{step.what}</p>
-                  <p className="text-sm leading-relaxed text-muted-foreground">{step.detail}</p>
-                  {step.detailExtra ? (
-                    <p className="text-sm leading-relaxed text-muted-foreground">
-                      {step.detailExtra}
-                    </p>
-                  ) : null}
-                  {step.note ? (
-                    <p className="mt-1 rounded-md border border-graft-warn/40 bg-graft-warn/5 px-3 py-2 text-xs text-muted-foreground">
-                      {step.note}
-                    </p>
-                  ) : null}
-                  {step.href && step.cta ? (
-                    <Button asChild size="sm" variant="outline" className="mt-1 self-start">
-                      <Link href={step.href}>
-                        {step.cta} <ArrowRightIcon />
-                      </Link>
-                    </Button>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
+            <StepCard step={step} eyebrow={`Step ${index + 1}`} />
           </li>
         ))}
       </ol>
+
+      <section id="taking-bookings" className="flex scroll-mt-6 flex-col gap-4 border-t pt-6">
+        <h2 className="text-lg font-semibold tracking-tight">Taking bookings</h2>
+        <p className="text-sm leading-relaxed text-muted-foreground">
+          Booking needs{" "}
+          <strong className="font-medium text-foreground">two entities, not one</strong> — and
+          that is the whole of what trips people up. Here is the shape before the steps.
+        </p>
+
+        <div className="flex flex-col items-center gap-2 rounded-lg border bg-graft-green/[0.03] p-4">
+          <BookingFlowIllustration />
+          <p className="text-center text-xs text-muted-foreground">
+            Your boats live in one entity · the form picks one · the request lands in the other,
+            and <strong className="font-medium text-foreground">that</strong> record is the
+            customer
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-graft-green/30 bg-graft-green/[0.04] px-4 py-3">
+          <p className="text-sm leading-relaxed">
+            <strong className="font-medium">The thing being booked</strong> and{" "}
+            <strong className="font-medium">the request to book it</strong> are separate shapes.
+            A boat has a name and an hourly rate; a request has a customer, a start and an end.
+            One entity cannot be both, because ten boats and forty requests are not the same
+            list.
+          </p>
+          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            There is no third entity for customers. The record a submission creates <em>is</em>{" "}
+            the customer — it is where their name and email already are — and that is the record
+            the resulting order points back at.
+          </p>
+        </div>
+
+        <ol className="flex flex-col gap-5">
+          {BOOKING_STEPS.map((step, index) => (
+            <li key={step.title}>
+              <StepCard step={step} eyebrow={`Booking step ${index + 1}`} as="h3" />
+            </li>
+          ))}
+        </ol>
+
+        <p className="rounded-md border border-graft-warn/40 bg-graft-warn/5 px-3 py-2 text-xs leading-relaxed text-muted-foreground">
+          Two things here cannot be changed afterwards. A field&apos;s key is permanent once
+          saved — you can rename its label freely, but replacing the key means adding a new
+          field. And how a resource is counted is fixed when you start bookings on it, because
+          bookings already taken cannot be reinterpreted under a different counting rule;
+          changing it means stopping bookings and starting again, which leaves past bookings
+          readable but frees the resource.
+        </p>
+      </section>
 
       <section className="flex flex-col gap-3 border-t pt-6">
         <h2 className="text-lg font-semibold tracking-tight">Answers to the usual questions</h2>
@@ -172,6 +307,26 @@ export default function GuidePage() {
                 your plan
               </Link>{" "}
               for what your limits are.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium">
+              My booking form saved the request but nothing was reserved. Why?
+            </dt>
+            <dd className="mt-1 text-muted-foreground">
+              The resource it picked has no capacity set — nobody started bookings on that
+              record. The submission and its order are kept on purpose, because the customer did
+              nothing wrong, but no slot was held and nothing stopped a second person taking the
+              same one. Open the resource record and start bookings on it.
+            </dd>
+          </div>
+          <div>
+            <dt className="font-medium">Why was a booking refused as unavailable?</dt>
+            <dd className="mt-1 text-muted-foreground">
+              Something already holds that resource for part of that window — a confirmed
+              booking, a pending request, or the turnaround gap either side of one. Times are
+              treated as up-to-but-not-including the end, so a 10:00–12:00 booking leaves 12:00
+              free for the next one.
             </dd>
           </div>
           <div>
