@@ -2,9 +2,10 @@
  * The form carousel — unit coverage.
  *
  * The invariants worth pinning are the ones that span two collections and so
- * cannot be enforced by either service alone: the three-image ceiling, the
- * rule that a slide's media must belong to *this* form, and the promise that
- * an image dropped from the carousel does not stay charged as storage.
+ * cannot be enforced by either service alone: the image ceiling (one hero
+ * image since product photos moved to the records a catalogue pages through),
+ * the rule that a slide's media must belong to *this* form, and the promise
+ * that an image dropped from the carousel does not stay charged as storage.
  * Persistence and cross-tenant scoping are proven for real by
  * bruno/forms/carousel-*.bru.
  */
@@ -22,8 +23,9 @@ import {
   type FormMediaDeps,
   type PublicMediaDeps,
 } from "./form-media";
-import type { FormDoc } from "./forms";
+import { toCarouselView, type FormDoc } from "./forms";
 import type { MediaDoc, MediaView, UploadTicket } from "./media";
+import type { RecordDoc } from "./records";
 
 const TENANT = "000000000000000000000001";
 const USER = "00000000000000000000000b";
@@ -105,9 +107,16 @@ function fakeFormsRepo(seed: WithId<FormDoc>) {
       throw new Error("not used");
     },
     async updateOne(_ctx, filter, update) {
+      // Emulates the guarded `$push` generically rather than restating the
+      // cap: the service names the index it will not overwrite, and this
+      // honours whatever index that is, so the fake cannot drift from
+      // MAX_CAROUSEL_IMAGES the way a hardcoded `carousel.2` did.
       const f = filter as Record<string, unknown>;
-      const guard = f["carousel.2"] as { $exists: boolean } | undefined;
-      if (guard && (doc.carousel ?? []).length >= 3) return null;
+      const guardKey = Object.keys(f).find((key) => key.startsWith("carousel."));
+      if (guardKey) {
+        const index = Number(guardKey.slice("carousel.".length));
+        if ((doc.carousel ?? []).length > index) return null;
+      }
 
       const push = (update as Record<string, { carousel?: unknown }>).$push;
       if (push?.carousel) {
@@ -175,9 +184,11 @@ function deps(
 }
 
 describe("requestFormImageUpload", () => {
-  it("refuses before minting a URL once the carousel is full", async () => {
+  it("refuses before minting a URL once the form already has its image", async () => {
+    // One, not three: the form carries a single hero image now, and the
+    // product photos live on the records the catalogue pages through.
     const full = seedForm({
-      carousel: [1, 2, 3].map((n) => ({ mediaId: new ObjectId(mediaId(n)), alt: "" })),
+      carousel: [{ mediaId: new ObjectId(mediaId(1)), alt: "" }],
     });
     const d = deps(full, []);
 
@@ -235,44 +246,57 @@ describe("attachFormImage", () => {
 
   it("deletes the object it just charged for when the append loses the race", async () => {
     const form = seedForm({
-      carousel: [1, 2, 3].map((n) => ({ mediaId: new ObjectId(mediaId(n)), alt: "" })),
+      carousel: [{ mediaId: new ObjectId(mediaId(1)), alt: "" }],
     });
     // Past the up-front check because the media row exists and is unattached;
     // only the guarded write can catch this.
-    const d = deps(form, [seedMedia(mediaId(4), { status: "pending" })]);
+    const d = deps(form, [seedMedia(mediaId(2), { status: "pending" })]);
 
-    await expect(attachFormImage(ctx, FORM_ID, mediaId(4), "", d.deps)).rejects.toMatchObject({
+    await expect(attachFormImage(ctx, FORM_ID, mediaId(2), "", d.deps)).rejects.toMatchObject({
       code: "CONFLICT",
     });
-    expect(d.deleted).toEqual([mediaId(4)]);
+    expect(d.deleted).toEqual([mediaId(2)]);
   });
 });
 
 describe("updateFormCarousel", () => {
-  it("reorders and rewrites alt text without deleting anything", async () => {
+  it("rewrites alt text without deleting anything", async () => {
     const form = seedForm({
-      carousel: [
-        { mediaId: new ObjectId(mediaId(1)), alt: "one" },
-        { mediaId: new ObjectId(mediaId(2)), alt: "two" },
-      ],
+      carousel: [{ mediaId: new ObjectId(mediaId(1)), alt: "one" }],
     });
-    const d = deps(form, [seedMedia(mediaId(1)), seedMedia(mediaId(2))]);
+    const d = deps(form, [seedMedia(mediaId(1))]);
 
     const carousel = await updateFormCarousel(
       ctx,
       FORM_ID,
-      {
-        images: [
-          { mediaId: mediaId(2), alt: "second, now first" },
-          { mediaId: mediaId(1), alt: "one" },
-        ],
-      },
+      { images: [{ mediaId: mediaId(1), alt: "a better description" }] },
       d.deps,
     );
 
-    expect(carousel.map((c) => c.mediaId)).toEqual([mediaId(2), mediaId(1)]);
-    expect(carousel[0].alt).toBe("second, now first");
+    expect(carousel.map((c) => c.mediaId)).toEqual([mediaId(1)]);
+    expect(carousel[0].alt).toBe("a better description");
     expect(d.deleted).toEqual([]);
+  });
+
+  it("still renders a legacy multi-slide carousel it can no longer accept", async () => {
+    // Forms written before the hero-image change keep their slides until the
+    // migration trims them, and a reader must not choke on data the current
+    // writer would refuse. Rendering and accepting are different questions.
+    const legacy = [1, 2, 3].map((n) => ({ mediaId: new ObjectId(mediaId(n)), alt: "" }));
+    expect(toCarouselView(legacy)).toHaveLength(3);
+
+    const d = deps(
+      seedForm({ carousel: legacy }),
+      legacy.map((_, i) => seedMedia(mediaId(i + 1))),
+    );
+    await expect(
+      updateFormCarousel(
+        ctx,
+        FORM_ID,
+        { images: [1, 2, 3].map((n) => ({ mediaId: mediaId(n), alt: "" })) },
+        d.deps,
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 
   it("deletes the object of an image dropped from the array", async () => {
@@ -320,17 +344,17 @@ describe("updateFormCarousel", () => {
     ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 
-  it("refuses more than three images", async () => {
+  it("refuses more than the one hero image", async () => {
     const d = deps(
       seedForm(),
-      [1, 2, 3, 4].map((n) => seedMedia(mediaId(n))),
+      [1, 2].map((n) => seedMedia(mediaId(n))),
     );
 
     await expect(
       updateFormCarousel(
         ctx,
         FORM_ID,
-        { images: [1, 2, 3, 4].map((n) => ({ mediaId: mediaId(n), alt: "" })) },
+        { images: [1, 2].map((n) => ({ mediaId: mediaId(n), alt: "" })) },
         d.deps,
       ),
     ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
@@ -444,5 +468,85 @@ describe("findServablePublicMedia", () => {
     });
 
     expect(findOwningForm).toHaveBeenCalledWith(media.ownerId, media.tenantId);
+  });
+});
+
+/**
+ * A record's photo reaches the public internet through the *same* route as a
+ * carousel slide, so it has to answer the same question: not "does this image
+ * exist" but "is something published showing it right now". These pin the
+ * ways that can stop being true.
+ */
+describe("findServablePublicMedia — record images", () => {
+  const RECORD_ID = "000000000000000000000041";
+
+  const recordMedia = (over: Partial<WithId<MediaDoc>> = {}) =>
+    seedMedia(mediaId(1), {
+      ownerType: "record",
+      ownerId: new ObjectId(RECORD_ID),
+      ...over,
+    });
+
+  const record = (): WithId<RecordDoc> => ({
+    _id: new ObjectId(RECORD_ID),
+    tenantId: new ObjectId(TENANT),
+    entityDefId: new ObjectId(ENTITY_ID),
+    schemaVersion: 1,
+    data: { photo: mediaId(1) },
+    deletedAt: null,
+    createdAt: new Date("2026-01-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-01-01T00:00:00.000Z"),
+  });
+
+  const publicDeps = (over: Partial<PublicMediaDeps> = {}): Partial<PublicMediaDeps> => ({
+    findReadyMedia: vi.fn(async () => recordMedia()),
+    findOwningForm: vi.fn(async () => null),
+    findOwningRecord: vi.fn(async () => record()),
+    isRecordOnDisplay: vi.fn(async () => true),
+    ...over,
+  });
+
+  it("serves a record image that a live catalogue is displaying", async () => {
+    const served = await findServablePublicMedia(mediaId(1), publicDeps());
+    expect(served).toEqual({
+      key: `tenants/${TENANT}/forms/${FORM_ID}/${mediaId(1)}.png`,
+      contentType: "image/png",
+    });
+  });
+
+  it("goes dark when no published catalogue displays that record", async () => {
+    const served = await findServablePublicMedia(
+      mediaId(1),
+      publicDeps({ isRecordOnDisplay: vi.fn(async () => false) }),
+    );
+    expect(served).toBeNull();
+  });
+
+  it("goes dark when the record itself is gone", async () => {
+    const served = await findServablePublicMedia(
+      mediaId(1),
+      publicDeps({ findOwningRecord: vi.fn(async () => null) }),
+    );
+    expect(served).toBeNull();
+  });
+
+  it("never asks the form path about a record image", async () => {
+    const deps = publicDeps();
+    await findServablePublicMedia(mediaId(1), deps);
+    expect(deps.findOwningForm).not.toHaveBeenCalled();
+  });
+
+  it("refuses an owner kind this build cannot authorise", async () => {
+    // A row written by a newer build, or a corrupted one: unknown ownership
+    // is not served, rather than falling through to whichever branch is last.
+    const served = await findServablePublicMedia(
+      mediaId(1),
+      publicDeps({
+        findReadyMedia: vi.fn(async () =>
+          recordMedia({ ownerType: "future_kind" as MediaDoc["ownerType"] }),
+        ),
+      }),
+    );
+    expect(served).toBeNull();
   });
 });

@@ -17,7 +17,7 @@ That's it. `dev:full` leaves you with three seeded tenants — a free-tier barbe
 parked at 85% of its submission quota, a premium plumbing company, and an enterprise
 logistics firm — and a status page confirming Mongo and Redis are reachable.
 
-Sign-in fixtures: `owner@bellas-barbershop.test` / `Dev!12345` (seed prints them all).
+Sign-in fixtures: `owner@bellas-barbershop.test` / `Dev!12345678` (seed prints them all).
 
 ## Commands
 
@@ -81,6 +81,18 @@ deleted after merge.
 | [docs/BACKEND.md](docs/BACKEND.md) | API conventions, auth, rate limiting, testing |
 | [docs/AGENTS.md](docs/AGENTS.md) | The agentic development loop |
 | [docs/GO-LIVE.md](docs/GO-LIVE.md) | Production launch checklist |
+
+## Yeah, you can watch Playwright run in a real browser instead of headless. From the repo root:
+
+npx playwright test e2e/pricing.spec.ts --headed
+
+That opens an actual Chromium window and drives it through the test steps. A few useful variants:
+
+- npx playwright test --headed --workers=1 — run the whole suite headed, one at a time (matches how CI now runs it after GRAFT-21).
+- npx playwright test e2e/pricing.spec.ts --debug — headed and pauses with Playwright's Inspector so you can step through action-by-action.
+- npx playwright test --ui — the nicest option: opens Playwright's UI Mode, a full time-travel debugger where you see every test, every step, and a live/replayed browser pane, with the DOM snapshot at each point.
+
+One prerequisite: the app needs to be running against a seeded QA stack first (these specs hit real API routes and fixture users like owner@qa-free.test). The repo has npm run
 
 ---
 

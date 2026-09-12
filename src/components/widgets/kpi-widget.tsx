@@ -13,7 +13,7 @@
  * — and so "unlimited" (`limit === null`) is branched on, never compared.
  */
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WidgetFrame } from "@/components/widgets/widget-frame";
 import { cn } from "@/lib/utils";
 import type { WidgetProps } from "@/lib/widgets/registry";
 
@@ -73,76 +73,69 @@ export function KpiWidget({ widget }: WidgetProps) {
       : null;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {config.label ?? "KPI"}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {reading.status === "loading" ? (
-          <p className="text-3xl font-semibold tabular-nums text-muted-foreground">…</p>
-        ) : null}
+    <WidgetFrame title={config.label ?? "KPI"}>
+      {reading.status === "loading" ? (
+        <p className="text-3xl font-semibold tabular-nums text-muted-foreground">…</p>
+      ) : null}
 
-        {reading.status === "unavailable" ? (
-          <>
-            <p className="text-3xl font-semibold tabular-nums text-muted-foreground">—</p>
-            <p className="mt-1 text-xs text-muted-foreground">No reading available.</p>
-          </>
-        ) : null}
+      {reading.status === "unavailable" ? (
+        <>
+          <p className="text-3xl font-semibold tabular-nums text-muted-foreground">—</p>
+          <p className="mt-1 text-xs text-muted-foreground">No reading available.</p>
+        </>
+      ) : null}
 
-        {reading.status === "ready" ? (
-          <>
-            <p className="flex items-baseline gap-1.5">
-              <span className="text-3xl font-semibold tabular-nums">
-                {reading.used.toLocaleString()}
-                {reading.approx ? "+" : ""}
+      {reading.status === "ready" ? (
+        <>
+          <p className="flex items-baseline gap-1.5">
+            <span className="text-3xl font-semibold tabular-nums">
+              {reading.used.toLocaleString()}
+              {reading.approx ? "+" : ""}
+            </span>
+            {reading.limit !== null ? (
+              <span className="text-sm text-muted-foreground tabular-nums">
+                of {reading.limit.toLocaleString()}
               </span>
-              {reading.limit !== null ? (
-                <span className="text-sm text-muted-foreground tabular-nums">
-                  of {reading.limit.toLocaleString()}
-                </span>
-              ) : null}
-            </p>
+            ) : null}
+          </p>
 
-            {ratio !== null ? (
-              <>
+          {ratio !== null ? (
+            <>
+              <div
+                className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-valuenow={Math.round(ratio * 100)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label={`${config.label ?? "KPI"} usage`}
+              >
+                {/* Amber past the 80% quota-warning ratio, red at the
+                 * ceiling — same thresholds meters.ts warns on. */}
                 <div
-                  className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-muted"
-                  role="progressbar"
-                  aria-valuenow={Math.round(ratio * 100)}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-label={`${config.label ?? "KPI"} usage`}
-                >
-                  {/* Amber past the 80% quota-warning ratio, red at the
-                   * ceiling — same thresholds meters.ts warns on. */}
-                  <div
-                    className={cn(
-                      "h-full rounded-full transition-[width]",
-                      ratio >= 1
-                        ? "bg-destructive"
-                        : ratio >= 0.8
-                          ? "bg-graft-warn"
-                          : "bg-graft-green",
-                    )}
-                    style={{ width: `${ratio * 100}%` }}
-                  />
-                </div>
-                <p className="mt-1.5 text-xs text-muted-foreground">
-                  {Math.round(ratio * 100)}% of your plan&apos;s limit used
-                </p>
-              </>
-            ) : null}
-
-            {reading.limit === null ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                {reading.approx ? "First 100 records counted" : "No limit on your plan"}
+                  className={cn(
+                    "h-full rounded-full transition-[width]",
+                    ratio >= 1
+                      ? "bg-destructive"
+                      : ratio >= 0.8
+                        ? "bg-graft-warn"
+                        : "bg-graft-green",
+                  )}
+                  style={{ width: `${ratio * 100}%` }}
+                />
+              </div>
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                {Math.round(ratio * 100)}% of your plan&apos;s limit used
               </p>
-            ) : null}
-          </>
-        ) : null}
-      </CardContent>
-    </Card>
+            </>
+          ) : null}
+
+          {reading.limit === null ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              {reading.approx ? "First 100 records counted" : "No limit on your plan"}
+            </p>
+          ) : null}
+        </>
+      ) : null}
+    </WidgetFrame>
   );
 }

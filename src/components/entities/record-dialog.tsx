@@ -15,6 +15,10 @@
  * record, so clearing an already-set optional field is not expressible —
  * blanking it leaves the previous value. Nothing in the UI pretends
  * otherwise; it says so where the form can't do it.
+ *
+ * `image` fields do not go through this form's payload at all. Their value is
+ * a media id written by the upload's own confirm request, so `ImageField`
+ * saves itself the moment a file lands and this dialog only reflects it.
  */
 import { useEffect, useState } from "react";
 import Link from "next/link";
@@ -40,10 +44,12 @@ import {
 import {
   emptyFormValues,
   formValuesFrom,
+  isImageField,
   toRecordPayload,
   type FieldLike,
   type FormValues,
 } from "@/lib/entities/record-values";
+import { ImageField } from "@/components/entities/image-field";
 
 export type RecordRow = { id: string; data: Record<string, unknown> };
 
@@ -146,6 +152,25 @@ export function RecordDialog({
           {fields.map((field) => {
             const inputId = `record-${field.key}`;
             const value = values[field.key];
+
+            if (isImageField(field)) {
+              return (
+                <ImageField
+                  key={field.key}
+                  entityId={entityId}
+                  recordId={editing?.id ?? null}
+                  fieldKey={field.key}
+                  label={field.label}
+                  mediaId={typeof value === "string" && value !== "" ? value : null}
+                  onChange={(next) => {
+                    setValue(field.key, next ?? "");
+                    // The upload already wrote it, so the row on the page
+                    // behind this dialog is stale the moment it lands.
+                    onSaved();
+                  }}
+                />
+              );
+            }
 
             if (field.type === "checkbox") {
               return (

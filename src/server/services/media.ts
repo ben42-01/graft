@@ -69,8 +69,19 @@ export type RequestUploadInput = z.input<typeof requestUploadSchema>;
 
 export const mediaIdParamSchema = z.object({ mediaId: objectIdHex });
 
-/** The only owner kind today; named rather than implied so the next one is additive. */
-export const MEDIA_OWNERS = ["form"] as const;
+/**
+ * What a media object can hang off. `form` is the carousel/hero image the
+ * business attaches to its own advert; `record` is a picture of the thing the
+ * record describes, which is what makes a public form browsable as a
+ * catalogue. Both are the tenant's own content — neither is an untrusted
+ * upload from a submitter, which is a different risk on a different tier
+ * (`form_file_uploads`, docs/TIERS.md §2.2).
+ *
+ * Adding a kind here is additive by design: `objectKey` namespaces by owner,
+ * and every authorization decision is made against the owner document, never
+ * against the media row alone.
+ */
+export const MEDIA_OWNERS = ["form", "record"] as const;
 export type MediaOwner = (typeof MEDIA_OWNERS)[number];
 
 export type MediaStatus = "pending" | "ready";

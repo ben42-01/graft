@@ -19,6 +19,12 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { CheckIcon, CopyIcon, ExternalLinkIcon, Trash2Icon } from "lucide-react";
 import { CarouselEditor, type CarouselItem } from "@/components/forms/carousel-editor";
+import {
+  CatalogueEditor,
+  type CatalogueView,
+  type EntityOption,
+} from "@/components/forms/catalogue-editor";
+import { BookingEditor, type BookingView } from "@/components/forms/booking-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,6 +45,8 @@ type FormView = {
   enabled: boolean;
   fields: FieldLike[];
   carousel: CarouselItem[];
+  catalogue: CatalogueView | null;
+  booking: BookingView | null;
 };
 
 type EntityView = { id: string; name: string; fields: FieldLike[] };
@@ -46,7 +54,14 @@ type EntityView = { id: string; name: string; fields: FieldLike[] };
 type State =
   | { status: "loading" }
   | { status: "error" }
-  | { status: "ready"; form: FormView; entity: EntityView | null };
+  | {
+      status: "ready";
+      form: FormView;
+      entity: EntityView | null;
+      /** Every entity the tenant has — the catalogue may browse any of them,
+       * not just the one this form writes to. */
+      entities: EntityOption[];
+    };
 
 export default function FormPage() {
   const params = useParams<{ formId: string }>();
@@ -82,7 +97,14 @@ export default function FormPage() {
         ? ((await entityResponse.json()) as { data: EntityView }).data
         : null;
 
-      setState({ status: "ready", form, entity });
+      // A catalogue browses records of *some* entity, which is usually not the
+      // one submissions land in, so the whole list is needed here.
+      const entitiesResponse = await fetch("/api/v1/entities", { credentials: "include" });
+      const entities = entitiesResponse.ok
+        ? ((await entitiesResponse.json()) as { data: EntityOption[] }).data
+        : [];
+
+      setState({ status: "ready", form, entity, entities });
     } catch {
       setState({ status: "error" });
     }
@@ -292,6 +314,30 @@ export default function FormPage() {
                 : current,
             )
           }
+        />
+      ) : null}
+
+      {/* Same reasoning as the hero image: an internal form has no public
+       * page for a catalogue to appear on. */}
+      {form.visibility === "public" ? (
+        <CatalogueEditor
+          catalogue={form.catalogue}
+          entities={state.entities}
+          submissionFields={state.entity?.fields ?? form.fields}
+          busy={busy}
+          onSave={(catalogue) => void patch({ catalogue }, () => void load())}
+        />
+      ) : null}
+
+      {/* Booking mode reads the catalogue's selection, so it only makes sense
+       * on the same forms the catalogue does. */}
+      {form.visibility === "public" ? (
+        <BookingEditor
+          booking={form.booking}
+          formFields={form.fields}
+          hasSelection={form.catalogue?.selectionKey != null}
+          busy={busy}
+          onSave={(booking) => void patch({ booking }, () => void load())}
         />
       ) : null}
 

@@ -23,7 +23,10 @@ import {
   findByPublicSlug as findByPublicSlugDefault,
   formSlugSchema,
   toCarouselView,
+  toCatalogueView,
   type CarouselItemView,
+  type CatalogueView,
+  type FormDoc,
 } from "./forms";
 import type { FieldDef } from "./entities";
 import { isFormServable } from "./forms";
@@ -37,8 +40,24 @@ import { TIER_FEATURES } from "@/server/tiers";
 export type PublicFormPageData = {
   formName: string;
   fields: FieldDef[];
-  /** Product photos the business attached; empty for most forms. */
+  /** The form's own hero image; empty for most forms. */
   carousel: CarouselItemView[];
+  /**
+   * Catalogue mode's config, or `null`. Only the *shape* travels here — which
+   * fields are public, whether there is a picture, how big a page is. The
+   * records themselves come from `/api/v1/public/forms/.../catalogue`, one
+   * page at a time, so this server component never renders an unbounded read
+   * of tenant data into the initial HTML.
+   */
+  catalogue: CatalogueView | null;
+  /**
+   * The fields that carry a booking's start and end, if this form takes
+   * bookings. Only the keys travel — the rate basis and the deposit are
+   * pricing, and a public page has no business knowing them. The renderer
+   * uses this to ask for a date *and a time*, because "the 20th" cannot
+   * express a four-hour hire.
+   */
+  timeFields: string[];
   tenantName: string;
   tenantSlug: string;
   formSlug: string;
@@ -56,6 +75,12 @@ function resolveDeps(overrides: Partial<PublicFormPageDeps> = {}): PublicFormPag
     findByPublicSlug: overrides.findByPublicSlug ?? findByPublicSlugDefault,
     accounts: overrides.accounts ?? mongoAccountStore(),
   };
+}
+
+/** The booking config reduced to the only part a public page needs. */
+export function bookingTimeFields(booking: FormDoc["booking"]): string[] {
+  if (!booking) return [];
+  return booking.endKey !== null ? [booking.startKey, booking.endKey] : [booking.startKey];
 }
 
 /** AC5 — server-decided, independent of anything the client sends. */
@@ -106,6 +131,8 @@ export async function getPublicFormPage(
     formName: form.name,
     fields: form.fields,
     carousel: toCarouselView(form.carousel),
+    catalogue: toCatalogueView(form.catalogue),
+    timeFields: bookingTimeFields(form.booking),
     tenantName: tenant.name,
     tenantSlug: tenantParsed.data,
     formSlug: formParsed.data,

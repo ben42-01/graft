@@ -233,15 +233,28 @@ async function main() {
 
       for (const form of spec.forms) {
         const formId = new ObjectId();
+        // A seeded form has to be a *complete* `FormDoc` (see
+        // src/server/services/forms.ts): `toView` dereferences `entityDefId`
+        // unconditionally, so a document missing it made `GET /api/v1/forms`
+        // 500 for every dev tenant — the Forms screen was broken on seed data
+        // alone. The other fields are written for the same reason: the reader
+        // is entitled to assume the shape the writer promises.
         await db.collection("forms").insertOne({
           _id: formId,
           tenantId,
+          entityDefId: firstEntityDefId!,
           name: form.name,
           slug: form.slug,
           publicSlug: `${spec.slug}/${form.slug}`,
           visibility: "public",
           published: true,
+          enabled: true,
+          killSwitchAt: null,
+          killSwitchBy: null,
           fields: CONTACT_FIELDS,
+          carousel: [],
+          showBadge: true,
+          deletedAt: null,
           ...stamp,
         });
 

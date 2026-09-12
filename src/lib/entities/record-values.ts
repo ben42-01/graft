@@ -12,6 +12,12 @@
  * Optional fields left blank are *omitted* rather than sent as `""`: an
  * empty string fails an `email()` or an enum, and the compiled schema marks
  * an optional field `.optional()`, which means absent, not empty.
+ *
+ * `image` fields are the exception to all of it: their value is a media id
+ * written by the upload's own confirm request (record-media.ts), which is the
+ * same request that charges storage for the object. Sending one back through
+ * a record PATCH would be a second writer for a field that already has one,
+ * so they are carried for *display* and never for submission.
  */
 export type FieldLike = {
   key: string;
@@ -20,6 +26,9 @@ export type FieldLike = {
   required?: boolean;
   options?: string[];
 };
+
+/** A field whose value is a media id the upload flow owns, not the form. */
+export const isImageField = (field: FieldLike): boolean => field.type === "image";
 
 /** What an input holds: a string for everything except a checkbox. */
 export type FormValue = string | boolean;
@@ -58,6 +67,10 @@ export function toRecordPayload(
   const data: Record<string, unknown> = {};
 
   for (const field of fields) {
+    // Written by the upload, never by this form — including when required,
+    // which would otherwise make a record with no photo unsaveable.
+    if (isImageField(field)) continue;
+
     const raw = values[field.key];
 
     if (field.type === "checkbox") {
@@ -87,8 +100,10 @@ export function toRecordPayload(
   return { ok: true, data };
 }
 
-/** One stored value as table-cell text. */
+/** One stored value as table-cell text. An image renders as a thumbnail, not
+ * as text, so the table special-cases it before reaching here. */
 export function formatCell(value: unknown, field: FieldLike): string {
+  if (isImageField(field)) return value ? "Image" : "—";
   if (value === undefined || value === null || value === "") return "—";
   if (field.type === "checkbox") return value === true ? "Yes" : "No";
   if (field.type === "date") {

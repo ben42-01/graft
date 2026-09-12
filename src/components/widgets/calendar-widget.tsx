@@ -6,8 +6,8 @@
  * endpoint. Read-only: this is a summary view, not a scheduler.
  */
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Calendar } from "@/components/ui/calendar";
+import { WidgetFrame } from "@/components/widgets/widget-frame";
 import { LoadingState } from "@/components/shell/loading-state";
 import { ErrorState } from "@/components/shell/error-state";
 import type { WidgetProps } from "@/lib/widgets/registry";
@@ -52,19 +52,14 @@ export function CalendarWidget({ widget }: WidgetProps) {
   }, [config.entityId, config.dateField]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">Calendar</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {state.status === "loading" ? <LoadingState label="Loading dates…" /> : null}
-        {state.status === "error" ? (
-          <ErrorState description="We couldn't load this calendar." />
-        ) : null}
-        {state.status === "ready" ? (
-          <Calendar mode="multiple" selected={state.dates} disabled className="p-0" />
-        ) : null}
-      </CardContent>
-    </Card>
+    <WidgetFrame title="Calendar">
+      {state.status === "loading" ? <LoadingState label="Loading dates…" /> : null}
+      {state.status === "error" ? (
+        <ErrorState description="We couldn't load this calendar." />
+      ) : null}
+      {state.status === "ready" ? (
+        <Calendar mode="multiple" selected={state.dates} disabled className="p-0" />
+      ) : null}
+    </WidgetFrame>
   );
 }

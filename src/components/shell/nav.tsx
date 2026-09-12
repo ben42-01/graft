@@ -10,14 +10,19 @@ import {
   FileTextIcon,
   KanbanIcon,
   LayoutDashboardIcon,
-  LayoutGridIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
  * Primary nav links. Shared between the desktop rail and the mobile `Sheet`
- * (AC2) so the two never drift. "Dashboards" is GRAFT-13's widget composer;
- * the record-list route belongs to its own contract (GRAFT-12).
+ * (AC2) so the two never drift.
+ *
+ * 2026-09-11 — "Dashboards" left the rail. It used to sit here beside "Home"
+ * and "Operations", which gave the product three top-level things all calling
+ * themselves a dashboard and made the build-your-own one look mandatory.
+ * `/home` is now the default Overview and the composer is reached from it
+ * ("Custom views"), which is the relationship they actually have: one is the
+ * product, the other is an option. The route itself is unchanged.
  *
  * "Account" was added in the 2026-08-21 UI refinement: the tier gates
  * (Chart widget, "Add entity") told Free users to upgrade while the only
@@ -30,15 +35,13 @@ import { cn } from "@/lib/utils";
  * order the product is used in (define a shape, fill it, read it back).
  */
 const NAV_ITEMS = [
-  { href: "/home", label: "Home", icon: LayoutDashboardIcon },
+  { href: "/home", label: "Overview", icon: LayoutDashboardIcon },
   { href: "/entities", label: "Entities", icon: DatabaseIcon },
   { href: "/forms", label: "Forms", icon: FileTextIcon },
   // The BMS operational layer (docs/BMS_EXTENSION.md §2.3). Sits after the
   // things it is built on — an operations board with no resources and no
-  // orders has nothing to show — and before Dashboards, which is the
-  // composable view rather than the day's work.
+  // orders has nothing to show.
   { href: "/operations", label: "Operations", icon: KanbanIcon },
-  { href: "/dashboards", label: "Dashboards", icon: LayoutGridIcon },
   // `/api/v1/plugins/*` shipped in GRAFT-14 with no screen over it, which read
   // as a broken product rather than an unfinished one: a tenant could be told
   // their plan includes every plugin and have nowhere to turn one on.

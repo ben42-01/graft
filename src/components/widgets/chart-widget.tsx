@@ -14,7 +14,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { LockIcon } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WidgetFrame } from "@/components/widgets/widget-frame";
 import { LoadingState } from "@/components/shell/loading-state";
 import { ErrorState } from "@/components/shell/error-state";
 import type { WidgetProps } from "@/lib/widgets/registry";
@@ -49,42 +49,35 @@ export function ChartWidget({ widget, canUseChart }: WidgetProps) {
   }, [canUseChart, config.meter]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {config.label ?? "Chart"}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {!canUseChart ? (
-          <div className="flex flex-col items-start gap-1.5">
-            <div className="flex h-24 w-full items-center justify-center rounded-md border border-dashed">
-              <LockIcon className="size-5 text-muted-foreground" aria-hidden="true" />
-            </div>
-            {/* The lock used to name Premium with nowhere to go (2026-08-21
-             * UI refinement) — `/account` is the in-app checkout route. */}
-            <p className="text-xs text-muted-foreground">
-              Upgrade to Premium to unlock the Chart widget.{" "}
-              <Link
-                href="/account"
-                className="font-medium text-graft-green underline-offset-4 hover:underline dark:text-graft-green-light"
-              >
-                View plans
-              </Link>
-            </p>
+    <WidgetFrame title={config.label ?? "Chart"}>
+      {!canUseChart ? (
+        <div className="flex flex-col items-start gap-1.5">
+          <div className="flex h-24 w-full items-center justify-center rounded-md border border-dashed">
+            <LockIcon className="size-5 text-muted-foreground" aria-hidden="true" />
           </div>
-        ) : null}
-        {canUseChart && state.status === "loading" ? (
-          <LoadingState label="Loading chart…" />
-        ) : null}
-        {canUseChart && state.status === "error" ? (
-          <ErrorState description="We couldn't load this chart." />
-        ) : null}
-        {canUseChart && state.status === "ready" ? (
-          <UsageBar used={state.usage.used} limit={state.usage.limit} />
-        ) : null}
-      </CardContent>
-    </Card>
+          {/* The lock used to name Premium with nowhere to go (2026-08-21
+           * UI refinement) — `/account` is the in-app checkout route. */}
+          <p className="text-xs text-muted-foreground">
+            Upgrade to Premium to unlock the Chart widget.{" "}
+            <Link
+              href="/account"
+              className="font-medium text-graft-green underline-offset-4 hover:underline dark:text-graft-green-light"
+            >
+              View plans
+            </Link>
+          </p>
+        </div>
+      ) : null}
+      {canUseChart && state.status === "loading" ? (
+        <LoadingState label="Loading chart…" />
+      ) : null}
+      {canUseChart && state.status === "error" ? (
+        <ErrorState description="We couldn't load this chart." />
+      ) : null}
+      {canUseChart && state.status === "ready" ? (
+        <UsageBar used={state.usage.used} limit={state.usage.limit} />
+      ) : null}
+    </WidgetFrame>
   );
 }
 
