@@ -1,11 +1,22 @@
 "use client";
 
 /**
- * Dashboard composer (GRAFT-13 AC4) — a fixed 2-column grid. Adding, moving
+ * Dashboard composer (GRAFT-13 AC4) — the tenant's own view, for when the
+ * default Overview (`/home`) isn't the cut of the business they want. It is
+ * deliberately the secondary surface: nothing here has to be built before the
+ * product is usable. Adding, moving
  * (drag-and-drop) and removing a widget all end in the same place: the whole
  * `widgets` array is replaced with one `PATCH /api/v1/dashboards/:id`, so a
  * reload always reads back exactly what was last saved (AC1 — pure JSON, no
  * component identity persisted).
+ *
+ * 2026-09-11 layout rework — widgets no longer all claim `{ w: 1, h: 1 }` in
+ * a 2-column grid. Each type declares a footprint (src/lib/widgets/sizes.ts)
+ * and the array is packed into the 4-column grid the *server* has always
+ * validated against, so a KPI is a quarter-width tile and a Record List is a
+ * half-width, double-height card instead of the two sharing a row sized to
+ * the taller. Position is derived from order and footprint on every save —
+ * there is no stored arrangement that can disagree with what is rendered.
  *
  * 2026-08-21 UI refinement — the "Add widget" flow used to post a *stub*
  * config (`{ entityId: "" }` for Record List, `{ entityId: "", dateField: ""
@@ -41,11 +52,10 @@ import {
 import { LoadingState } from "@/components/shell/loading-state";
 import { ErrorState } from "@/components/shell/error-state";
 import { resolveWidget, WIDGET_CATALOG } from "@/lib/widgets/registry";
+import { packLayouts, sizeFor, spanClasses, WIDGET_GRID_CLASS } from "@/lib/widgets/sizes";
 import { WIDGET_METERS, meterLabel } from "@/lib/widgets/meters";
 import type { DashboardView, WidgetInstance } from "@/lib/widgets/types";
 import { useMe } from "@/lib/session";
-
-const GRID_COLUMNS = 2;
 
 /** Mirrors `fieldDefSchema.type` (src/server/services/entities.ts) for the
  * one thing the Calendar widget needs to know: which fields hold a date. */
@@ -55,13 +65,14 @@ type EntityOption = {
   fields: { key: string; label: string; type: string }[];
 };
 
-function layoutFor(index: number) {
-  return { x: index % GRID_COLUMNS, y: Math.floor(index / GRID_COLUMNS), w: 1, h: 1 };
-}
-
-/** Re-derives layout from array order — order is the only thing "move" changes. */
+/**
+ * Re-derives layout from array order and each type's declared footprint —
+ * order is still the only thing "move" changes, and packing is pure, so the
+ * same array always yields the same grid.
+ */
 function relaid(widgets: WidgetInstance[]): WidgetInstance[] {
-  return widgets.map((widget, index) => ({ ...widget, layout: layoutFor(index) }));
+  const layouts = packLayouts(widgets.map((widget) => widget.type));
+  return widgets.map((widget, index) => ({ ...widget, layout: layouts[index] }));
 }
 
 function newWidgetId(): string {
@@ -251,7 +262,8 @@ export default function DashboardComposerPage() {
       id: newWidgetId(),
       type: addingType,
       config: pendingConfig,
-      layout: layoutFor(state.dashboard.widgets.length),
+      // Provisional — `persist` repacks the whole array before it is sent.
+      layout: { x: 0, y: 0, ...sizeFor(addingType) },
     };
     void persist([...state.dashboard.widgets, widget]);
     setDraft((prev) => ({ ...prev, label: "" }));
@@ -285,8 +297,13 @@ export default function DashboardComposerPage() {
     addingType === "chart" || (addingType === "kpi" && draft.source === "meter");
 
   return (
-    <div className="mx-auto max-w-4xl">
-      <h1 className="text-2xl font-semibold tracking-tight">{dashboard.name}</h1>
+    <div className="mx-auto max-w-6xl">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-semibold tracking-tight">{dashboard.name}</h1>
+        <Button asChild variant="ghost" size="sm">
+          <Link href="/home">Back to Overview</Link>
+        </Button>
+      </div>
 
       <div className="mt-4 rounded-lg border bg-graft-green/[0.03] p-4">
         <div className="flex flex-wrap items-end gap-3">
@@ -468,7 +485,7 @@ export default function DashboardComposerPage() {
         ) : null}
       </div>
 
-      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2" data-testid="widgets-grid">
+      <div className={`mt-6 ${WIDGET_GRID_CLASS}`} data-testid="widgets-grid">
         {dashboard.widgets.map((widget, index) => {
           const WidgetComponent = resolveWidget(widget.type);
           return (
@@ -479,14 +496,14 @@ export default function DashboardComposerPage() {
               onDragStart={() => setDragIndex(index)}
               onDragOver={(event: DragEvent) => event.preventDefault()}
               onDrop={() => onDrop(index)}
-              className="relative"
+              className={`relative ${spanClasses(widget.layout)}`}
             >
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-xs"
                 aria-label="Remove widget"
-                className="absolute top-2 right-2 z-10"
+                className="absolute top-1 right-2 z-10"
                 onClick={() => removeWidget(widget.id)}
               >
                 <XIcon />

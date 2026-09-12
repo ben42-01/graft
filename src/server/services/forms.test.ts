@@ -19,6 +19,8 @@ import {
   isFormServable,
   meterForVisibility,
   publishForm,
+  resolveBooking,
+  resolveCatalogue,
   resolveFormFields,
   unpublishForm,
   unpublishFormsForEntity,
@@ -424,5 +426,176 @@ describe("createForm — slug collision (AC1)", () => {
         { repo, getEntity: async () => entity() },
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+});
+
+/**
+ * Catalogue mode. The rule under test throughout is that the two key lists
+ * are checked against two *different* entities: `fields`/`imageField` describe
+ * the records a visitor browses, `selectionKey` describes where their choice
+ * lands on the way back in. Validating both against one schema is the bug
+ * this signature exists to prevent.
+ */
+describe("resolveCatalogue", () => {
+  const browse: FieldDef[] = [
+    { key: "name", label: "Name", type: "text", required: true },
+    { key: "photo", label: "Photo", type: "image", required: false },
+    { key: "cost", label: "Cost", type: "number", required: false },
+  ];
+  const submit: FieldDef[] = [
+    { key: "customer", label: "Customer", type: "text", required: true },
+    { key: "chosen_item", label: "Chosen item", type: "text", required: false },
+    { key: "when", label: "When", type: "date", required: false },
+  ];
+
+  const input = (over: Record<string, unknown> = {}) => ({
+    entityId: "000000000000000000000022",
+    fields: ["name"],
+    imageField: "photo" as string | null,
+    pageSize: 12,
+    selectionKey: null as string | null,
+    ...over,
+  });
+
+  it("stores the resolved config, with the entity id as an ObjectId", () => {
+    const config = resolveCatalogue(input(), browse, submit);
+    expect(config.entityDefId.toHexString()).toBe("000000000000000000000022");
+    expect(config.fields).toEqual(["name"]);
+    expect(config.imageField).toBe("photo");
+  });
+
+  /** The reason is in the error's field details, not its message — that is
+   * what the client renders beside the offending input. */
+  const reasonFor = (over: Record<string, unknown>): string => {
+    try {
+      resolveCatalogue(input(over), browse, submit);
+    } catch (error) {
+      const details = (error as AppError).details as
+        { fields?: Record<string, string> } | undefined;
+      return details?.fields?.catalogue ?? "";
+    }
+    throw new Error("expected resolveCatalogue to throw");
+  };
+
+  it("refuses a browse field that is not on the catalogue entity", () => {
+    expect(() => resolveCatalogue(input({ fields: ["nope"] }), browse, submit)).toThrow(
+      AppError,
+    );
+    expect(reasonFor({ fields: ["nope"] })).toMatch(
+      /Unknown field "nope" on the catalogue entity/,
+    );
+  });
+
+  it("refuses the same browse field twice", () => {
+    expect(reasonFor({ fields: ["name", "name"] })).toMatch(/Duplicate field/);
+  });
+
+  it("refuses an image field that does not hold an image", () => {
+    expect(reasonFor({ imageField: "cost" })).toMatch(/does not hold an image/);
+  });
+
+  it("checks selectionKey against the form's own entity, not the catalogue's", () => {
+    // "name" exists on the *browse* entity and must still be refused here.
+    expect(reasonFor({ selectionKey: "name" })).toMatch(
+      /Unknown field "name" on the form's own entity/,
+    );
+    expect(
+      resolveCatalogue(input({ selectionKey: "chosen_item" }), browse, submit).selectionKey,
+    ).toBe("chosen_item");
+  });
+
+  it("refuses a selectionKey that could not hold a record id", () => {
+    expect(reasonFor({ selectionKey: "when" })).toMatch(/must be a text field/);
+  });
+
+  it("allows a catalogue with no image and no selection — a plain gallery", () => {
+    const config = resolveCatalogue(
+      input({ fields: [], imageField: null, selectionKey: null }),
+      browse,
+      submit,
+    );
+    expect(config).toMatchObject({ fields: [], imageField: null, selectionKey: null });
+  });
+});
+
+/**
+ * Booking mode. The rule under test throughout is that a config is resolved
+ * against the form's *own* fields and against a catalogue that can actually
+ * name a resource — the submit path relies on both having been checked here,
+ * because it has no authenticated user to report a misconfiguration to.
+ */
+describe("resolveBooking", () => {
+  const formFields: FieldDef[] = [
+    { key: "customer", label: "Customer", type: "text", required: true },
+    { key: "starts_at", label: "Starts", type: "date", required: true },
+    { key: "ends_at", label: "Ends", type: "date", required: true },
+    { key: "people", label: "People", type: "number", required: false },
+  ];
+
+  const catalogue = (selectionKey: string | null = "chosen_item") => ({
+    entityDefId: new ObjectId("000000000000000000000022"),
+    fields: [],
+    imageField: null,
+    pageSize: 12,
+    selectionKey,
+  });
+
+  const input = (over: Record<string, unknown> = {}) => ({
+    startKey: "starts_at",
+    endKey: "ends_at" as string | null,
+    durationMinutes: null as number | null,
+    quantityKey: null as string | null,
+    rateBasis: "hourly" as const,
+    depositPercent: null as number | null,
+    ...over,
+  });
+
+  it("resolves a complete config unchanged", () => {
+    expect(resolveBooking(input(), formFields, catalogue())).toEqual({
+      startKey: "starts_at",
+      endKey: "ends_at",
+      durationMinutes: null,
+      quantityKey: null,
+      rateBasis: "hourly",
+      depositPercent: null,
+    });
+  });
+
+  it("refuses booking mode without a catalogue — there is nothing to book", () => {
+    expect(() => resolveBooking(input(), formFields, null)).toThrow(AppError);
+  });
+
+  it("refuses a catalogue that records no selection", () => {
+    expect(() => resolveBooking(input(), formFields, catalogue(null))).toThrow(AppError);
+  });
+
+  it("refuses a start key that is not a field on this form", () => {
+    expect(() => resolveBooking(input({ startKey: "nope" }), formFields, catalogue())).toThrow(
+      AppError,
+    );
+  });
+
+  it("refuses a start key that is not a date field", () => {
+    expect(() =>
+      resolveBooking(input({ startKey: "customer" }), formFields, catalogue()),
+    ).toThrow(AppError);
+  });
+
+  it("refuses the same field as both start and end", () => {
+    expect(() =>
+      resolveBooking(input({ endKey: "starts_at" }), formFields, catalogue()),
+    ).toThrow(AppError);
+  });
+
+  it("refuses a quantity key that is not a number field", () => {
+    expect(() =>
+      resolveBooking(input({ quantityKey: "customer" }), formFields, catalogue()),
+    ).toThrow(AppError);
+  });
+
+  it("accepts a fixed-duration form with no end field", () => {
+    expect(
+      resolveBooking(input({ endKey: null, durationMinutes: 90 }), formFields, catalogue()),
+    ).toMatchObject({ endKey: null, durationMinutes: 90 });
   });
 });

@@ -50,6 +50,7 @@ import {
   lineItemSchema,
   toLineItem,
   totalsFor,
+  type DepositInput,
   type LineItem,
 } from "./pricing";
 
@@ -252,6 +253,43 @@ export function priceOrder(items: readonly z.input<typeof lineItemInputSchema>[]
   return { lineItems, ...totalsFor(lineItems) };
 }
 
+/**
+ * The fields of a freshly drafted order, derived in one place so the two
+ * things that draft orders — the authenticated API and a public booking form
+ * (booking-bridge.ts) — cannot disagree about what "draft" means. Everything
+ * the repository stamps (`tenantId`, timestamps) is deliberately absent, so
+ * the session-bound caller adds those and the API path can hand this straight
+ * to `insertOne`.
+ */
+export function draftOrderFields(input: {
+  customerRecordId: ObjectId | null;
+  currency: string;
+  lineItems: LineItem[];
+  deposit: DepositInput | null;
+  allocationIds: ObjectId[];
+  notes: string | null;
+}): Omit<OrderDoc, "tenantId" | "createdAt" | "updatedAt"> {
+  const { subtotalMinor, discountMinor, totalMinor } = totalsFor(input.lineItems);
+  return {
+    customerRecordId: input.customerRecordId,
+    status: "draft",
+    currency: input.currency,
+    lineItems: input.lineItems,
+    subtotalMinor,
+    discountMinor,
+    totalMinor,
+    depositMinor: depositFor(totalMinor, input.deposit),
+    amountPaidMinor: 0,
+    payments: [],
+    allocationIds: input.allocationIds,
+    notes: input.notes,
+    confirmedAt: null,
+    completedAt: null,
+    cancelledAt: null,
+    deletedAt: null,
+  };
+}
+
 export async function createOrder(
   ctx: Ctx,
   input: unknown,
@@ -259,26 +297,19 @@ export async function createOrder(
 ): Promise<OrderView> {
   const deps = resolveDeps(overrides);
   const parsed = parse(createOrderSchema, input, "body");
-  const { lineItems, subtotalMinor, discountMinor, totalMinor } = priceOrder(parsed.lineItems);
+  const { lineItems } = priceOrder(parsed.lineItems);
 
-  const doc = await deps.repo.insertOne(ctx, {
-    customerRecordId: parsed.customerRecordId ? new ObjectId(parsed.customerRecordId) : null,
-    status: "draft",
-    currency: parsed.currency,
-    lineItems,
-    subtotalMinor,
-    discountMinor,
-    totalMinor,
-    depositMinor: depositFor(totalMinor, parsed.deposit ?? null),
-    amountPaidMinor: 0,
-    payments: [],
-    allocationIds: parsed.allocationIds.map((id) => new ObjectId(id)),
-    notes: parsed.notes ?? null,
-    confirmedAt: null,
-    completedAt: null,
-    cancelledAt: null,
-    deletedAt: null,
-  });
+  const doc = await deps.repo.insertOne(
+    ctx,
+    draftOrderFields({
+      customerRecordId: parsed.customerRecordId ? new ObjectId(parsed.customerRecordId) : null,
+      currency: parsed.currency,
+      lineItems,
+      deposit: parsed.deposit ?? null,
+      allocationIds: parsed.allocationIds.map((id) => new ObjectId(id)),
+      notes: parsed.notes ?? null,
+    }),
+  );
   return toOrderView(doc);
 }
 

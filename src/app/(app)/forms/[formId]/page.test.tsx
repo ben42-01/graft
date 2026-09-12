@@ -36,6 +36,7 @@ const DRAFT = {
   enabled: true,
   fields: [ENTITY.fields[0]],
   carousel: [],
+  catalogue: null,
 };
 
 function jsonResponse(body: unknown, status = 200): Response {
@@ -52,6 +53,10 @@ function stubApi(form: Record<string, unknown> = DRAFT) {
     const url = String(input);
     if (url.includes("/api/v1/entities/"))
       return Promise.resolve(jsonResponse({ data: ENTITY }));
+    // The *list*, which the catalogue editor needs: a catalogue may browse
+    // any of the tenant's entities, not just the one this form writes to.
+    if (url.includes("/api/v1/entities"))
+      return Promise.resolve(jsonResponse({ data: [ENTITY] }));
     return Promise.resolve(jsonResponse({ data: form }));
   });
   vi.stubGlobal("fetch", fetchMock);

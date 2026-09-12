@@ -6,7 +6,7 @@
  * for its field labels, then its records. No privileged data path.
  */
 import { useEffect, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { WidgetFrame } from "@/components/widgets/widget-frame";
 import { LoadingState } from "@/components/shell/loading-state";
 import { EmptyState } from "@/components/shell/empty-state";
 import { ErrorState } from "@/components/shell/error-state";
@@ -66,43 +66,36 @@ export function RecordListWidget({ widget }: WidgetProps) {
   }, [config.entityId, config.limit]);
 
   return (
-    <Card>
-      <CardHeader>
-        {/* The entity's own name once it is known — "Record List" alone told
-         * the user nothing about which of their entities a card showed. */}
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {state.status === "ready" ? state.name : "Record List"}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        {state.status === "loading" ? <LoadingState label="Loading records…" /> : null}
-        {state.status === "error" ? (
-          <ErrorState description="We couldn't load these records." />
-        ) : null}
-        {state.status === "ready" && state.rows.length === 0 ? (
-          <EmptyState title="No records yet" />
-        ) : null}
-        {state.status === "ready" && state.rows.length > 0 ? (
-          <Table>
-            <TableHeader>
-              <TableRow>
+    /* The entity's own name once it is known — "Record List" alone told the
+     * user nothing about which of their entities a card showed. */
+    <WidgetFrame title={state.status === "ready" ? state.name : "Record List"}>
+      {state.status === "loading" ? <LoadingState label="Loading records…" /> : null}
+      {state.status === "error" ? (
+        <ErrorState description="We couldn't load these records." />
+      ) : null}
+      {state.status === "ready" && state.rows.length === 0 ? (
+        <EmptyState title="No records yet" />
+      ) : null}
+      {state.status === "ready" && state.rows.length > 0 ? (
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {state.fields.map((field) => (
+                <TableHead key={field.key}>{field.label}</TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {state.rows.map((row) => (
+              <TableRow key={row.id}>
                 {state.fields.map((field) => (
-                  <TableHead key={field.key}>{field.label}</TableHead>
+                  <TableCell key={field.key}>{String(row.data[field.key] ?? "")}</TableCell>
                 ))}
               </TableRow>
-            </TableHeader>
-            <TableBody>
-              {state.rows.map((row) => (
-                <TableRow key={row.id}>
-                  {state.fields.map((field) => (
-                    <TableCell key={field.key}>{String(row.data[field.key] ?? "")}</TableCell>
-                  ))}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : null}
-      </CardContent>
-    </Card>
+            ))}
+          </TableBody>
+        </Table>
+      ) : null}
+    </WidgetFrame>
   );
 }

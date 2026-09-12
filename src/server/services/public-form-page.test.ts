@@ -76,6 +76,12 @@ describe("getPublicFormPage", () => {
       // Empty rather than absent: a form with no product photos still reports
       // a carousel, so the page never has to distinguish the two.
       carousel: [],
+      // Reported as absent rather than omitted, for the same reason: the page
+      // never has to distinguish "not a catalogue" from "field missing".
+      catalogue: null,
+      // Same convention again: a form that takes no bookings reports no time
+      // fields rather than omitting the key.
+      timeFields: [],
       tenantName: "Acme",
       tenantSlug: "acme",
       formSlug: "contact",

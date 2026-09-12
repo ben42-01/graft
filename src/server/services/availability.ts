@@ -295,6 +295,93 @@ async function usedCapacity(
 }
 
 /**
+ * The transactional body of a hold: bump, re-count, insert. Extracted from
+ * `holdResource` because it has a second caller — a public booking form writes
+ * its record, its allocation and its order in *one* transaction (see
+ * booking-bridge.ts), and a second hand-rolled copy of the write-skew guard is
+ * a second place for a double booking to come from.
+ *
+ * Takes an already-open session and an already-loaded pool, and does no
+ * parsing: everything it is given has been validated by whichever caller is
+ * driving the transaction it runs inside.
+ *
+ * `expiresAt: null` is a hold that does not lapse — what a booking *request*
+ * is, as distinct from a checkout lease. It blocks capacity (`overlapFilter`
+ * matches a null expiry) until the order it belongs to is confirmed or
+ * cancelled.
+ */
+export async function allocateInSession(
+  session: ClientSession,
+  input: {
+    tenantId: ObjectId;
+    pool: InventoryPoolDoc & { _id: ObjectId };
+    startAt: Date;
+    endAt: Date;
+    quantity: number;
+    holderId: ObjectId | null;
+    expiresAt: Date | null;
+    now: Date;
+  },
+): Promise<ResourceAllocationDoc & { _id: ObjectId }> {
+  const { tenantId, pool, startAt, endAt, quantity, now } = input;
+  const db = await getDb();
+
+  // The serialisation point. Any other transaction holding against this
+  // pool writes the same document, so exactly one of them commits and the
+  // rest are retried against the state it left behind.
+  const bumped = await db
+    .collection<InventoryPoolDoc>("inventory_pools")
+    .findOneAndUpdate(
+      { _id: pool._id, tenantId, deletedAt: null },
+      { $inc: { allocationVersion: 1 }, $set: { updatedAt: now } },
+      { session, returnDocument: "after" },
+    );
+  if (!bumped) throw new AppError("NOT_FOUND", "Inventory pool not found");
+
+  const overlapping = await db
+    .collection<ResourceAllocationDoc>("resource_allocations")
+    .find(
+      { ...overlapFilter(pool._id, startAt, endAt, now), tenantId, deletedAt: null },
+      { session },
+    )
+    .toArray();
+  const used = overlapping.reduce((total, row) => total + row.quantity, 0);
+
+  // `bumped` rather than `pool`: capacity may have been edited between the
+  // read above and this transaction, and the transactional read is the
+  // one that decides.
+  if (used + quantity > bumped.totalQuantity) {
+    throw new AppError("CONFLICT", "That resource is not available for the requested time", {
+      capacity: bumped.totalQuantity,
+      used,
+      requested: quantity,
+    });
+  }
+
+  const { blockedFrom, blockedUntil } = blockedWindow(startAt, endAt, bumped.bufferMinutes);
+  const doc: ResourceAllocationDoc = {
+    tenantId,
+    poolId: pool._id,
+    recordId: pool.recordId,
+    holderId: input.holderId,
+    startAt,
+    endAt,
+    blockedFrom,
+    blockedUntil,
+    quantity,
+    status: "held",
+    expiresAt: input.expiresAt,
+    deletedAt: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const { insertedId } = await db
+    .collection<ResourceAllocationDoc>("resource_allocations")
+    .insertOne(doc, { session });
+  return { ...doc, _id: insertedId };
+}
+
+/**
  * **The pessimistic time-lock of §2.1.** Re-checks availability *inside* a
  * transaction and, in the same transaction, bumps the pool's
  * `allocationVersion` so a concurrent hold on the same pool conflicts rather
@@ -323,8 +410,6 @@ export async function holdResource(
   const expiresAt = new Date(
     now.getTime() + minutes(parsed.holdMinutes ?? DEFAULT_HOLD_MINUTES),
   );
-  const { blockedFrom, blockedUntil } = blockedWindow(startAt, endAt, pool.bufferMinutes);
-
   const client = await getMongoClient();
   const session = client.startSession();
   const tenantId = new ObjectId(ctx.tenantId);
@@ -332,66 +417,18 @@ export async function holdResource(
   try {
     // The callback's return value is the transaction's, so there is no
     // outer `let` for a retried attempt to leave stale.
-    const created = await session.withTransaction(async () => {
-      const db = await getDb();
-
-      // The serialisation point. Any other transaction holding against this
-      // pool writes the same document, so exactly one of them commits and the
-      // rest are retried against the state it left behind.
-      const bumped = await db
-        .collection<InventoryPoolDoc>("inventory_pools")
-        .findOneAndUpdate(
-          { _id: pool._id, tenantId, deletedAt: null },
-          { $inc: { allocationVersion: 1 }, $set: { updatedAt: now } },
-          { session, returnDocument: "after" },
-        );
-      if (!bumped) throw new AppError("NOT_FOUND", "Inventory pool not found");
-
-      const overlapping = await db
-        .collection<ResourceAllocationDoc>("resource_allocations")
-        .find(
-          { ...overlapFilter(pool._id, startAt, endAt, now), tenantId, deletedAt: null },
-          { session },
-        )
-        .toArray();
-      const used = overlapping.reduce((total, row) => total + row.quantity, 0);
-
-      // `bumped` rather than `pool`: capacity may have been edited between the
-      // read above and this transaction, and the transactional read is the
-      // one that decides.
-      if (used + quantity > bumped.totalQuantity) {
-        throw new AppError(
-          "CONFLICT",
-          "That resource is not available for the requested time",
-          {
-            capacity: bumped.totalQuantity,
-            used,
-            requested: quantity,
-          },
-        );
-      }
-
-      const doc: ResourceAllocationDoc = {
+    const created = await session.withTransaction(() =>
+      allocateInSession(session, {
         tenantId,
-        poolId: pool._id,
-        recordId: pool.recordId,
-        holderId: parsed.holderId ? new ObjectId(parsed.holderId) : null,
+        pool,
         startAt,
         endAt,
-        blockedFrom,
-        blockedUntil,
         quantity,
-        status: "held",
+        holderId: parsed.holderId ? new ObjectId(parsed.holderId) : null,
         expiresAt,
-        deletedAt: null,
-        createdAt: now,
-        updatedAt: now,
-      };
-      const { insertedId } = await db
-        .collection<ResourceAllocationDoc>("resource_allocations")
-        .insertOne(doc, { session });
-      return { ...doc, _id: insertedId };
-    });
+        now,
+      }),
+    );
 
     return toAllocationView(created);
   } finally {

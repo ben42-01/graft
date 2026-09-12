@@ -1,20 +1,24 @@
 "use client";
 
 /**
- * The builder side of a public form's product carousel — pick up to three
- * photos, order them, write their alt text.
+ * The builder side of a public form's hero image — one photo and its alt text.
+ *
+ * It was a three-slide carousel until product photos moved onto the records a
+ * catalogue pages through (`image` field type, record-media.ts). A form-level
+ * gallery could never *be* the catalogue, because the catalogue is records, so
+ * what is left here is the banner an advert wants: one image, above the
+ * fields. Forms written before the change keep their extra slides until
+ * migrations/001 trims them, and this editor renders whatever it is given
+ * rather than assuming the current cap.
  *
  * Three things matter enough to call out:
  *
  *   - **The upload is three requests, and the middle one does not touch this
- *     app.** `POST …/media` returns a presigned URL, the browser `PUT`s the
- *     file straight to the bucket, and `POST …/media/:id` is what makes the
- *     slide real (docs/BACKEND.md §4 — bytes never pass through the API). A
- *     failure between step two and three leaves an unattached object, which
- *     the server treats as an abandoned upload, not as corruption.
- *   - **Order and alt text are saved with an explicit button, uploads are
- *     not.** An upload has no meaningful draft state — the bytes are either in
- *     the bucket or not — whereas alt text is typing, and autosaving every
+ *     app** — see `@/lib/media/upload`, which this and the record image field
+ *     share.
+ *   - **Alt text is saved with an explicit button, uploads are not.** An
+ *     upload has no meaningful draft state — the bytes are either in the
+ *     bucket or not — whereas alt text is typing, and autosaving every
  *     keystroke to a `PUT` that deletes dropped images is not a forgiving
  *     shape for a control that also removes things.
  *   - **Removal is immediate and permanent.** Dropping an image deletes the
@@ -26,13 +30,12 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { ACCEPTED_IMAGE_TYPES, uploadImage } from "@/lib/media/upload";
 
 export type CarouselItem = { mediaId: string; alt: string; url: string };
 
-/** Mirrors `MAX_CAROUSEL_IMAGES` / `ALLOWED_IMAGE_TYPES` in the services. */
-const MAX_IMAGES = 3;
-const ACCEPT = "image/jpeg,image/png,image/webp,image/avif";
-const MAX_BYTES = 5 * 1024 * 1024;
+/** Mirrors `MAX_CAROUSEL_IMAGES` in src/server/services/forms.ts. */
+const MAX_IMAGES = 1;
 
 export function CarouselEditor({
   formId,
@@ -74,54 +77,18 @@ export function CarouselEditor({
     setError(null);
     setSaved(false);
     try {
-      if (file.size > MAX_BYTES) {
-        setError("That image is larger than 5 MB. Try a smaller one.");
-        return;
-      }
-
-      const ticketResponse = await fetch(`/api/v1/forms/${formId}/media`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ contentType: file.type, sizeBytes: file.size }),
-      });
-      if (!ticketResponse.ok) {
-        setError(await messageFrom(ticketResponse, "We couldn't start that upload."));
-        return;
-      }
-      const { data: ticket } = (await ticketResponse.json()) as {
-        data: { mediaId: string; uploadUrl: string; contentType: string };
-      };
-
-      // Straight to the bucket. `credentials: omit` matters: this is a
-      // different origin and the signature is the only authorisation it needs
-      // — sending our cookies would be handing them to the storage provider.
-      const put = await fetch(ticket.uploadUrl, {
-        method: "PUT",
-        credentials: "omit",
-        // Must match the signed ContentType exactly or the bucket rejects it.
-        headers: { "Content-Type": ticket.contentType },
-        body: file,
-      });
-      if (!put.ok) {
-        setError("The upload didn't reach storage. Check your connection and try again.");
-        return;
-      }
-
-      const confirm = await fetch(`/api/v1/forms/${formId}/media/${ticket.mediaId}`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+      const result = await uploadImage<{ carousel: CarouselItem[] }>(file, {
+        ticketUrl: `/api/v1/forms/${formId}/media`,
+        confirmUrl: (mediaId) => `/api/v1/forms/${formId}/media/${mediaId}`,
         // Alt text is written afterwards, in the row the slide now has.
-        body: JSON.stringify({ alt: "" }),
+        confirmBody: { alt: "" },
       });
-      if (!confirm.ok) {
-        setError(await messageFrom(confirm, "The image uploaded but couldn't be attached."));
+      if (!result.ok) {
+        setError(result.message);
         return;
       }
-      const { data } = (await confirm.json()) as { data: { carousel: CarouselItem[] } };
       setDraft(null);
-      onChange(data.carousel);
+      onChange(result.data.carousel);
     } catch {
       setError("Network error. Try again.");
     } finally {
@@ -191,10 +158,11 @@ export function CarouselEditor({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Product images</CardTitle>
+        <CardTitle className="text-base">Hero image</CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          Up to {MAX_IMAGES} photos, shown as a carousel above the fields on your public form.
-          They are what makes a shared link read as an advert rather than a questionnaire.
+          One banner photo, shown above the fields on your public form — what makes a shared
+          link read as an advert rather than a questionnaire. Photos of the things you sell
+          belong on their own records, where a catalogue can page through them.
         </p>
       </CardHeader>
 
@@ -282,7 +250,7 @@ export function CarouselEditor({
           <input
             ref={fileRef}
             type="file"
-            accept={ACCEPT}
+            accept={ACCEPTED_IMAGE_TYPES}
             className="sr-only"
             aria-label="Choose an image to upload"
             onChange={(event) => {

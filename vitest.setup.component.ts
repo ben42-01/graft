@@ -14,6 +14,16 @@ class ResizeObserverStub {
 }
 globalThis.ResizeObserver ??= ResizeObserverStub as unknown as typeof ResizeObserver;
 
+// The same gap, two APIs further on. Radix's Select uses pointer capture to
+// track a press that leaves the trigger, and scrolls the highlighted option
+// into view when its listbox opens; jsdom implements neither, so *opening* a
+// Select in a test throws rather than failing an assertion. No-ops are enough
+// — nothing under test asserts on capture or on scroll position.
+Element.prototype.hasPointerCapture ??= () => false;
+Element.prototype.setPointerCapture ??= () => {};
+Element.prototype.releasePointerCapture ??= () => {};
+Element.prototype.scrollIntoView ??= () => {};
+
 afterEach(() => {
   cleanup();
 });

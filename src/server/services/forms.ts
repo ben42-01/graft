@@ -64,12 +64,117 @@ export type Visibility = (typeof VISIBILITIES)[number];
 
 const formFieldRefSchema = z.object({ key: fieldKey });
 
+/**
+ * How many record fields a catalogue card may show. Six is a product
+ * decision: a card is a glance, and past half a dozen values it has become a
+ * table that happens to have a picture on it.
+ */
+export const MAX_CATALOGUE_FIELDS = 6;
+
+/** The hard ceiling on a public page size, independent of what a tenant asks
+ * for. A public, paginated read of tenant data is a scraping surface; the cap
+ * is what keeps one request from being a bulk export. */
+export const MAX_CATALOGUE_PAGE_SIZE = 24;
+
+export const DEFAULT_CATALOGUE_PAGE_SIZE = 12;
+
+/**
+ * Catalogue mode — the form stops being a blank page and becomes a front for
+ * the business's own records (docs/Graft.md §4.4).
+ *
+ * Three things are deliberate about this shape:
+ *
+ *   - **`entityId` is its own field, not the form's `entityDefId`.** A form
+ *     writes submissions as records of one entity ("Bookings") and browses
+ *     records of another ("Rental Items"). Collapsing the two would mean a
+ *     visitor browsing the submissions of everyone before them.
+ *   - **`fields` is an allowlist, and it is the *only* thing made public.**
+ *     A record carries things a customer must never see — cost price,
+ *     supplier, internal notes — so the public projection is built from this
+ *     list rather than from the record minus a denylist. A field added to the
+ *     entity later is private until someone says otherwise, which is the only
+ *     safe default.
+ *   - **`selectionKey` names where the chosen record lands.** It is a field on
+ *     the *form's* entity, so a submission records which product it was
+ *     about — which is exactly what an order needs downstream.
+ */
+export const catalogueSchema = z.object({
+  entityId: objectIdHex,
+  fields: z.array(fieldKey).max(MAX_CATALOGUE_FIELDS).default([]),
+  imageField: fieldKey.nullable().default(null),
+  pageSize: z
+    .number()
+    .int()
+    .min(1)
+    .max(MAX_CATALOGUE_PAGE_SIZE)
+    .default(DEFAULT_CATALOGUE_PAGE_SIZE),
+  selectionKey: fieldKey.nullable().default(null),
+});
+
+export type CatalogueInput = z.input<typeof catalogueSchema>;
+
+/**
+ * A year. Past this a "booking" is a lease, and the number is far more likely
+ * to be a typo in a duration box than a real intention.
+ */
+export const MAX_BOOKING_MINUTES = 366 * 24 * 60;
+
+/** How the resource's rate is read off its record — `pricing.ts`'s `RateBasis`,
+ * restated here because that module cannot be imported by the client mirror. */
+export const RATE_BASES = ["hourly", "daily", "flat"] as const;
+
+/**
+ * Booking mode — what turns a submission into an order against real capacity
+ * (docs/BMS_EXTENSION.md §3.1, where `CustomerAction` carries an `order_id`
+ * and `ResourceAllocation` an `action_id`).
+ *
+ * Three things are deliberate about this shape:
+ *
+ *   - **It names fields, it does not add them.** A booking form is an ordinary
+ *     form whose entity happens to have a start date on it; this config only
+ *     says *which* of its fields mean "when". Inventing platform-owned date
+ *     fields would make a booking form something a tenant cannot design.
+ *   - **The resource is the catalogue selection, never a field.** Which boat
+ *     was booked is `_selection` — proved to exist in the form's own catalogue
+ *     before anything is written (`resolveSelection`) — so it is not something
+ *     a visitor can type. That is why booking mode requires a catalogue with a
+ *     `selectionKey` and refuses to be configured without one.
+ *   - **End *or* duration, never both.** "Pick a start and an end" and "pick a
+ *     start, it is always 90 minutes" are the two real shapes of a booking
+ *     form, and a config that allowed both would have to decide which one wins
+ *     at submit time — in front of a customer, with money attached.
+ */
+export const bookingSchema = z
+  .object({
+    /** A `date` field on the form's own entity: when the booking starts. */
+    startKey: fieldKey,
+    /** A `date` field for the end, or null when `durationMinutes` is set. */
+    endKey: fieldKey.nullable().default(null),
+    /** A fixed length, for forms that ask only for a start time. */
+    durationMinutes: z.number().int().min(1).max(MAX_BOOKING_MINUTES).nullable().default(null),
+    /** A `number` field: how many of a pooled resource. Absent means one. */
+    quantityKey: fieldKey.nullable().default(null),
+    rateBasis: z.enum(RATE_BASES).default("hourly"),
+    /** Charged upfront, as a percent of the total. Null means no deposit. */
+    depositPercent: z.number().int().min(1).max(100).nullable().default(null),
+  })
+  .refine((v) => (v.endKey === null) !== (v.durationMinutes === null), {
+    message: "Give either an end-date field or a fixed duration, not both",
+  });
+
+export type BookingInput = z.input<typeof bookingSchema>;
+
 export const createFormSchema = z.object({
   entityId: objectIdHex,
   name: z.string().trim().min(1).max(120),
   slug: formSlugSchema,
   visibility: z.enum(VISIBILITIES),
   fields: z.array(formFieldRefSchema).min(1).max(100),
+  /** Optional at creation — most forms are never catalogues. */
+  catalogue: catalogueSchema.nullable().optional(),
+  /** Optional at creation, and only legal alongside a catalogue that has a
+   * `selectionKey` — see `resolveBooking`. */
+  booking: bookingSchema.nullable().optional(),
 });
 
 export const updateFormSchema = z
@@ -78,18 +183,41 @@ export const updateFormSchema = z
     fields: z.array(formFieldRefSchema).min(1).max(100).optional(),
     /** The kill switch (AC5). Independent of `published`. */
     enabled: z.boolean().optional(),
+    /** `null` turns catalogue mode off; absent leaves it as it was. */
+    catalogue: catalogueSchema.nullable().optional(),
+    /** `null` turns booking mode off; absent leaves it as it was. */
+    booking: bookingSchema.nullable().optional(),
   })
-  .refine((v) => v.name !== undefined || v.fields !== undefined || v.enabled !== undefined, {
-    message: "Nothing to update",
-  });
+  .refine(
+    (v) =>
+      v.name !== undefined ||
+      v.fields !== undefined ||
+      v.enabled !== undefined ||
+      v.catalogue !== undefined ||
+      v.booking !== undefined,
+    { message: "Nothing to update" },
+  );
 
 /**
- * How many product photos a form's carousel may carry. Three is a product
- * decision, not a technical ceiling: a shareable advert wants a hero image and
- * at most a couple of supporting shots, and a public form page that scrolls
- * past its own fields has stopped being a form.
+ * How many images a form carries in its own right.
+ *
+ * This was 3 — a small carousel of product photos attached to the form. That
+ * was the wrong home for them: the photos were form-only content that could
+ * never be the catalogue, because the catalogue is records, so a business with
+ * forty products had one entity full of them and a form that could show three
+ * pictures unrelated to any of them.
+ *
+ * The product photos now live on the record (`image` field type,
+ * record-media.ts) and the form paginates through them (`catalogue`). What is
+ * left here is one hero image — a banner for the advert, which is a genuinely
+ * different job from a picture of a thing for sale. Existing carousels keep
+ * rendering; `scripts/migrate/` trims them to their first slide.
  */
-export const MAX_CAROUSEL_IMAGES = 3;
+export const MAX_CAROUSEL_IMAGES = 1;
+
+/** What the cap used to be. Read by the migration and by `toCarouselView`,
+ * which must keep rendering carousels written before the change. */
+export const LEGACY_MAX_CAROUSEL_IMAGES = 3;
 
 /**
  * One slide. `alt` is required rather than optional — this renders on a public
@@ -140,6 +268,19 @@ export type FormDoc = {
    * written before carousels existed, which `toView` reads as empty.
    */
   carousel?: { mediaId: ObjectId; alt: string }[];
+  /**
+   * Catalogue mode — absent/`null` on an ordinary form. Stored resolved: the
+   * keys here have already been checked against the catalogue entity's own
+   * fields, so a reader never has to re-derive whether they are real.
+   */
+  catalogue?: CatalogueConfig | null;
+  /**
+   * Booking mode — absent/`null` on an ordinary form. Stored resolved, the
+   * same as `catalogue`: the keys named here were checked against the form's
+   * own field list when it was saved, so the public submit path never
+   * re-derives whether they are real.
+   */
+  booking?: BookingConfig | null;
   /** Constraints — Free retains this; read by GRAFT-10. */
   showBadge: boolean;
   deletedAt: Date | null;
@@ -161,12 +302,57 @@ export type FormView = {
   fields: FieldDef[];
   /** Slide order, each already carrying the URL a browser fetches it from. */
   carousel: CarouselItemView[];
+  catalogue: CatalogueView | null;
+  booking: BookingConfig | null;
   showBadge: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
 
 export type CarouselItemView = { mediaId: string; alt: string; url: string };
+
+/**
+ * A booking config as stored. Every field is a plain string or number — there
+ * is no id in here, because the only id a booking needs is the catalogue
+ * selection the visitor makes at submit time.
+ */
+export type BookingConfig = {
+  startKey: string;
+  endKey: string | null;
+  durationMinutes: number | null;
+  quantityKey: string | null;
+  rateBasis: (typeof RATE_BASES)[number];
+  depositPercent: number | null;
+};
+
+export type CatalogueConfig = {
+  entityDefId: ObjectId;
+  fields: string[];
+  imageField: string | null;
+  pageSize: number;
+  selectionKey: string | null;
+};
+
+export type CatalogueView = {
+  entityId: string;
+  fields: string[];
+  imageField: string | null;
+  pageSize: number;
+  selectionKey: string | null;
+};
+
+export function toCatalogueView(
+  catalogue: CatalogueConfig | null | undefined,
+): CatalogueView | null {
+  if (!catalogue) return null;
+  return {
+    entityId: catalogue.entityDefId.toHexString(),
+    fields: catalogue.fields,
+    imageField: catalogue.imageField,
+    pageSize: catalogue.pageSize,
+    selectionKey: catalogue.selectionKey,
+  };
+}
 
 const isDuplicateKey = (error: unknown): boolean =>
   error instanceof MongoServerError && error.code === 11000;
@@ -194,6 +380,8 @@ function toView(doc: { _id: ObjectId } & FormDoc): FormView {
     killSwitchBy: doc.killSwitchBy ? doc.killSwitchBy.toHexString() : null,
     fields: doc.fields,
     carousel: toCarouselView(doc.carousel),
+    catalogue: toCatalogueView(doc.catalogue),
+    booking: doc.booking ?? null,
     showBadge: doc.showBadge,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -233,6 +421,91 @@ export function resolveFormFields(
   return resolved;
 }
 
+/**
+ * Turns a catalogue *request* into a stored config, refusing every way it can
+ * name something that isn't there.
+ *
+ * The checks run against two different entities on purpose: `fields` and
+ * `imageField` describe the records a visitor browses (the catalogue entity),
+ * while `selectionKey` describes where the chosen record's id is written on
+ * the way back in (the form's own entity). Validating both against one schema
+ * is the bug this signature exists to make impossible.
+ *
+ * Resolution happens on write, not on read: a stored catalogue names keys
+ * that were real when it was saved, so the public read path — the one facing
+ * anonymous traffic — never has to re-derive whether a key is legitimate.
+ */
+export function resolveCatalogue(
+  input: z.infer<typeof catalogueSchema>,
+  catalogueEntityFields: readonly FieldDef[],
+  submissionEntityFields: readonly FieldDef[],
+): CatalogueConfig {
+  const byKey = new Map(catalogueEntityFields.map((field) => [field.key, field]));
+
+  const seen = new Set<string>();
+  for (const key of input.fields) {
+    if (!byKey.has(key)) {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: { catalogue: `Unknown field "${key}" on the catalogue entity` },
+      });
+    }
+    if (seen.has(key)) {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: { catalogue: `Duplicate field "${key}"` },
+      });
+    }
+    seen.add(key);
+  }
+
+  if (input.imageField !== null) {
+    const image = byKey.get(input.imageField);
+    if (!image) {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: { catalogue: `Unknown field "${input.imageField}" on the catalogue entity` },
+      });
+    }
+    if (image.type !== "image") {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: { catalogue: `Field "${input.imageField}" does not hold an image` },
+      });
+    }
+  }
+
+  if (input.selectionKey !== null) {
+    // Deliberately checked against the *submission* entity: this is where the
+    // visitor's choice is written, not something they browse.
+    const target = submissionEntityFields.find((field) => field.key === input.selectionKey);
+    if (!target) {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: {
+          catalogue: `Unknown field "${input.selectionKey}" on the form's own entity`,
+        },
+      });
+    }
+    if (target.type !== "text") {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: {
+          catalogue: `Field "${input.selectionKey}" must be a text field to hold a record id`,
+        },
+      });
+    }
+  }
+
+  return {
+    entityDefId: new ObjectId(input.entityId),
+    fields: input.fields,
+    imageField: input.imageField,
+    pageSize: input.pageSize,
+    selectionKey: input.selectionKey,
+  };
+}
+
 /** The meter a form's visibility charges — AC4's public/internal split. */
 export function meterForVisibility(visibility: Visibility): Meter {
   return visibility === "public" ? "active_forms" : "internal_forms";
@@ -265,6 +538,79 @@ async function findFormOrThrow(deps: FormDeps, ctx: Ctx, formId: string) {
 }
 
 /**
+ * Turns a booking *request* into a stored config, refusing every way it can
+ * name something that isn't there — the same write-time resolution
+ * `resolveCatalogue` does, and for the same reason: the path that reads this
+ * is the unauthenticated submit path, which must never have to wonder whether
+ * a key is legitimate.
+ *
+ * The checks are about *types*, not just existence. A start key pointing at a
+ * text field would compile a schema that accepts "next tuesday" and hand an
+ * Invalid Date to the availability engine, which would then block a window
+ * from NaN to NaN. Better to refuse it in the builder.
+ */
+export function resolveBooking(
+  input: z.infer<typeof bookingSchema>,
+  formFields: readonly FieldDef[],
+  catalogue: CatalogueConfig | null,
+): BookingConfig {
+  const byKey = new Map(formFields.map((field) => [field.key, field]));
+
+  // Booking mode without a catalogue selection has nothing to book: the
+  // resource *is* the selection (see `bookingSchema`'s docs).
+  if (!catalogue || catalogue.selectionKey === null) {
+    throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+      source: "body",
+      fields: {
+        booking:
+          "Booking mode needs catalogue mode with a selection field — that is what says which resource was booked",
+      },
+    });
+  }
+
+  const requireField = (key: string, type: FieldDef["type"], label: string) => {
+    const field = byKey.get(key);
+    if (!field) {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: { booking: `Unknown field "${key}" on this form` },
+      });
+    }
+    if (field.type !== type) {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: {
+          booking: `Field "${key}" must be a ${label} to hold ${
+            type === "date" ? "a booking time" : "a quantity"
+          }`,
+        },
+      });
+    }
+  };
+
+  requireField(input.startKey, "date", "date field");
+  if (input.endKey !== null) {
+    if (input.endKey === input.startKey) {
+      throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+        source: "body",
+        fields: { booking: "The start and end of a booking cannot be the same field" },
+      });
+    }
+    requireField(input.endKey, "date", "date field");
+  }
+  if (input.quantityKey !== null) requireField(input.quantityKey, "number", "number field");
+
+  return {
+    startKey: input.startKey,
+    endKey: input.endKey,
+    durationMinutes: input.durationMinutes,
+    quantityKey: input.quantityKey,
+    rateBasis: input.rateBasis,
+    depositPercent: input.depositPercent,
+  };
+}
+
+/**
  * AC1 — bound to an entity, field list a real subset. Internal forms reserve
  * their own quota up front (no publish step); public forms cost nothing until
  * published (AC4).
@@ -279,6 +625,14 @@ export async function createForm(
 
   const entity = await deps.getEntity(ctx, parsed.entityId);
   const fields = resolveFormFields(parsed.fields, entity.fields);
+  const catalogue = parsed.catalogue
+    ? resolveCatalogue(
+        parsed.catalogue,
+        (await deps.getEntity(ctx, parsed.catalogue.entityId)).fields,
+        entity.fields,
+      )
+    : null;
+  const booking = parsed.booking ? resolveBooking(parsed.booking, fields, catalogue) : null;
 
   if (await deps.repo.findOne(ctx, { slug: parsed.slug } as Filter<FormDoc>)) {
     throw new AppError("CONFLICT", "A form with that slug already exists");
@@ -301,6 +655,8 @@ export async function createForm(
       killSwitchBy: null,
       fields,
       carousel: [],
+      catalogue,
+      booking,
       showBadge: true,
       deletedAt: null,
     });
@@ -354,6 +710,51 @@ export async function updateForm(
     fields = resolveFormFields(parsed.fields, entity.fields);
   }
 
+  // `undefined` leaves catalogue mode alone; an explicit `null` turns it off.
+  let catalogue: CatalogueConfig | null | undefined;
+  if (parsed.catalogue !== undefined) {
+    catalogue = parsed.catalogue
+      ? resolveCatalogue(
+          parsed.catalogue,
+          (await deps.getEntity(ctx, parsed.catalogue.entityId)).fields,
+          (await deps.getEntity(ctx, existing.entityDefId.toHexString())).fields,
+        )
+      : null;
+  }
+
+  // Booking is resolved against what the form will look like *after* this
+  // update, not what it looks like now: a call that swaps the field list and
+  // the booking config together must be checked as one state, or it would be
+  // possible to keep a booking config pointing at a field being removed.
+  let booking: BookingConfig | null | undefined;
+  if (parsed.booking !== undefined) {
+    booking = parsed.booking
+      ? resolveBooking(
+          parsed.booking,
+          fields ?? existing.fields,
+          catalogue !== undefined ? catalogue : (existing.catalogue ?? null),
+        )
+      : null;
+  }
+
+  // A field list or catalogue edit can orphan a booking config that nobody
+  // touched in this call — removing the field the start date lived on, or
+  // switching the catalogue off underneath it. Re-resolving the untouched
+  // config against the resulting state turns that into a refusal the builder
+  // can act on, rather than a form that keeps taking bookings it can no
+  // longer price.
+  if (
+    booking === undefined &&
+    existing.booking &&
+    (fields !== undefined || catalogue !== undefined)
+  ) {
+    resolveBooking(
+      existing.booking,
+      fields ?? existing.fields,
+      catalogue !== undefined ? catalogue : (existing.catalogue ?? null),
+    );
+  }
+
   const killSwitchChanged = parsed.enabled !== undefined && parsed.enabled !== existing.enabled;
   if (killSwitchChanged) {
     createLogger({ requestId: ctx.requestId }).info("forms.kill_switch.toggled", {
@@ -367,6 +768,8 @@ export async function updateForm(
     $set: {
       ...(parsed.name !== undefined ? { name: parsed.name } : {}),
       ...(fields !== undefined ? { fields } : {}),
+      ...(catalogue !== undefined ? { catalogue } : {}),
+      ...(booking !== undefined ? { booking } : {}),
       ...(parsed.enabled !== undefined ? { enabled: parsed.enabled } : {}),
       ...(killSwitchChanged
         ? { killSwitchAt: new Date(), killSwitchBy: new ObjectId(ctx.userId) }

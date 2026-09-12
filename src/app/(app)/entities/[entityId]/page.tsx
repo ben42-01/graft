@@ -53,7 +53,8 @@ import {
   validateFields,
   type DraftField,
 } from "@/lib/entities/draft-fields";
-import { formatCell, type FieldLike } from "@/lib/entities/record-values";
+import { formatCell, isImageField, type FieldLike } from "@/lib/entities/record-values";
+import { recordImageUrl } from "@/components/entities/image-field";
 
 type EntityView = {
   id: string;
@@ -275,7 +276,17 @@ export default function EntityPage() {
                     <TableRow key={row.id}>
                       {entity.fields.map((field) => (
                         <TableCell key={field.key}>
-                          {formatCell(row.data[field.key], field)}
+                          {/* A picture is the one value worth showing as
+                           * itself: "Image" in a cell tells the reader
+                           * nothing they could not infer from the column. */}
+                          {isImageField(field) ? (
+                            <RecordThumbnail
+                              mediaId={row.data[field.key]}
+                              label={field.label}
+                            />
+                          ) : (
+                            formatCell(row.data[field.key], field)
+                          )}
                         </TableCell>
                       ))}
                       <TableCell className="text-right">
@@ -430,5 +441,20 @@ export default function EntityPage() {
         onSaved={() => void loadRecords(null)}
       />
     </div>
+  );
+}
+
+/** A record's image field in a table cell — the thumbnail, or a dash. */
+function RecordThumbnail({ mediaId, label }: { mediaId: unknown; label: string }) {
+  if (typeof mediaId !== "string" || !/^[0-9a-f]{24}$/i.test(mediaId)) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element -- the byte route 307s to a presigned URL; next/image cannot follow that
+    <img
+      src={recordImageUrl(mediaId)}
+      alt={label}
+      className="size-10 rounded-md border object-cover"
+    />
   );
 }

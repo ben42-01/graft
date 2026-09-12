@@ -14,7 +14,12 @@ import type { EntityView } from "@/server/services/entities";
 import type { FormDoc } from "@/server/services/forms";
 import type { Entitlements } from "@/server/services/entitlements";
 import { TIER_LIMITS } from "@/server/tiers";
-import { MIN_FILL_MS, isSpamSubmission, submitPublicForm } from "./public-forms";
+import {
+  MIN_FILL_MS,
+  isSpamSubmission,
+  resolveSelection,
+  submitPublicForm,
+} from "./public-forms";
 
 const TENANT = new ObjectId("000000000000000000000001");
 const ENTITY_ID = new ObjectId("000000000000000000000021");
@@ -194,5 +199,98 @@ describe("submitPublicForm", () => {
     await expect(
       submitPublicForm("req-1", ["acme", "contact"], validBody(), overrides),
     ).rejects.toMatchObject({ code: "INTERNAL" });
+  });
+});
+
+/**
+ * Catalogue selection. The rule these pin is that the selection is the
+ * server's field, never the visitor's: whatever `data` says about the
+ * selection key is discarded, and `_selection` is only honoured after the
+ * record it names has been proved to be in this form's own catalogue.
+ *
+ * That matters because the selection is what an order gets raised against
+ * downstream — if a customer could forge it, they could order one thing and
+ * be billed for another.
+ *
+ * Tested through `resolveSelection` rather than `submitPublicForm`, following
+ * this module's own split: everything decided before the transaction is a
+ * function a unit test can call, and the transactional write is proven
+ * against a real replica set in public-forms.integration.test.ts.
+ */
+describe("resolveSelection", () => {
+  const CATALOGUE_ENTITY = new ObjectId("000000000000000000000022");
+  const ITEM_ID = "000000000000000000000051";
+
+  const catalogueForm = () =>
+    form({
+      fields: [field("name"), { ...field("chosen_item"), required: false }],
+      catalogue: {
+        entityDefId: CATALOGUE_ENTITY,
+        fields: ["name"],
+        imageField: null,
+        pageSize: 12,
+        selectionKey: "chosen_item",
+      },
+    });
+
+  const found = vi.fn(async () => true);
+  const missing = vi.fn(async () => false);
+
+  it("refuses a selection that is not in this form's catalogue", async () => {
+    await expect(
+      resolveSelection(catalogueForm(), { name: "Ada" }, ITEM_ID, missing),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  it("checks the selection against the catalogue entity, not the form's own", async () => {
+    const lookup = vi.fn(async () => true);
+    await resolveSelection(catalogueForm(), { name: "Ada" }, ITEM_ID, lookup);
+    expect(lookup).toHaveBeenCalledWith(TENANT, CATALOGUE_ENTITY, ITEM_ID);
+  });
+
+  it("overwrites a selection key the visitor tried to set themselves", async () => {
+    const result = await resolveSelection(
+      catalogueForm(),
+      { name: "Ada", chosen_item: "forged-value" },
+      ITEM_ID,
+      found,
+    );
+    expect(result.data.chosen_item).toBe(ITEM_ID);
+    expect(result.selectedRecordId?.toHexString()).toBe(ITEM_ID);
+  });
+
+  it("drops a forged selection key outright when no selection was made", async () => {
+    const lookup = vi.fn(async () => true);
+    const result = await resolveSelection(
+      catalogueForm(),
+      { name: "Ada", chosen_item: "forged-value" },
+      undefined,
+      lookup,
+    );
+    expect(result.data.chosen_item).toBeUndefined();
+    expect(result.selectedRecordId).toBeNull();
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("leaves an ordinary form's data untouched and its selection null", async () => {
+    const lookup = vi.fn(async () => true);
+    const result = await resolveSelection(form(), { name: "Ada" }, ITEM_ID, lookup);
+    expect(result.data).toEqual({ name: "Ada" });
+    expect(result.selectedRecordId).toBeNull();
+    expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it("ignores a selection on a catalogue that has no selection key", async () => {
+    const noKey = form({
+      catalogue: {
+        entityDefId: CATALOGUE_ENTITY,
+        fields: ["name"],
+        imageField: null,
+        pageSize: 12,
+        selectionKey: null,
+      },
+    });
+    const result = await resolveSelection(noKey, { name: "Ada" }, ITEM_ID, found);
+    expect(result.selectedRecordId).toBeNull();
   });
 });

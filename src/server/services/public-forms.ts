@@ -42,6 +42,11 @@ import {
   isFormServable,
   type FormDoc,
 } from "./forms";
+import {
+  bridgeBooking as bridgeBookingDefault,
+  mongoBookingBridgeStore,
+  type BridgeResult,
+} from "./booking-bridge";
 import { isReadOnly, loadEntitlements, type Entitlements } from "./entitlements";
 import { periodFor, type Meter } from "./meters";
 import type { RecordDoc } from "./records";
@@ -71,6 +76,17 @@ export const submitFormSchema = z.object({
   _hp: z.string().optional(),
   /** Client-supplied render timestamp, ms since epoch (AC4). */
   _t: z.number(),
+  /**
+   * Which catalogue record the visitor picked, on a form in catalogue mode.
+   * Carried out-of-band rather than inside `data` so it can never be confused
+   * with something the visitor typed: whatever `data` says about the
+   * selection key is discarded and replaced with the record this names, after
+   * that record has been proved to exist in this form's own catalogue.
+   */
+  _selection: z
+    .string()
+    .regex(/^[0-9a-f]{24}$/i, "Not a valid selection")
+    .optional(),
 });
 
 export type SubmitFormInput = z.input<typeof submitFormSchema>;
@@ -116,8 +132,32 @@ function buildCtx(requestId: string, tenantId: string): Ctx {
 export type PublicFormDeps = {
   findByPublicSlug: (publicSlug: string) => Promise<(FormDoc & { _id: ObjectId }) | null>;
   getEntity: (ctx: Ctx, entityId: string) => Promise<EntityView>;
+  /** Proves a selection names a live record of *this form's* catalogue entity.
+   * No ctx: this path has no authenticated user, and the tenant comes from the
+   * form, never from the request. */
+  findCatalogueRecord: (
+    tenantId: ObjectId,
+    entityDefId: ObjectId,
+    recordId: string,
+  ) => Promise<boolean>;
   loadEntitlements: (ctx: Ctx) => Promise<Entitlements>;
   store: PublicFormWriteStore;
+  /** The order-and-allocation half of a booking form (booking-bridge.ts),
+   * injected as one function because it is a whole subsystem this module
+   * calls into and a whole subsystem a test of *this* module should be able
+   * to stand in for. */
+  bridgeBooking: (
+    session: ClientSession,
+    input: {
+      tenantId: ObjectId;
+      booking: FormDoc["booking"];
+      selectedRecordId: ObjectId | null;
+      submissionRecordId: ObjectId;
+      data: Record<string, unknown>;
+      now: Date;
+      requestId: string;
+    },
+  ) => Promise<BridgeResult | null>;
   now: () => Date;
 };
 
@@ -125,8 +165,28 @@ function resolveDeps(overrides: Partial<PublicFormDeps> = {}): PublicFormDeps {
   return {
     findByPublicSlug: overrides.findByPublicSlug ?? findByPublicSlugDefault,
     getEntity: overrides.getEntity ?? ((ctx, entityId) => getEntityDefault(ctx, entityId)),
+    findCatalogueRecord:
+      overrides.findCatalogueRecord ??
+      (async (tenantId, entityDefId, recordId) => {
+        if (!ObjectId.isValid(recordId)) return false;
+        const db = await getDb();
+        const found = await db.collection<RecordDoc>("records").findOne(
+          {
+            _id: new ObjectId(recordId),
+            tenantId,
+            entityDefId,
+            deletedAt: null,
+          },
+          { projection: { _id: 1 } },
+        );
+        return found !== null;
+      }),
     loadEntitlements: overrides.loadEntitlements ?? ((ctx) => loadEntitlements(ctx)),
     store: overrides.store ?? mongoPublicFormWriteStore(),
+    bridgeBooking:
+      overrides.bridgeBooking ??
+      ((session, input) =>
+        bridgeBookingDefault(session, { ...input, store: mongoBookingBridgeStore() })),
     now: overrides.now ?? (() => new Date()),
   };
 }
@@ -166,6 +226,16 @@ export type PublicFormWriteStore = {
       tenantId: ObjectId;
       formId: ObjectId;
       recordId: ObjectId;
+      /** The catalogue record this submission is *about* — distinct from
+       * `recordId`, which is the record the submission itself became. Null on
+       * an ordinary form. This is what lets an order be raised against the
+       * thing the customer actually picked. */
+      selectedRecordId: ObjectId | null;
+      /** The order this submission raised, on a booking form (§3.1's
+       * `CustomerAction.order_id`). Null on every other form. */
+      orderId: ObjectId | null;
+      /** The capacity it reserved, if the resource had a pool. */
+      allocationId: ObjectId | null;
       deletedAt: null;
       createdAt: Date;
       updatedAt: Date;
@@ -227,6 +297,55 @@ export function mongoPublicFormWriteStore(): PublicFormWriteStore {
 }
 
 /**
+ * Catalogue selection, resolved before validation so the compiled schema sees
+ * the finished record.
+ *
+ * Exported and pure-ish (its one dependency is passed in) because everything
+ * that makes it safe is decided here, before the transaction: the module's
+ * own convention is that the transactional write is proven against a real
+ * replica set in the integration suite, and everything provable without one
+ * is a function a unit test can call.
+ *
+ * The selection key is *always* overwritten — set from `_selection` or deleted
+ * outright — never merged. A visitor who puts their own value under that key
+ * in `data` is writing into a field the server owns, and letting the two
+ * compete would make "which product is this order for" something the customer
+ * could forge. That value is what an order gets raised against downstream.
+ */
+export async function resolveSelection(
+  form: Pick<FormDoc, "catalogue" | "tenantId">,
+  data: Record<string, unknown>,
+  selection: string | undefined,
+  findCatalogueRecord: PublicFormDeps["findCatalogueRecord"],
+): Promise<{ data: Record<string, unknown>; selectedRecordId: ObjectId | null }> {
+  const selectionKey = form.catalogue?.selectionKey ?? null;
+  const resolved: Record<string, unknown> = { ...data };
+
+  if (!selectionKey) return { data: resolved, selectedRecordId: null };
+
+  delete resolved[selectionKey];
+  if (!selection) return { data: resolved, selectedRecordId: null };
+
+  const exists = await findCatalogueRecord(
+    form.tenantId,
+    form.catalogue!.entityDefId,
+    selection,
+  );
+  // A selection naming something that is not in this form's catalogue is a
+  // 400, not a silently dropped field: the visitor asked for a specific thing
+  // and is entitled to know it could not be honoured.
+  if (!exists) {
+    throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+      source: "body",
+      fields: { _selection: "That item is no longer available" },
+    });
+  }
+
+  resolved[selectionKey] = selection;
+  return { data: resolved, selectedRecordId: new ObjectId(selection) };
+}
+
+/**
  * AC1, AC2, AC7 — the guarded increment first (reserve before write, the same
  * convention as entities.ts and forms.ts), then the record, then the
  * submission. `session.withTransaction` aborts and retries the whole
@@ -236,14 +355,16 @@ export function mongoPublicFormWriteStore(): PublicFormWriteStore {
  */
 async function writeSubmissionTransactionally(
   session: ClientSession,
-  store: PublicFormWriteStore,
+  deps: PublicFormDeps,
   ctx: Ctx,
   form: FormDoc & { _id: ObjectId },
   entity: EntityView,
   entitlements: Entitlements,
   data: Record<string, unknown>,
+  selectedRecordId: ObjectId | null,
   now: Date,
 ): Promise<SubmitFormResult> {
+  const store = deps.store;
   const tenantId = new ObjectId(ctx.tenantId);
   const period = periodFor(METER, entitlements, now);
 
@@ -279,12 +400,29 @@ async function writeSubmissionTransactionally(
     updatedAt: now,
   });
 
+  // The bridge runs *after* the record exists, because the order it raises
+  // points back at it — and inside this transaction, so a capacity conflict
+  // takes the record and the meter increment down with it rather than
+  // leaving a booking nobody can honour (booking-bridge.ts).
+  const bridged = await deps.bridgeBooking(session, {
+    tenantId,
+    booking: form.booking,
+    selectedRecordId,
+    submissionRecordId: recordId,
+    data,
+    now,
+    requestId: ctx.requestId,
+  });
+
   const submissionId = new ObjectId();
   await store.insertSubmission(session, {
     _id: submissionId,
     tenantId,
     formId: form._id,
     recordId,
+    selectedRecordId,
+    orderId: bridged?.orderId ?? null,
+    allocationId: bridged?.allocationId ?? null,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -316,11 +454,19 @@ export async function submitPublicForm(
   const ctx = buildCtx(requestId, form.tenantId.toHexString());
 
   const parsed = parse(submitFormSchema, input, "body");
+
+  const { data: rawData, selectedRecordId } = await resolveSelection(
+    form,
+    parsed.data,
+    parsed._selection,
+    deps.findCatalogueRecord,
+  );
+
   // AC6 — validated against the *form's* field list (a real subset of the
   // entity's), not the entity's own schema: a public submitter only ever
   // sees the fields the form chose to expose.
   const compiled = compileEntitySchema(form.fields);
-  const data = parse(compiled, parsed.data, "body") as Record<string, unknown>;
+  const data = parse(compiled, rawData, "body") as Record<string, unknown>;
 
   const now = deps.now();
   // AC3, AC4, AC5 — scored before anything is written, and indistinguishable
@@ -343,12 +489,13 @@ export async function submitPublicForm(
     return await session.withTransaction(() =>
       writeSubmissionTransactionally(
         session,
-        deps.store,
+        deps,
         ctx,
         form,
         entity,
         entitlements,
         data,
+        selectedRecordId,
         now,
       ),
     );

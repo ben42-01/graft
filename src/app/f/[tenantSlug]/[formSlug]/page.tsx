@@ -44,7 +44,15 @@ export default async function PublicFormPage({ params }: { params: Promise<Param
   if (!page) notFound();
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-lg flex-col justify-center gap-6 px-4 py-12">
+    <main
+      className={
+        // A catalogue needs room for a grid of cards; a plain form reads
+        // better narrow. One layout for both would compromise each.
+        `mx-auto flex min-h-screen w-full flex-col justify-center gap-6 px-4 py-12 ${
+          page.catalogue ? "max-w-2xl" : "max-w-lg"
+        }`
+      }
+    >
       <header className="flex flex-col items-center gap-3 text-center">
         {page.branding.logoUrl ? (
           // A tenant-hosted logo URL, not a project asset next/image's loader
@@ -59,16 +67,21 @@ export default async function PublicFormPage({ params }: { params: Promise<Param
         <h1 className="text-2xl font-semibold tracking-tight">{page.formName}</h1>
       </header>
 
-      {/* Above the fields, not below: the photos are what makes a shared link
-       * read as an advert, and a visitor who has to scroll past a form to see
-       * what is being offered has already been asked for their details. */}
+      {/* Above the fields, not below: the hero image is what makes a shared
+       * link read as an advert, and a visitor who has to scroll past a form to
+       * see what is being offered has already been asked for their details. */}
       <FormCarousel images={page.carousel} />
 
+      {/* Only the catalogue's shape is passed; the records themselves are
+       * fetched a page at a time by the client, so a business with four
+       * hundred products does not put four hundred products in this HTML. */}
       <PublicFormRenderer
         tenantSlug={page.tenantSlug}
         formSlug={page.formSlug}
         fields={page.fields}
         primaryColor={page.branding.primaryColor}
+        catalogue={page.catalogue ? { selectionKey: page.catalogue.selectionKey } : null}
+        timeFields={page.timeFields}
       />
 
       {/* The badge is Free-only (AC5), so it cannot carry the privacy link:

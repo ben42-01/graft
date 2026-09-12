@@ -34,8 +34,26 @@ export const FIELD_TYPES = [
   "email",
   "phone",
   "file",
+  /**
+   * A tenant-owned picture of the thing this record *is* — a product photo,
+   * a rental item, a room. The value is a `media` id, never a URL and never
+   * bytes: the object lives in the bucket, the row in `media` carries the
+   * tenant and the owner, and the reader resolves an id to a URL at the edge
+   * it is rendered on. Storing a URL here would put an unauthenticated,
+   * unexpiring reference to a private bucket inside tenant data.
+   *
+   * This is what lets a form become a catalogue (docs/Graft.md §4.4): the
+   * picture belongs to the record, so every surface that shows records —
+   * the record list, a dashboard widget, a public form page — can show it,
+   * instead of each one growing its own picture sidecar the way the form
+   * carousel did.
+   */
+  "image",
 ] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
+
+/** A field whose value is a `media` id rather than a literal. */
+export const isMediaField = (field: { type: FieldType }): boolean => field.type === "image";
 
 /** Ends up in a Mongo path (records, GRAFT-07) — never `$`, never `.`. */
 const identifier = (max: number) =>
@@ -180,6 +198,13 @@ export function compileFieldSchema(field: FieldDef): z.ZodTypeAny {
       break;
     case "file":
       base = z.string().min(1);
+      break;
+    case "image":
+      // A media id, not a URL. Validated for shape only — that the id names a
+      // `ready` object owned by this record is checked where the value is
+      // written (record-media.ts), because that needs a database and this
+      // function is a pure compiler.
+      base = z.string().regex(/^[0-9a-f]{24}$/i, "Expected an uploaded image");
       break;
   }
   return field.required ? base : base.optional();

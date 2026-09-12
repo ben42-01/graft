@@ -25,6 +25,8 @@ import { getDb } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
 import { parse } from "@/server/http/validate";
 import { createRepository, type Repository } from "@/server/repositories/base";
+import { findCatalogueDisplayingRecord } from "./public-catalogue";
+import type { RecordDoc } from "./records";
 import {
   isFormServable,
   MAX_CAROUSEL_IMAGES,
@@ -253,13 +255,21 @@ export async function removeFormImage(
 /**
  * The unauthenticated read path behind `/api/v1/public/media/:mediaId`.
  *
- * There is no ctx — a visitor presents an id, not a token — so this reads both
+ * There is no ctx — a visitor presents an id, not a token — so this reads the
  * collections directly, the same reasoning `forms.findByPublicSlug` documents.
- * **Serving is decided by the owner, not by the media row**: an image is
- * public only while the form it belongs to is published *and* enabled, so
- * unpublishing a form or hitting its kill switch takes its photos down with
- * it. Unknown, unattached, unpublished and killed all collapse to `null`, the
- * same 404 the form page itself gives.
+ * **Serving is decided by the owner, not by the media row.** There are now two
+ * kinds of owner and they answer the same question differently:
+ *
+ *   - a `form` image is public while the form that owns it is published *and*
+ *     enabled *and* still lists the image on its carousel;
+ *   - a `record` image is public while some published, enabled form shows that
+ *     record in its catalogue *through that very field*
+ *     (`findCatalogueDisplayingRecord`).
+ *
+ * So unpublishing a form, hitting its kill switch, turning catalogue mode off,
+ * pointing `imageField` somewhere else or clearing the field all take the
+ * picture down with them. Unknown, unattached, unpublished and killed collapse
+ * to `null` alike — the same 404 the form page itself gives.
  */
 export type PublicMediaDeps = {
   findReadyMedia: (mediaId: string) => Promise<(MediaDoc & { _id: ObjectId }) | null>;
@@ -268,6 +278,14 @@ export type PublicMediaDeps = {
     formId: ObjectId,
     tenantId: ObjectId,
   ) => Promise<(FormDoc & { _id: ObjectId }) | null>;
+  findOwningRecord: (
+    recordId: ObjectId,
+    tenantId: ObjectId,
+  ) => Promise<(RecordDoc & { _id: ObjectId }) | null>;
+  isRecordOnDisplay: (
+    record: RecordDoc & { _id: ObjectId },
+    mediaId: string,
+  ) => Promise<boolean>;
 };
 
 function resolvePublicDeps(overrides: Partial<PublicMediaDeps> = {}): PublicMediaDeps {
@@ -281,6 +299,15 @@ function resolvePublicDeps(overrides: Partial<PublicMediaDeps> = {}): PublicMedi
           .collection<FormDoc>("forms")
           .findOne({ _id: formId, tenantId, deletedAt: null });
       }),
+    findOwningRecord:
+      overrides.findOwningRecord ??
+      (async (recordId, tenantId) => {
+        const db = await getDb();
+        return db
+          .collection<RecordDoc>("records")
+          .findOne({ _id: recordId, tenantId, deletedAt: null });
+      }),
+    isRecordOnDisplay: overrides.isRecordOnDisplay ?? findCatalogueDisplayingRecord,
   };
 }
 
@@ -290,17 +317,30 @@ export async function findServablePublicMedia(
 ): Promise<{ key: string; contentType: string } | null> {
   const deps = resolvePublicDeps(overrides);
   const media = await deps.findReadyMedia(mediaId);
-  if (!media || media.ownerType !== "form") return null;
+  if (!media) return null;
 
-  const form = await deps.findOwningForm(media.ownerId, media.tenantId);
-  if (!form || !isFormServable(form)) return null;
+  const servable = { key: media.key, contentType: media.contentType };
 
-  // Still attached: a slide removed from the carousel is no longer public even
-  // if its object has not been swept yet.
-  const attached = (form.carousel ?? []).some(
-    (item) => item.mediaId.toHexString() === media._id.toHexString(),
-  );
-  if (!attached) return null;
+  if (media.ownerType === "form") {
+    const form = await deps.findOwningForm(media.ownerId, media.tenantId);
+    if (!form || !isFormServable(form)) return null;
 
-  return { key: media.key, contentType: media.contentType };
+    // Still attached: a slide removed from the carousel is no longer public
+    // even if its object has not been swept yet.
+    const attached = (form.carousel ?? []).some(
+      (item) => item.mediaId.toHexString() === media._id.toHexString(),
+    );
+    return attached ? servable : null;
+  }
+
+  if (media.ownerType === "record") {
+    const record = await deps.findOwningRecord(media.ownerId, media.tenantId);
+    if (!record) return null;
+    // Not "does a catalogue exist" but "is this record on display through the
+    // field this image sits in" — the narrowest question that authorises it.
+    return (await deps.isRecordOnDisplay(record, media._id.toHexString())) ? servable : null;
+  }
+
+  // An owner kind this build does not know how to authorise is not served.
+  return null;
 }

@@ -7,10 +7,11 @@
  * Three things matter enough to call out:
  *
  *   - **It is composed from endpoints that already exist.** Orders,
- *     allocations and pools are three plain reads; there is no bespoke
- *     `/dashboard` endpoint returning a shape only this screen understands.
- *     A view that needs its own server contract is a view that goes stale the
- *     first time anything else changes.
+ *     allocations and pools are three plain reads (`src/lib/bms/reads.ts`,
+ *     shared with the Overview); there is no bespoke `/dashboard` endpoint
+ *     returning a shape only this screen understands. A view that needs its
+ *     own server contract is a view that goes stale the first time anything
+ *     else changes.
  *   - **Resource names come from records, resolved once.** An allocation
  *     carries a `recordId`, not a name, so the pools and their records are
  *     fetched alongside and joined here — which is also why the timeline shows
@@ -37,31 +38,7 @@ import {
   type TimelineAllocation,
 } from "@/components/operations/resource-timeline";
 import { buildDispatch, DailyDispatch } from "@/components/operations/daily-dispatch";
-
-type ApiOrder = {
-  id: string;
-  status: OrderStatus;
-  currency: string;
-  totalMinor: number;
-  balanceMinor: number;
-  customerRecordId: string | null;
-  lineItems: { description: string }[];
-  createdAt: string;
-};
-
-type ApiAllocation = {
-  id: string;
-  poolId: string;
-  recordId: string;
-  startAt: string;
-  endAt: string;
-  blockedFrom: string;
-  blockedUntil: string;
-  quantity: number;
-  status: TimelineAllocation["status"];
-};
-
-type ApiPool = { id: string; recordId: string; entityId: string };
+import { loadOperations, todayWindow } from "@/lib/bms/reads";
 
 type Loaded = {
   orders: BoardOrder[];
@@ -73,51 +50,24 @@ type State = { status: "loading" } | { status: "error" } | ({ status: "ready" } 
 /** How wide the schedule opens. A week reads as a plan; a day reads as a list. */
 const WINDOW_DAYS = 7;
 
-async function getJson<T>(url: string): Promise<T | null> {
-  const response = await fetch(url, { credentials: "include" });
-  if (!response.ok) return null;
-  return ((await response.json()) as { data: T }).data;
-}
-
 export default function OperationsPage() {
   const [state, setState] = useState<State>({ status: "loading" });
 
-  const window = useMemo(() => {
-    const from = new Date();
-    from.setHours(0, 0, 0, 0);
-    return { from, to: new Date(from.getTime() + WINDOW_DAYS * 86_400_000) };
-  }, []);
+  const window = useMemo(() => todayWindow(new Date(), WINDOW_DAYS), []);
 
   const load = useCallback(async () => {
-    try {
-      const [orders, allocations, pools] = await Promise.all([
-        getJson<ApiOrder[]>("/api/v1/orders?limit=100"),
-        getJson<ApiAllocation[]>(
-          `/api/v1/inventory/allocations?limit=200&from=${window.from.toISOString()}&to=${window.to.toISOString()}`,
-        ),
-        getJson<ApiPool[]>("/api/v1/inventory/pools?limit=100"),
-      ]);
-
-      if (!orders || !allocations || !pools) {
-        setState({ status: "error" });
-        return;
-      }
-
-      // An allocation knows its record's id but not its name. Resolving the
-      // names is one request per distinct entity, not one per allocation.
-      const labels = await resolveRecordLabels(pools);
-
-      setState({
-        status: "ready",
-        orders: orders.map(toBoardOrder),
-        allocations: allocations.map((allocation) => ({
-          ...allocation,
-          resourceLabel: labels.get(allocation.recordId) ?? "Unnamed resource",
-        })),
-      });
-    } catch {
+    const read = await loadOperations(window);
+    // This screen *is* orders and allocations — unlike the Overview, there is
+    // nothing left to show if neither loaded.
+    if (!read.ok) {
       setState({ status: "error" });
+      return;
     }
+    setState({
+      status: "ready",
+      orders: read.orders ?? [],
+      allocations: read.allocations ?? [],
+    });
   }, [window]);
 
   useEffect(() => {
@@ -202,47 +152,4 @@ export default function OperationsPage() {
       )}
     </div>
   );
-}
-
-function toBoardOrder(order: ApiOrder): BoardOrder {
-  const first = order.lineItems[0]?.description ?? "No items";
-  const more = order.lineItems.length - 1;
-  return {
-    id: order.id,
-    status: order.status,
-    currency: order.currency,
-    totalMinor: order.totalMinor,
-    balanceMinor: order.balanceMinor,
-    // The customer's *name* needs its record, which needs its entity; until a
-    // customer is attached there is honestly nothing to show, and inventing a
-    // placeholder id would be worse than saying so.
-    customerLabel: order.customerRecordId ? "Customer" : null,
-    lineSummary: more > 0 ? `${first} +${more} more` : first,
-    createdAt: order.createdAt,
-  };
-}
-
-/**
- * Record names for every pooled resource, fetched one entity at a time. Pools
- * cluster onto very few entity types (a rental business has "Rental Items",
- * not one entity per boat), so this is a handful of requests regardless of how
- * many resources there are.
- */
-async function resolveRecordLabels(pools: ApiPool[]): Promise<Map<string, string>> {
-  const labels = new Map<string, string>();
-  const entityIds = [...new Set(pools.map((pool) => pool.entityId))];
-
-  await Promise.all(
-    entityIds.map(async (entityId) => {
-      const records = await getJson<{ id: string; data: Record<string, unknown> }[]>(
-        `/api/v1/entities/${entityId}/records?limit=100`,
-      );
-      for (const record of records ?? []) {
-        const name = record.data.name ?? record.data.title ?? record.data.label;
-        if (typeof name === "string" && name.trim() !== "") labels.set(record.id, name);
-      }
-    }),
-  );
-
-  return labels;
 }

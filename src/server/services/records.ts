@@ -50,6 +50,22 @@ const objectIdHex = z.string().regex(/^[0-9a-f]{24}$/i, "Expected a 24-character
 export const listRecordsParamSchema = z.object({ entityId: objectIdHex });
 export const recordParamSchema = z.object({ entityId: objectIdHex, recordId: objectIdHex });
 
+/**
+ * Which image field an upload is for. Travels in the body on the two POSTs
+ * and in the query on the DELETE (a DELETE body is widely dropped in
+ * transit). Same alphabet as a field key everywhere else — it ends up in a
+ * Mongo path, so it may never carry `$` or `.`.
+ */
+export const recordMediaFieldSchema = z.object({
+  fieldKey: z
+    .string()
+    .regex(
+      /^[a-z][a-z0-9_]*$/,
+      "Use lowercase letters, digits and underscores, starting with a letter",
+    )
+    .max(64),
+});
+
 export const listRecordsQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.union([z.string(), z.number()]).optional(),

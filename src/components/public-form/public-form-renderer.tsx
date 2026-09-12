@@ -10,6 +10,13 @@
  * the client half): `_hp` is a honeypot no real visitor sees or tabs to, `_t`
  * is the timestamp `isSpamSubmission` compares against, captured once at
  * mount so it reflects render time, not submit time.
+ *
+ * Catalogue mode lives here rather than one level up because the chosen item
+ * is part of the submission: it travels as `_selection`, beside `_hp` and
+ * `_t`, never inside `data`. The server treats the selection key as its own
+ * field and overwrites whatever `data` says about it — so the input for that
+ * key is not rendered at all, since asking a visitor to type a record id
+ * would be offering them a control whose value is discarded.
  */
 import { useRef, useState } from "react";
 import { useForm } from "react-hook-form";
@@ -31,8 +38,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { CatalogueBrowser } from "@/components/public-form/catalogue-browser";
 import { contrastingTextColor } from "@/lib/contrast";
 import type { FieldDef } from "@/server/services/entities";
+
+export type CatalogueShape = { selectionKey: string | null } | null;
 
 type FormValues = Record<string, unknown>;
 
@@ -47,13 +57,28 @@ export function PublicFormRenderer({
   formSlug,
   fields,
   primaryColor,
+  catalogue = null,
+  timeFields = [],
 }: {
   tenantSlug: string;
   formSlug: string;
   fields: FieldDef[];
   primaryColor: string | null;
+  catalogue?: CatalogueShape;
+  /**
+   * Keys that carry a booking's start or end (`bookingTimeFields`). A `date`
+   * input yields a whole day at midnight, which cannot describe a four-hour
+   * hire, so these ask for a time as well.
+   */
+  timeFields?: string[];
 }) {
   const renderedAt = useRef(Date.now());
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // The server owns this key's value, so there is nothing to type into it.
+  const visibleFields = catalogue?.selectionKey
+    ? fields.filter((field) => field.key !== catalogue.selectionKey)
+    : fields;
   // A plain, uncontrolled ref — not registered on `form` — so it can never
   // leak into `values` and end up inside `data`, which the entity schema
   // validates strictly (an unknown key there is a 400, not silently dropped).
@@ -82,6 +107,7 @@ export function PublicFormRenderer({
             data: values,
             _hp: honeypotRef.current?.value || undefined,
             _t: renderedAt.current,
+            _selection: selectedId ?? undefined,
           }),
         },
       );
@@ -118,44 +144,60 @@ export function PublicFormRenderer({
 
   return (
     <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4" noValidate>
-        {/* Honeypot — invisible to a real visitor, never tabbed to. */}
-        <div
-          aria-hidden="true"
-          className="absolute -left-[9999px] top-auto h-0 w-0 overflow-hidden"
-        >
-          <label htmlFor="_hp">Leave this field empty</label>
-          <input id="_hp" type="text" tabIndex={-1} autoComplete="off" ref={honeypotRef} />
-        </div>
-
-        {fields.map((field) => (
-          <FormField
-            key={field.key}
-            control={form.control}
-            name={field.key}
-            rules={{ required: field.required ? "This field is required" : false }}
-            render={({ field: rhf }) => (
-              <FormItem>
-                <FormLabel>
-                  {field.label}
-                  {field.required ? <span aria-hidden="true"> *</span> : null}
-                </FormLabel>
-                <FormControl>{renderInput(field, rhf)}</FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
+      <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6" noValidate>
+        {/* Above the fields: a visitor who has to scroll past a form to see
+         * what is on offer has already been asked for their details. */}
+        {catalogue ? (
+          <CatalogueBrowser
+            tenantSlug={tenantSlug}
+            formSlug={formSlug}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            primaryColor={primaryColor}
           />
-        ))}
-
-        {state.status === "error" ? (
-          <p role="alert" className="text-sm text-destructive">
-            {state.message}
-          </p>
         ) : null}
 
-        <Button type="submit" disabled={state.status === "submitting"} style={buttonStyle}>
-          {state.status === "submitting" ? "Submitting…" : "Submit"}
-        </Button>
+        <div className="flex flex-col gap-4">
+          {/* Honeypot — invisible to a real visitor, never tabbed to. */}
+          <div
+            aria-hidden="true"
+            className="absolute -left-[9999px] top-auto h-0 w-0 overflow-hidden"
+          >
+            <label htmlFor="_hp">Leave this field empty</label>
+            <input id="_hp" type="text" tabIndex={-1} autoComplete="off" ref={honeypotRef} />
+          </div>
+
+          {visibleFields.map((field) => (
+            <FormField
+              key={field.key}
+              control={form.control}
+              name={field.key}
+              rules={{ required: field.required ? "This field is required" : false }}
+              render={({ field: rhf }) => (
+                <FormItem>
+                  <FormLabel>
+                    {field.label}
+                    {field.required ? <span aria-hidden="true"> *</span> : null}
+                  </FormLabel>
+                  <FormControl>
+                    {renderInput(field, rhf, timeFields.includes(field.key))}
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          ))}
+
+          {state.status === "error" ? (
+            <p role="alert" className="text-sm text-destructive">
+              {state.message}
+            </p>
+          ) : null}
+
+          <Button type="submit" disabled={state.status === "submitting"} style={buttonStyle}>
+            {state.status === "submitting" ? "Submitting…" : "Submit"}
+          </Button>
+        </div>
       </form>
     </Form>
   );
@@ -167,6 +209,7 @@ export function PublicFormRenderer({
 function renderInput(
   field: FieldDef,
   rhf: { value: unknown; onChange: (value: unknown) => void; name: string; onBlur: () => void },
+  withTime = false,
 ) {
   switch (field.type) {
     case "checkbox":
@@ -205,7 +248,7 @@ function renderInput(
     case "date":
       return (
         <Input
-          type="date"
+          type={withTime ? "datetime-local" : "date"}
           value={rhf.value as string}
           onChange={(e) => rhf.onChange(e.target.value)}
           onBlur={rhf.onBlur}

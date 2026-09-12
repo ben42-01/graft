@@ -21,7 +21,15 @@ export const FIELD_TYPE_OPTIONS = [
   { type: "checkbox", label: "Yes / no" },
   { type: "email", label: "Email" },
   { type: "phone", label: "Phone" },
+  // Unlike `file`, this one *is* offered: the signed-URL mechanism `file`
+  // is still waiting on already exists for images (media.ts), and a record's
+  // picture is the thing a public catalogue is built out of.
+  { type: "image", label: "Image" },
 ] as const;
+
+/** A field whose value is a media id rather than a literal — the client's
+ * mirror of the server's `isMediaField`. */
+export const isImageType = (type: string): boolean => type === "image";
 
 export type OfferedFieldType = (typeof FIELD_TYPE_OPTIONS)[number]["type"];
 

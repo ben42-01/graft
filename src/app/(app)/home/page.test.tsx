@@ -1,16 +1,16 @@
 /**
- * GRAFT-11.5 Test Contract — the authenticated home screen wired to the
- * shared state primitives (AC1) and the gated control pattern (AC3).
+ * The Overview (formerly the authenticated home). Keeps GRAFT-11.5's
+ * contract — the shared state primitives (AC1) and the gated control
+ * pattern (AC3) — and adds the rule the Overview is built on: every panel
+ * degrades independently, so one refused read costs the reader that panel
+ * and not the screen.
  *
- * AC3's two cases were rewritten in the 2026-08-21 UI refinement. They used
- * to pin `tier !== "free"` as the entitlement for "Add entity", but that is
- * not the product's rule: Free is entitled to 3 entities
- * (`TIER_LIMITS.free.entities`) and `createEntity` enforces a quota, never a
- * tier. The tests pinned the bug in place, so they now pin the quota rule
- * the server actually applies — a Free tenant under its limit can add, and
- * any tenant at its limit cannot.
+ * AC3's entitlement is the *quota*, not the tier. Free is entitled to 3
+ * entities (`TIER_LIMITS.free.entities`) and `createEntity` enforces a quota,
+ * never a tier — an earlier version of these tests pinned `tier !== "free"`
+ * and so pinned the bug in place.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import AppHomePage from "./page";
 
@@ -43,50 +43,197 @@ function meFor(tier: string, entityLimit: number | null = 3) {
   };
 }
 
-function stubFetch(entitiesResponse: Response, tier = "free", entityLimit: number | null = 3) {
+function order(id: string, status: string, balanceMinor = 0, currency = "USD") {
+  return {
+    id,
+    status,
+    currency,
+    totalMinor: 10_000,
+    balanceMinor,
+    customerRecordId: null,
+    lineItems: [{ description: "A thing" }],
+    createdAt: new Date().toISOString(),
+  };
+}
+
+type Routes = {
+  entities?: Response;
+  forms?: Response;
+  orders?: Response;
+  allocations?: Response;
+  pools?: Response;
+  records?: Response;
+  submissions?: Response;
+  tier?: string;
+  entityLimit?: number | null;
+};
+
+function stubFetch(routes: Routes = {}) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
     const url = typeof input === "string" ? input : input.toString();
-    if (url.includes("/api/v1/me")) {
-      return Promise.resolve(jsonResponse({ data: meFor(tier, entityLimit) }));
+    const reply = (fallback: unknown, override?: Response) =>
+      Promise.resolve(override ?? jsonResponse({ data: fallback }));
+
+    // Meters before `/me` — "/api/v1/meters/records" *contains* "/api/v1/me".
+    if (url.includes("/api/v1/meters/records")) {
+      return reply({ used: 0, limit: null }, routes.records);
     }
-    if (url.includes("/api/v1/entities")) return Promise.resolve(entitiesResponse);
+    if (url.includes("/api/v1/meters/form_submissions")) {
+      return reply({ used: 0, limit: 200 }, routes.submissions);
+    }
+    if (url.includes("/api/v1/me")) {
+      return reply(meFor(routes.tier ?? "free", routes.entityLimit ?? 3));
+    }
+    if (url.includes("/api/v1/inventory/allocations")) return reply([], routes.allocations);
+    if (url.includes("/api/v1/inventory/pools")) return reply([], routes.pools);
+    if (url.includes("/api/v1/orders")) return reply([], routes.orders);
+    if (url.includes("/api/v1/forms")) return reply([], routes.forms);
+    if (url.includes("/api/v1/entities")) return reply([], routes.entities);
     throw new Error(`unexpected fetch: ${url}`);
   });
   vi.stubGlobal("fetch", fetchMock);
+  return fetchMock;
 }
 
-describe("AppHomePage", () => {
+/** The strip renders label and value as separate nodes in one tile. */
+function tile(label: string): HTMLElement {
+  const heading = screen.getByText(label);
+  const card = heading.closest('[data-slot="card"]');
+  if (!card) throw new Error(`no tile for ${label}`);
+  return card as HTMLElement;
+}
+
+describe("AppHomePage — the Overview", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
+    push.mockReset();
   });
 
-  it("AC1 — shows the empty state when there are no entities yet", async () => {
-    stubFetch(jsonResponse({ data: [] }));
-
-    render(<AppHomePage />);
-
-    await waitFor(() => expect(screen.getByText("No entities yet")).toBeInTheDocument());
-  });
-
-  it("AC1 — shows the error state (not a raw error) when the fetch fails", async () => {
-    stubFetch(new Response(null, { status: 500 }));
+  it("AC1 — shows the error state (not a raw error) when entities can't be read", async () => {
+    stubFetch({ entities: new Response(null, { status: 500 }) });
 
     render(<AppHomePage />);
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeInTheDocument());
-    expect(screen.getByRole("alert")).toHaveTextContent("couldn't load your entities");
+    expect(screen.getByRole("alert")).toHaveTextContent("couldn't load your overview");
   });
 
-  it("AC1 — shows the entity count once loaded", async () => {
-    stubFetch(jsonResponse({ data: [{ id: "e1" }, { id: "e2" }] }));
+  it("leads a brand-new tenant through setup instead of four empty panels", async () => {
+    stubFetch();
 
     render(<AppHomePage />);
 
-    await waitFor(() => expect(screen.getByText("You have 2 entities.")).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText("Getting set up")).toBeInTheDocument());
+    expect(screen.getByText("0 of 4 done")).toBeInTheDocument();
+    // No operational data — "Today" would have nothing honest to say.
+    expect(screen.queryByRole("heading", { name: "Today" })).not.toBeInTheDocument();
+  });
+
+  it("shows the day's work once there is any, with the checklist demoted", async () => {
+    stubFetch({
+      entities: jsonResponse({ data: [{ id: "e1" }] }),
+      orders: jsonResponse({ data: [order("o1", "confirmed", 5_000)] }),
+    });
+
+    render(<AppHomePage />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument(),
+    );
+    // Still unfinished, so it is offered — but no longer the main column.
+    expect(screen.getByText("Getting set up")).toBeInTheDocument();
+  });
+
+  it("counts only live orders as open, and links the number to where it is acted on", async () => {
+    stubFetch({
+      entities: jsonResponse({ data: [{ id: "e1" }] }),
+      orders: jsonResponse({
+        data: [
+          order("o1", "confirmed"),
+          order("o2", "in_progress"),
+          order("o3", "completed"),
+          order("o4", "cancelled"),
+        ],
+      }),
+    });
+
+    render(<AppHomePage />);
+
+    await waitFor(() => expect(within(tile("Open orders")).getByText("2")).toBeInTheDocument());
+    expect(within(tile("Open orders")).getByRole("link")).toHaveAttribute(
+      "href",
+      "/operations",
+    );
+  });
+
+  it("never adds one currency to another — it reports the largest and says there are more", async () => {
+    stubFetch({
+      entities: jsonResponse({ data: [{ id: "e1" }] }),
+      orders: jsonResponse({
+        data: [order("o1", "confirmed", 50_000, "USD"), order("o2", "confirmed", 9_900, "EUR")],
+      }),
+    });
+
+    render(<AppHomePage />);
+
+    await waitFor(() =>
+      expect(within(tile("Outstanding")).getByText(/500/)).toBeInTheDocument(),
+    );
+    expect(within(tile("Outstanding")).getByText("+ 1 other currency")).toBeInTheDocument();
+  });
+
+  it("degrades one panel, not the screen, when an operational read is refused", async () => {
+    stubFetch({
+      entities: jsonResponse({ data: [{ id: "e1" }] }),
+      orders: new Response(null, { status: 403 }),
+    });
+
+    render(<AppHomePage />);
+
+    // The tile says it has no reading rather than claiming zero open orders…
+    await waitFor(() =>
+      expect(within(tile("Open orders")).getByText("Unavailable")).toBeInTheDocument(),
+    );
+    expect(within(tile("Open orders")).getByText("…")).toBeInTheDocument();
+    // …and the rest of the Overview is still there.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText("Getting set up")).toBeInTheDocument();
+  });
+
+  it("warns on a metered allowance that is nearly spent", async () => {
+    stubFetch({
+      entities: jsonResponse({ data: [{ id: "e1" }] }),
+      submissions: jsonResponse({ data: { used: 170, limit: 200 } }),
+    });
+
+    render(<AppHomePage />);
+
+    await waitFor(() =>
+      expect(within(tile("Submissions")).getByText("170")).toBeInTheDocument(),
+    );
+    expect(within(tile("Submissions")).getByText("of 200 this month")).toBeInTheDocument();
+    expect(within(tile("Submissions")).getByRole("link")).toHaveAttribute("href", "/account");
+  });
+
+  it("reaches the widget composer without it owning a slot in the nav", async () => {
+    stubFetch();
+
+    render(<AppHomePage />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("link", { name: /Custom views/ })).toHaveAttribute(
+        "href",
+        "/dashboards",
+      ),
+    );
   });
 
   it("AC3 — the gated Add entity control is disabled with an upgrade prompt at the quota", async () => {
-    stubFetch(jsonResponse({ data: [{ id: "e1" }, { id: "e2" }, { id: "e3" }] }), "free", 3);
+    stubFetch({
+      entities: jsonResponse({ data: [{ id: "e1" }, { id: "e2" }, { id: "e3" }] }),
+      tier: "free",
+      entityLimit: 3,
+    });
 
     render(<AppHomePage />);
 
@@ -101,7 +248,11 @@ describe("AppHomePage", () => {
   });
 
   it("AC3 — a Free tenant under its entity quota can add, with no upgrade prompt", async () => {
-    stubFetch(jsonResponse({ data: [{ id: "e1" }] }), "free", 3);
+    stubFetch({
+      entities: jsonResponse({ data: [{ id: "e1" }] }),
+      tier: "free",
+      entityLimit: 3,
+    });
 
     render(<AppHomePage />);
 
@@ -112,7 +263,11 @@ describe("AppHomePage", () => {
   });
 
   it("AC3 — an unlimited (null) entity limit never gates", async () => {
-    stubFetch(jsonResponse({ data: [{ id: "e1" }, { id: "e2" }] }), "enterprise", null);
+    stubFetch({
+      entities: jsonResponse({ data: [{ id: "e1" }, { id: "e2" }] }),
+      tier: "enterprise",
+      entityLimit: null,
+    });
 
     render(<AppHomePage />);
 

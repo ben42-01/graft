@@ -42,7 +42,7 @@ describe("AppShell", () => {
     );
 
     expect(screen.getByRole("navigation", { name: "Primary" })).toBeInTheDocument();
-    expect(screen.getByText("Home")).toBeInTheDocument();
+    expect(screen.getByText("Overview")).toBeInTheDocument();
     expect(screen.getByText("content")).toBeInTheDocument();
 
     // The switcher trigger shows the *active* tenant, sourced from /me — and
