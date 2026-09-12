@@ -14,6 +14,7 @@ import { connect, COLLECTIONS } from "./lib/db";
 import { TIER_LIMITS } from "../src/server/tiers";
 import { billingPeriod, LIFETIME_PERIOD } from "../src/server/services/meters";
 import { hashRefreshToken, REFRESH_TTL_SECONDS } from "../src/server/auth/refresh-tokens";
+import { hashVerificationToken } from "../src/server/services/accounts";
 import { hashPassword } from "../src/server/auth/passwords";
 
 /**
@@ -32,6 +33,13 @@ const PERIOD = billingPeriod(BILLING_ANCHOR_DAY, new Date());
 
 /** Everything else is pinned — no assertion may depend on the clock. */
 const FIXED_DATE = new Date("2026-01-15T12:00:00.000Z");
+
+/**
+ * The plaintext of the seeded email-verification token. Shaped to satisfy
+ * `verificationTokenSchema` (20-128 of `[A-Za-z0-9_-]`) and shared verbatim
+ * with `bruno/auth/verify-email.bru`, which spends it.
+ */
+const VERIFICATION_TOKEN = "qa0verify0000000000000000000000000000000001";
 
 const oid = (n: number) => new ObjectId(n.toString(16).padStart(24, "0"));
 
@@ -742,6 +750,25 @@ async function main() {
         `${IDS.tenantPremium.toHexString()}.qa0premium000000000000000000000000000000004`,
       ),
     ]);
+
+    /**
+     * A spendable email-verification token for `unverified@qa.test`.
+     *
+     * `bruno/auth/verify-email.bru` used to carry a token somebody had copied
+     * out of a log line by hand, which no seed ever produced — so it asserted
+     * 204 and got 404 on every automated run. A live token is only ever
+     * *logged*, never returned in a response body, so a contract test cannot
+     * obtain one by signing up: it has to be planted here.
+     *
+     * One-shot by design, like the spent refresh-token fixtures above:
+     * claiming it deletes it, so the request passes once per seed. CI reseeds
+     * every run; locally, re-run `npm run qa:seed` before spending it again.
+     */
+    await db.collection("email_verification_tokens").insertOne({
+      userId: IDS.userUnverified,
+      tokenHash: hashVerificationToken(VERIFICATION_TOKEN),
+      expiresAt: new Date(FIXED_DATE.getTime() + 365 * 24 * 60 * 60 * 1000),
+    });
 
     const counts = await Promise.all(
       COLLECTIONS.map(

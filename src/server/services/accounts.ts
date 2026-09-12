@@ -143,7 +143,17 @@ const invalid = (field: string, message: string): never => {
   });
 };
 
-const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
+/**
+ * Exported so the QA seed can plant a spendable verification token without
+ * restating the hash — the same reason `hashRefreshToken` is exported. A second
+ * copy of this line in a fixture is a copy that can drift from the one the
+ * endpoint actually checks against, and the drift would look like a broken
+ * endpoint rather than a stale fixture.
+ */
+export const hashVerificationToken = (token: string) =>
+  createHash("sha256").update(token).digest("hex");
+
+const hashToken = hashVerificationToken;
 
 /** A copy, never the shared constant — Enterprise overrides edit the tenant. */
 const limitsFor = (tier: Tier): TierLimits => ({ ...TIER_LIMITS[tier] });
