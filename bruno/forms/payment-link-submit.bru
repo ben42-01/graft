@@ -63,25 +63,16 @@ tests {
   test("AC8 — the query string the tenant pasted survives", function () {
     expect(params(body.data.payment.url).prefilled_email).to.equal("x");
   });
-
-  test("AC10 — the submission was kept regardless of any payment being made", async function () {
-    const axios = require("axios");
-    const baseUrl = bru.getEnvVar("baseUrl");
-    const filter = encodeURIComponent(JSON.stringify({ name: bru.getVar("paymentSubmitName") }));
-    const response = await axios.get(
-      `${baseUrl}/api/v1/entities/000000000000000000000015/records?filter=${filter}`,
-      { headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` } },
-    );
-    expect(response.data.data).to.have.lengthOf(1);
-  });
 }
 
 docs {
-  GRAFT-24 AC4, AC6, AC7, AC8, AC10. Runs against formFreePayment
+  GRAFT-24 AC4, AC7, AC8. Runs against formFreePayment
   (scripts/seed-qa.ts), a published form of the free tenant seeded with a
-  payment link already on it. AC6's order-id reference needs a booking form
-  and a raised order, which is proven directly against `resolvePaymentHandoff`
-  in src/server/services/public-forms.test.ts — the bridge's order id is not
-  observable on this response. Requires bruno/auth/login.bru to have run first
-  (loginAccessToken) for the AC10 read-back, exactly as public-submit.bru does.
+  payment link already on it. AC6's order-id reference needs the booking bridge
+  to have raised an order, which is not observable on this response; it is
+  proven end-to-end against a real transaction in
+  src/server/services/public-forms.integration.test.ts, with `bridgeBooking`
+  stood in for. AC10's read-back is payment-link-submit-persists.bru (seq 20),
+  which reuses the `paymentSubmitName` this file sets and requires
+  bruno/auth/login.bru to have run first (loginAccessToken).
 }

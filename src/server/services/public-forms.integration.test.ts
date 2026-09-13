@@ -377,3 +377,49 @@ describe("submitPublicForm — a payment-enabled form whose payment is never com
     );
   });
 });
+
+/**
+ * GRAFT-24 AC6 — the order id, not the submission id, is the reference when
+ * the bridge raised an order.
+ *
+ * `bridgeBooking` is injectable precisely so a test of *this* module can stand
+ * in for the booking subsystem (see the doc comment on `PublicFormDeps`). That
+ * is what makes the order-id branch reachable here: the real bridge needs a
+ * booking config, a catalogue selection and a live resource record, none of
+ * which this AC is about. The assertion that matters is the negative one —
+ * the reference is the order id and is *not* the submission id — because an
+ * implementation that always used the submission id would otherwise pass.
+ */
+describe("submitPublicForm — a payment-enabled form whose bridge raised an order", () => {
+  const PAYMENT = {
+    mode: "link" as const,
+    link: { url: "https://buy.stripe.com/qa" },
+    required: true,
+  };
+  const ORDER_ID = new ObjectId("0000000000000000000000a1");
+  const ALLOCATION_ID = new ObjectId("0000000000000000000000a2");
+
+  beforeEach(async () => {
+    const db = await getDb();
+    await db.collection("forms").updateOne({ _id: FORM_A }, { $set: { payment: PAYMENT } });
+  });
+
+  it("AC6 — client_reference_id is the bridged order id, not the submission id", async () => {
+    const result = await submitPublicForm("req-1", ["acme", "contact"], validBody(), {
+      ...deps(),
+      bridgeBooking: async () => ({ orderId: ORDER_ID, allocationId: ALLOCATION_ID }),
+    });
+
+    const reference = new URL(result.payment!.url).searchParams.get("client_reference_id");
+    expect(reference).toBe(ORDER_ID.toHexString());
+    expect(reference).not.toBe(result.submissionId);
+
+    // And the same order id is on the submission row, so the reference the
+    // tenant sees in Stripe resolves to a row on their order board.
+    const db = await getDb();
+    const submission = await db
+      .collection("form_submissions")
+      .findOne({ _id: new ObjectId(result.submissionId) });
+    expect(submission?.orderId).toEqual(ORDER_ID);
+  });
+});

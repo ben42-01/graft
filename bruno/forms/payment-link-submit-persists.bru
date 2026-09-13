@@ -1,0 +1,52 @@
+meta {
+  name: An unpaid payment-enabled submission is still there afterwards
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000015/records?filter={{paymentSubmitFilter}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+script:pre-request {
+  // Reads back the submission made by payment-link-submit.bru (seq 18) by the
+  // per-run name it set, so this file's own request *is* the AC10 proof and
+  // every assertion below is synchronous — an `async test()` body is not
+  // folded into the runner's pass/fail totals, so AC10 previously rested on an
+  // assertion that could not fail the gate.
+  const name = bru.getVar("paymentSubmitName");
+  bru.setVar("paymentSubmitFilter", encodeURIComponent(JSON.stringify({ name })));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: length 1
+  res.body.error: isUndefined
+}
+
+tests {
+  const body = res.getBody();
+
+  test("AC10 — required: true did not gate the write; the record exists with payment never completed", function () {
+    expect(body.data).to.have.lengthOf(1);
+    expect(body.data[0].data.email).to.equal("payment-submit@qa.test");
+  });
+}
+
+docs {
+  GRAFT-24 AC10. Link mode cannot verify that anyone paid, so `required`
+  governs where the browser is sent and nothing else: nothing in the write is
+  conditional on a payment. Nobody pays anywhere in this suite, so the
+  submission made by payment-link-submit.bru (seq 18) is by definition an
+  unpaid one, and it is still readable through the normal authenticated
+  records API. Requires bruno/auth/login.bru (loginAccessToken) and seq 18 to
+  have run first. The same AC is proven against a real replica-set transaction
+  — record, submission row and meter increment together — in
+  src/server/services/public-forms.integration.test.ts.
+}

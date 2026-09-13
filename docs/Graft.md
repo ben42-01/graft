@@ -156,7 +156,16 @@ redirects the submitter to it after the submission has been accepted.
 - **The Graft order id travels with the customer** as `client_reference_id`
   on the payment link, so a payment in the business's Stripe dashboard names
   the Graft order it belongs to. Without an order, the submission id is
-  carried instead; there is always a reference.
+  carried instead: every link Graft hands out carries a reference.
+- **One exception to reconciliation.** A public form answers a spam-scored
+  submission exactly as it answers a genuine one — deliberately, so that a bot
+  cannot tell the two apart — and that response carries the payment link too.
+  A bot that follows it pays against a `client_reference_id` matching no order
+  and no submission, and the business sees a payment in their Stripe dashboard
+  that nothing in Graft can be matched to. The reference is always *present*;
+  it is not always *resolvable*. Treat an unmatchable payment as what it is —
+  a payment with no submission behind it — and refund it rather than hunting
+  for the order.
 - **The pasted URL is allow-listed**, on write and again on read: `https:`
   and a host of exactly `buy.stripe.com`. Graft sends unauthenticated visitors
   wherever this points, so anything else is refused rather than redirected to.
