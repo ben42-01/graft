@@ -243,7 +243,12 @@ function deps(over: Partial<BillingDeps> = {}): Partial<BillingDeps> {
 const tenant = (over: Partial<BillingTenantSnapshot> = {}): BillingTenantSnapshot => ({
   id: TENANT_A,
   tier: "free",
-  billing: { stripeCustomerId: null, stripeSubscriptionId: null, graceExpiresAt: null },
+  billing: {
+    stripeCustomerId: null,
+    stripeSubscriptionId: null,
+    graceExpiresAt: null,
+    trialEndsAt: null,
+  },
   ...over,
 });
 
@@ -657,5 +662,181 @@ describe("createCheckoutSession — AC7 owner-only", () => {
     );
 
     expect(stripe.createCustomer).not.toHaveBeenCalled();
+  });
+});
+
+describe("trial issuance — GRAFT-26 AC1, AC2", () => {
+  it("AC1 — startTrial sets trialEndsAt exactly 14 days out", async () => {
+    const { store, tenants } = fakeStore({ [TENANT_A]: tenant({ tier: "premium" }) });
+    const now = () => new Date("2026-06-01T00:00:00.000Z");
+
+    const trialEndsAt = await startTrial(TENANT_A, deps({ store, now }));
+
+    expect(TRIAL_DAYS).toBe(14);
+    expect(trialEndsAt.toISOString()).toBe("2026-06-15T00:00:00.000Z");
+    expect(tenants.get(TENANT_A)?.billing.trialEndsAt?.toISOString()).toBe(
+      "2026-06-15T00:00:00.000Z",
+    );
+  });
+
+  it("AC2 — granting the trial never touches Stripe", async () => {
+    // The stub fails the test if the grant reaches Stripe at all: no customer,
+    // no Checkout Session, no subscription, no credential read.
+    const stripe = fakeStripe({
+      createCustomer: vi.fn(async () => {
+        throw new Error("Stripe must not be called to grant a trial");
+      }),
+      createCheckoutSession: vi.fn(async () => {
+        throw new Error("Stripe must not be called to grant a trial");
+      }),
+    });
+    const { store, tenants } = fakeStore({ [TENANT_A]: tenant({ tier: "premium" }) });
+
+    await startTrial(TENANT_A, deps({ store, stripe }));
+
+    expect(stripe.createCustomer).not.toHaveBeenCalled();
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+    const billing = tenants.get(TENANT_A)!.billing;
+    expect(billing.stripeCustomerId).toBeNull();
+    expect(billing.stripeSubscriptionId).toBeNull();
+  });
+
+  it("AC9 — the grant names exactly one tenant, and no other", async () => {
+    const { store, calls } = fakeStore({
+      [TENANT_A]: tenant({ tier: "premium" }),
+      [TENANT_B]: tenant({ id: TENANT_B, tier: "premium" }),
+    });
+
+    await startTrial(TENANT_A, deps({ store }));
+
+    expect(calls).toEqual([{ method: "setTrialEndsAt", tenantId: TENANT_A }]);
+  });
+});
+
+describe("expireDueTrials — GRAFT-26 AC4, AC5, AC6, AC7, AC9", () => {
+  const NOW_T = new Date("2026-06-10T00:00:00.000Z");
+  const LAPSED = new Date("2026-06-01T00:00:00.000Z");
+  const LIVE = new Date("2026-06-20T00:00:00.000Z");
+
+  const trialling = (
+    id: string,
+    trialEndsAt: Date | null,
+    subscription: string | null = null,
+  ) =>
+    tenant({
+      id,
+      tier: "premium",
+      billing: {
+        stripeCustomerId: null,
+        stripeSubscriptionId: subscription,
+        graceExpiresAt: null,
+        trialEndsAt,
+      },
+    });
+
+  it("AC4 — a lapsed trial goes down by the existing downgrade path", async () => {
+    const { store, tenants, calls } = fakeStore({ [TENANT_A]: trialling(TENANT_A, LAPSED) });
+    // Over Free's limits, so the downgrade policy has real work to do — the
+    // same path customer.subscription.deleted takes.
+    const usageMetersRepo = usageMetersRepoOf({ entities: 10, records: 5_000 });
+
+    const count = await expireDueTrials(deps({ store, usageMetersRepo, now: () => NOW_T }));
+
+    expect(count).toBe(1);
+    expect(tenants.get(TENANT_A)?.tier).toBe("free");
+    expect(calls.filter((c) => c.method === "applyDowngrade")).toHaveLength(1);
+  });
+
+  it("AC5 — a live trial keeps its tier and its trialEndsAt, and only the lapsed one moves", async () => {
+    const { store, tenants, calls } = fakeStore({
+      [TENANT_A]: trialling(TENANT_A, LAPSED),
+      [TENANT_B]: trialling(TENANT_B, LIVE),
+    });
+
+    const count = await expireDueTrials(deps({ store, now: () => NOW_T }));
+
+    expect(count).toBe(1);
+    expect(tenants.get(TENANT_A)?.tier).toBe("free");
+    expect(tenants.get(TENANT_B)?.tier).toBe("premium");
+    expect(tenants.get(TENANT_B)?.billing.trialEndsAt).toEqual(LIVE);
+    // AC9 — every write named the one tenant the selector returned.
+    expect(calls.some((c) => c.tenantId === TENANT_B)).toBe(false);
+  });
+
+  it("AC6 — a second run is a no-op: trialEndsAt is consumed, not re-selected", async () => {
+    const { store, tenants, calls } = fakeStore({ [TENANT_A]: trialling(TENANT_A, LAPSED) });
+
+    const first = await expireDueTrials(deps({ store, now: () => NOW_T }));
+    expect(first).toBe(1);
+    expect(tenants.get(TENANT_A)?.billing.trialEndsAt).toBeNull();
+
+    const downgradesAfterFirst = calls.filter((c) => c.method === "applyDowngrade").length;
+    const second = await expireDueTrials(deps({ store, now: () => NOW_T }));
+
+    expect(second).toBe(0);
+    expect(calls.filter((c) => c.method === "applyDowngrade")).toHaveLength(
+      downgradesAfterFirst,
+    );
+    expect(tenants.get(TENANT_A)?.tier).toBe("free");
+  });
+
+  it("AC6 — a tenant already on Free is never selected", async () => {
+    const { store, calls } = fakeStore({
+      [TENANT_A]: tenant({
+        tier: "free",
+        billing: {
+          stripeCustomerId: null,
+          stripeSubscriptionId: null,
+          graceExpiresAt: null,
+          trialEndsAt: LAPSED,
+        },
+      }),
+    });
+
+    expect(await expireDueTrials(deps({ store, now: () => NOW_T }))).toBe(0);
+    expect(calls).toEqual([]);
+  });
+
+  it("AC7 — a customer who upgraded during the trial is never downgraded", async () => {
+    // The failure that would cost real money: a paying subscriber whose
+    // trialEndsAt was left behind must not be selected by the expiry job.
+    const { store, tenants, calls } = fakeStore({
+      [TENANT_A]: trialling(TENANT_A, LAPSED, "sub_live_paying_customer"),
+    });
+
+    const count = await expireDueTrials(deps({ store, now: () => NOW_T }));
+
+    expect(count).toBe(0);
+    expect(tenants.get(TENANT_A)?.tier).toBe("premium");
+    expect(calls).toEqual([]);
+  });
+
+  it("AC9 — the port exposes no way to downgrade a list of tenants", async () => {
+    const { store } = fakeStore({});
+    // listTenantsWithExpiredTrial only *answers* which tenants are due; every
+    // write on the port takes exactly one tenantId, so a caller cannot aim the
+    // job at a tenant the selector did not return.
+    const due = await store.listTenantsWithExpiredTrial(NOW_T);
+    expect(due).toEqual([]);
+    expect(store.setTrialEndsAt).toHaveLength(2);
+    expect(store.applyDowngrade).toHaveLength(1);
+  });
+});
+
+describe("trialDaysRemaining — GRAFT-26 AC8", () => {
+  const NOW_D = new Date("2026-06-01T00:00:00.000Z");
+
+  it("reports whole days left, rounded up", () => {
+    expect(trialDaysRemaining(new Date("2026-06-15T00:00:00.000Z"), NOW_D)).toBe(14);
+    // 13 days and 2 hours left: the honest answer to "how long have I got" is 14.
+    expect(trialDaysRemaining(new Date("2026-06-14T02:00:00.000Z"), NOW_D)).toBe(14);
+    expect(trialDaysRemaining(new Date("2026-06-01T06:00:00.000Z"), NOW_D)).toBe(1);
+  });
+
+  it("is null, never 0, for a tenant that is not trialling", () => {
+    expect(trialDaysRemaining(null, NOW_D)).toBeNull();
+    // Already lapsed — awaiting the expiry job, not a trial any more.
+    expect(trialDaysRemaining(new Date("2026-05-31T00:00:00.000Z"), NOW_D)).toBeNull();
+    expect(trialDaysRemaining(NOW_D, NOW_D)).toBeNull();
   });
 });
