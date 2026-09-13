@@ -35,14 +35,30 @@ import { AppError } from "@/server/http/envelope";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
 import { TIER_LIMITS, type Tier, type TierLimits } from "@/server/tiers";
+import {
+  mongoBillingStore,
+  startTrial as startTrialDefault,
+  trialDaysRemaining,
+  type BillingStore,
+} from "./billing";
 import { isReservedSlug, slugify } from "./slugs";
 import { issueSession, type AccessTokenInput, type Session } from "./tokens";
 
 /** Long enough to survive a slow mail queue, short enough to be a credential. */
 export const VERIFICATION_TTL_SECONDS = 24 * 60 * 60;
 
-/** New tenants always start here (Constraints); upgrades are GRAFT-15. */
-const SIGNUP_TIER: Tier = "free";
+/**
+ * GRAFT-26 AC1. New tenants start on the 14-day Premium trial docs/TIERS.md §3
+ * promises, not on Free — no card, no Stripe, nothing to cancel. The trial is
+ * `premium` for real: the Premium limit matrix is materialised onto the tenant
+ * by the same `limitsFor()` path every other tier uses, so `can()` and
+ * `checkQuota()` read one document and never learn the word "trial".
+ *
+ * The clock that ends it is `billing.trialEndsAt`, written by `startTrial()`
+ * just below the insert, and `expireDueTrials()` (billing.ts) is what returns
+ * the tenant to Free when it lapses.
+ */
+const SIGNUP_TIER: Tier = "premium";
 
 const emailSchema = z
   .string()
@@ -86,6 +102,18 @@ export type AccountDeps = {
   now: () => Date;
   issue: (input: AccessTokenInput) => Promise<Session>;
   emitVerificationToken: (event: VerificationIssued) => void;
+  /**
+   * The trial grant, as a seam. It is a separate write rather than a field on
+   * `insertTenant` for a structural reason: `AccountStore` lives in
+   * `src/server/auth/accounts-store.ts`, whose `NewTenant` carries no billing
+   * sub-document — and that file is a protected path this contract does not
+   * touch. `billing.trialEndsAt` is billing's field, so it is written through
+   * billing's own single-tenant port.
+   */
+  startTrial: (tenantId: string) => Promise<unknown>;
+  /** AC8's read half — the active tenant's billing sub-document, for
+   * days-remaining. Same port, same one-tenant-per-call shape. */
+  billing: BillingStore;
 };
 
 /**
@@ -128,6 +156,8 @@ function resolve(overrides: Partial<AccountDeps> = {}): AccountDeps {
     now: overrides.now ?? (() => new Date()),
     issue: overrides.issue ?? ((input) => issueSession(input)),
     emitVerificationToken: overrides.emitVerificationToken ?? logVerificationToken,
+    startTrial: overrides.startTrial ?? ((tenantId) => startTrialDefault(tenantId)),
+    billing: overrides.billing ?? mongoBillingStore(),
   };
 }
 
@@ -215,6 +245,17 @@ export async function signup(
     if (error instanceof DuplicateKeyError) {
       throw new AppError("CONFLICT", "That business name is already taken");
     }
+    throw error;
+  }
+
+  // AC1. Inside the same compensating discipline as the user insert below
+  // (AC2/AC5): a tenant that is Premium but never got its `trialEndsAt` would
+  // be a workspace on Premium limits that nothing can ever expire, so a failure
+  // here deletes the tenant rather than leaving that behind.
+  try {
+    await deps.startTrial(tenantId);
+  } catch (error) {
+    await deps.accounts.deleteTenant(tenantId);
     throw error;
   }
 
@@ -340,6 +381,13 @@ export type MeView = {
     limits: TierLimits;
     /** GRAFT-11.4 AC3 — the shell's only source for the tenant's brand colour. */
     branding: { logoUrl: string | null; primaryColor: string | null } | null;
+    /**
+     * GRAFT-26 AC8 — whole days left on the signup trial, for the upgrade
+     * moment docs/TIERS.md §5 describes. `null`, never `0`, when the tenant is
+     * not trialling: a paying Premium tenant and a tenant whose last trial day
+     * is today are different things, and the UI has to tell them apart.
+     */
+    trialDaysRemaining: number | null;
   };
 };
 
@@ -371,6 +419,10 @@ export async function getMe(ctx: Ctx, overrides: Partial<AccountDeps> = {}): Pro
   const tenant = tenants[user.memberships.indexOf(active)];
   if (!tenant) throw new AppError("FORBIDDEN", "You are not a member of that workspace");
 
+  // AC8. Only for the active tenant — the memberships list is a switcher, not
+  // an entitlement surface, so it does not need a billing read per workspace.
+  const billing = await deps.billing.findTenantById(tenant.id);
+
   return {
     user: {
       id: user.id,
@@ -386,6 +438,7 @@ export async function getMe(ctx: Ctx, overrides: Partial<AccountDeps> = {}): Pro
       tier: tenant.tier,
       limits: tenant.limits,
       branding: tenant.branding,
+      trialDaysRemaining: trialDaysRemaining(billing?.billing.trialEndsAt ?? null, deps.now()),
     },
   };
 }

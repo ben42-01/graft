@@ -17,11 +17,15 @@ import {
   billingEnv,
   createCheckoutSession,
   expireDueGracePeriods,
+  expireDueTrials,
   expireTrial,
   handleStripeWebhookEvent,
   isDuplicateKey,
   startGracePeriod,
+  startTrial,
   toSnapshot,
+  TRIAL_DAYS,
+  trialDaysRemaining,
   type BillingDeps,
   type BillingStore,
   type BillingTenantSnapshot,
@@ -95,6 +99,24 @@ function fakeStore(initial: Record<string, BillingTenantSnapshot>) {
         .filter(
           (t) =>
             t.tier === "premium" && t.billing.graceExpiresAt && t.billing.graceExpiresAt <= now,
+        )
+        .map((t) => ({ id: t.id }));
+    },
+    async setTrialEndsAt(tenantId, trialEndsAt) {
+      calls.push({ method: "setTrialEndsAt", tenantId });
+      const t = tenants.get(tenantId);
+      if (t) tenants.set(tenantId, { ...t, billing: { ...t.billing, trialEndsAt } });
+    },
+    // Mirrors the Mongo selector exactly, including the clause that makes AC7
+    // work: a tenant holding a subscription is never due for trial expiry.
+    async listTenantsWithExpiredTrial(now) {
+      return [...tenants.values()]
+        .filter(
+          (t) =>
+            t.tier === "premium" &&
+            t.billing.trialEndsAt !== null &&
+            t.billing.trialEndsAt <= now &&
+            t.billing.stripeSubscriptionId === null,
         )
         .map((t) => ({ id: t.id }));
     },
@@ -351,6 +373,7 @@ describe("grace period — GRAFT-15 AC5", () => {
           stripeCustomerId: null,
           stripeSubscriptionId: null,
           graceExpiresAt: new Date("2026-06-01T00:00:00Z"),
+          trialEndsAt: null,
         },
       }),
       [TENANT_B]: tenant({
@@ -360,6 +383,7 @@ describe("grace period — GRAFT-15 AC5", () => {
           stripeCustomerId: null,
           stripeSubscriptionId: null,
           graceExpiresAt: new Date("2026-06-20T00:00:00Z"),
+          trialEndsAt: null,
         },
       }),
     });
@@ -465,6 +489,7 @@ describe("handleStripeWebhookEvent — signature and idempotency (AC2, AC3)", ()
           stripeCustomerId: "cus_a",
           stripeSubscriptionId: null,
           graceExpiresAt: null,
+          trialEndsAt: null,
         },
       }),
     });
@@ -549,6 +574,7 @@ describe("toSnapshot — the tenants-document conversion", () => {
       stripeCustomerId: null,
       stripeSubscriptionId: null,
       graceExpiresAt: null,
+      trialEndsAt: null,
     });
   });
 });
@@ -619,6 +645,7 @@ describe("createCheckoutSession — AC7 owner-only", () => {
           stripeCustomerId: "cus_existing",
           stripeSubscriptionId: null,
           graceExpiresAt: null,
+          trialEndsAt: null,
         },
       }),
     });
