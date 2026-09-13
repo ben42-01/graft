@@ -103,6 +103,7 @@ Regional pricing and VAT handling via Stripe Tax. 14-day Premium trial on sign-u
 - **Meters collection:** `usage_meters { tenantId, meter, period, count }` with atomic `$inc`; evaluated on every metered write.
 - **Stripe webhooks** (`checkout.session.completed`, `customer.subscription.updated/deleted`) update tier; grace period of 7 days on failed payment before downgrade.
 - **Downgrade policy:** nothing is deleted. Over-limit forms are unpublished (owner picks which stay active), over-limit entities/records become read-only, connectors pause.
+- **Trial:** the 14-day Premium trial (§3) is granted at sign-up (`accounts.ts`, no card, no Stripe). A lapsed trial expires by the identical path as a cancellation — `expireTrial()` → `applyDowngradePolicy()` — so trial-end and cancellation share one downgrade mechanism.
 
 ---
 

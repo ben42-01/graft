@@ -45,15 +45,15 @@ script:pre-request {
     headers: { Authorization: `Bearer ${freeLogin.data.data.accessToken}` },
   });
   const free = freeMe.data.data.tenant;
+  if (!("trialDaysRemaining" in free)) {
+    throw new Error("AC8 — /me must carry trialDaysRemaining on every tenant");
+  }
   if (free.trialDaysRemaining !== null) {
     throw new Error(
       `AC8 — a non-trialling tenant must report null, got ${JSON.stringify(
         free.trialDaysRemaining,
       )}`,
     );
-  }
-  if (!("trialDaysRemaining" in free)) {
-    throw new Error("AC8 — /me must carry trialDaysRemaining on every tenant");
   }
 }
 
