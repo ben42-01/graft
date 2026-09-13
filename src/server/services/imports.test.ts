@@ -451,7 +451,7 @@ describe("startImport — both formats, one code path (AC10)", () => {
         ["Ada", "nope"],
       ]),
     );
-    const jsonRun = harness(JSON.stringify(bad));
+    const jsonRun = harness(JSON.stringify(bad), { contentType: "application/json" });
     const fromCsv = await startImport(ctx, ENTITY, body(), csvRun.deps);
     const fromJson = await startImport(ctx, ENTITY, body({ format: "json" }), jsonRun.deps);
     expect(fromCsv.rejected).toEqual(fromJson.rejected);
@@ -578,8 +578,10 @@ describe("startImport — quota (AC8)", () => {
 
 describe("startImport — stored rejection cap (F5)", () => {
   it("caps the stored rejections but keeps the true count, so the response says the list was truncated rather than dropping rows silently", async () => {
-    const rows: string[][] = [["name"]];
-    for (let i = 1; i <= 600; i += 1) rows.push([""]); // every row is missing the required name
+    const rows: string[][] = [["name", "sku"]];
+    // every row is missing the required name; the sku column keeps the CSV's
+    // final line non-blank so the parser doesn't drop a trailing empty row.
+    for (let i = 1; i <= 600; i += 1) rows.push(["", `S${i}`]);
     const h = harness(csv(rows));
 
     const result = await startImport(ctx, ENTITY, body(), h.deps);
