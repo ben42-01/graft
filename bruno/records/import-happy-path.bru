@@ -164,8 +164,10 @@ assert {
   res.body.data.rejectedCount: eq 2
   res.body.data.rejected[0].row: eq 2
   res.body.data.rejected[0].field: eq name
+  res.body.data.rejected[0].reason: isString
   res.body.data.rejected[1].row: eq 5
   res.body.data.rejected[1].field: eq email
+  res.body.data.rejected[1].reason: isString
   res.body.data.dedupe.applied: eq false
   res.body.data.dedupe.key: isNull
   res.body.data.quota.meter: eq records
@@ -176,16 +178,6 @@ script:post-response {
   // Read back by import-tenant-isolation.bru, which proves another tenant
   // cannot fetch this result.
   bru.setVar("importResultId", res.body.data.importId);
-}
-
-tests {
-  const result = res.getBody().data;
-
-  test("each rejection carries a human-readable reason", function () {
-    for (const row of result.rejected) {
-      expect(row.reason).to.be.a("string").and.to.have.length.greaterThan(0);
-    }
-  });
 }
 
 docs {

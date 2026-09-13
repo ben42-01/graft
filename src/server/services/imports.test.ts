@@ -15,6 +15,7 @@ import type { Repository } from "@/server/repositories/base";
 import { TIER_FEATURES, TIER_LIMITS } from "@/server/tiers";
 import type { EntityView, FieldDef } from "./entities";
 import {
+  MAX_STORED_REJECTIONS,
   ROWS_PER_IMPORT,
   confirmImportUpload,
   getImportResult,
@@ -370,6 +371,34 @@ describe("startImport — mapping and validation", () => {
     expect(h.records.docs).toHaveLength(98);
   });
 
+  it("F2 — a header named 'toString' is a row rejection naming the string field, not an inherited function", async () => {
+    const h = harness(
+      csv([
+        ["name", "toString"],
+        ["Ada", "x"],
+      ]),
+    );
+    const result = await startImport(ctx, ENTITY, body(), h.deps);
+    expect(result.imported).toBe(0);
+    expect(result.rejected[0]).toMatchObject({ row: 1, field: "toString" });
+    // The reason must survive JSON — an inherited function would vanish here.
+    expect(JSON.parse(JSON.stringify(result))).toMatchObject({
+      rejected: [{ row: 1, field: "toString" }],
+    });
+    expect(h.records.docs).toHaveLength(0);
+  });
+
+  it("F4 — a stored content type that disagrees with the declared format is refused", async () => {
+    const h = harness(csv([["name"], ["Ada"]]), { contentType: "application/json" });
+    await expect(
+      startImport(ctx, ENTITY, body({ format: "csv" }), h.deps),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      details: { fields: { format: expect.stringContaining("application/json") } },
+    });
+    expect(h.records.docs).toHaveLength(0);
+  });
+
   it("coerces CSV text into the field's own type, and leaves blanks absent", async () => {
     const h = harness(
       csv([
@@ -422,7 +451,7 @@ describe("startImport — both formats, one code path (AC10)", () => {
         ["Ada", "nope"],
       ]),
     );
-    const jsonRun = harness(JSON.stringify(bad));
+    const jsonRun = harness(JSON.stringify(bad), { contentType: "application/json" });
     const fromCsv = await startImport(ctx, ENTITY, body(), csvRun.deps);
     const fromJson = await startImport(ctx, ENTITY, body({ format: "json" }), jsonRun.deps);
     expect(fromCsv.rejected).toEqual(fromJson.rejected);
@@ -544,6 +573,27 @@ describe("startImport — quota (AC8)", () => {
       code: "QUOTA_EXCEEDED",
     });
     expect(h.records.docs).toHaveLength(0);
+  });
+});
+
+describe("startImport — stored rejection cap (F5)", () => {
+  it("caps the stored rejections but keeps the true count, so the response says the list was truncated rather than dropping rows silently", async () => {
+    const rows: string[][] = [["name", "sku"]];
+    // every row is missing the required name; the sku column keeps the CSV's
+    // final line non-blank so the parser doesn't drop a trailing empty row.
+    for (let i = 1; i <= 600; i += 1) rows.push(["", `S${i}`]);
+    const h = harness(csv(rows));
+
+    const result = await startImport(ctx, ENTITY, body(), h.deps);
+
+    expect(result.imported).toBe(0);
+    expect(result.rejectedCount).toBe(600);
+    expect(result.rejected).toHaveLength(MAX_STORED_REJECTIONS);
+    // The count survives the cap, so a caller can always tell the list was
+    // truncated rather than mistake it for the whole picture.
+    expect(result.rejected.length).toBeLessThan(result.rejectedCount);
+    expect(h.imports.saved[0]?.rejected).toHaveLength(MAX_STORED_REJECTIONS);
+    expect(h.imports.saved[0]?.rejectedCount).toBe(600);
   });
 });
 

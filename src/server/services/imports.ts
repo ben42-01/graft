@@ -82,6 +82,18 @@ export const IMPORT_FORMATS = ["csv", "json"] as const;
 export type ImportFormat = (typeof IMPORT_FORMATS)[number];
 
 /**
+ * The one-to-one map between a declared `format` and the stored object's
+ * `contentType` (`ALLOWED_IMPORT_TYPES` in media.ts). The upload's content
+ * type is the more trustworthy of the two — it was fixed at upload time and
+ * cannot be changed by this request — so a mismatch is refused rather than
+ * silently trusting the client-declared `format`.
+ */
+const CONTENT_TYPE_FOR_FORMAT: Record<ImportFormat, string> = {
+  csv: "text/csv",
+  json: "application/json",
+};
+
+/**
  * docs/TIERS.md §2.3 — "✓ 10k rows/import" on Premium, "Unlimited" on
  * Enterprise. Not a `TIER_LIMITS` key: the tier matrix counts what a tenant may
  * *hold*, and this bounds one request. See `rowLimitFor` for how the tiers are
@@ -414,7 +426,7 @@ function buildRow(
   }
   const data: Record<string, unknown> = {};
   for (const [source, raw] of Object.entries(parsed.values)) {
-    const target = mapping[source] ?? source;
+    const target = Object.hasOwn(mapping, source) ? mapping[source] : source;
     const field = byKey.get(target);
     if (!field) {
       return {
@@ -585,6 +597,9 @@ export async function startImport(
   assertMapping(body.mapping, dedupeKey, entity.fields);
 
   const file = await deps.readFile(ctx, body.mediaId);
+  if (file.contentType !== CONTENT_TYPE_FOR_FORMAT[body.format]) {
+    throw badBody({ format: `This upload is "${file.contentType}", not ${body.format}` });
+  }
   const parsedRows = parseImportFile(file.text, body.format);
 
   // AC2 — the row ceiling is checked before a single row is written.

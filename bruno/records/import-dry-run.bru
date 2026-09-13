@@ -54,9 +54,21 @@ script:pre-request {
   const mediaId = ticket.data.data.mediaId;
   bru.setVar("dryRunMediaId", mediaId);
 
+  // Pages to exhaustion rather than reading one page's length, so the count
+  // stays correct however many records this entity already holds — a fixed
+  // page size would saturate and silently stop proving anything (F6).
   const countRecords = async () => {
-    const page = await axios.get(`${baseUrl}/api/v1/entities/${entity}/records?limit=100`, auth);
-    return page.data.data.length;
+    let total = 0;
+    let cursor;
+    for (;;) {
+      const url = cursor
+        ? `${baseUrl}/api/v1/entities/${entity}/records?limit=100&cursor=${cursor}`
+        : `${baseUrl}/api/v1/entities/${entity}/records?limit=100`;
+      const page = await axios.get(url, auth);
+      total += page.data.data.length;
+      if (!page.data.meta.hasMore) return total;
+      cursor = page.data.meta.cursor;
+    }
   };
 
   const before = await countRecords();
