@@ -100,6 +100,11 @@ Regional pricing and VAT handling via Stripe Tax. 14-day Premium trial on sign-u
 
 - **Single source of truth:** `tenants.tier` + `tenants.limits` (materialized limit object, overridable per-tenant for Enterprise deals).
 - **Entitlement service:** `can(tenantId, feature)` and `checkQuota(tenantId, meter, amount)` called in the API service layer — never in the client. UI reads the same entitlement object to hide/disable gated features with upgrade prompts.
+  Enforced call sites so far: `csv_import` on batch record import
+  (`src/server/services/imports.ts`, GRAFT-25.1) — a Free tenant gets
+  `403 FEATURE_NOT_AVAILABLE` naming the feature, Premium is capped at 10,000
+  rows per import, and Enterprise's `records: null` is read as *unlimited* and
+  branched on rather than coalesced to 0.
 - **Meters collection:** `usage_meters { tenantId, meter, period, count }` with atomic `$inc`; evaluated on every metered write.
 - **Stripe webhooks** (`checkout.session.completed`, `customer.subscription.updated/deleted`) update tier; grace period of 7 days on failed payment before downgrade.
 - **Downgrade policy:** nothing is deleted. Over-limit forms are unpublished (owner picks which stay active), over-limit entities/records become read-only, connectors pause.

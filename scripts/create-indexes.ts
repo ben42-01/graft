@@ -31,6 +31,9 @@ const INDEXES: IndexDef[] = [
   { collection: "entity_defs", keys: { tenantId: 1, key: 1 }, options: { unique: true } },
   { collection: "records", keys: { tenantId: 1, entityDefId: 1, updatedAt: -1 } },
   { collection: "records", keys: { tenantId: 1, entityDefId: 1, deletedAt: 1 } },
+  // GRAFT-25.1 — an import result is always read back by (tenant, entity, id),
+  // and listed newest-first when the wizard reopens.
+  { collection: "imports", keys: { tenantId: 1, entityDefId: 1, createdAt: -1 } },
   { collection: "forms", keys: { tenantId: 1, slug: 1 }, options: { unique: true } },
   // Public form lookup by URL: /f/{tenantSlug}/{formSlug}
   {

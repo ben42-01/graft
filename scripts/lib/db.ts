@@ -53,6 +53,10 @@ export const COLLECTIONS = [
   // Tenant-uploaded objects (form carousel images today). Holds metadata only —
   // the bytes live in the S3-compatible bucket, keyed by `key`.
   "media",
+  // Batch record imports (GRAFT-25.1). One document per run — the per-row
+  // report the wizard re-reads; the uploaded file itself stays in the bucket
+  // as a `media` row.
+  "imports",
   // Inventory & resource allocation (docs/BMS_EXTENSION.md §3.1).
   "inventory_pools",
   "resource_allocations",

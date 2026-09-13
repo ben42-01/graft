@@ -27,6 +27,16 @@ export const ERROR_CODES = [
   // remedy is "send less", not "send it differently".
   "PAYLOAD_TOO_LARGE",
   "CONFLICT",
+  // The tenant's plan does not include this capability at all (GRAFT-25.1 AC1).
+  // Distinct from QUOTA_EXCEEDED, which means "included, and you have used it
+  // up": the client's remedy here is an upgrade prompt naming the feature, not
+  // a "wait until next period" message.
+  "FEATURE_NOT_AVAILABLE",
+  // A batch was larger than the per-request ceiling the tier allows
+  // (GRAFT-25.1 AC2). Distinct from PAYLOAD_TOO_LARGE, which is about bytes on
+  // the wire: the body here was small and well-formed, the *file it named* had
+  // too many rows.
+  "ROW_LIMIT_EXCEEDED",
   "INTERNAL",
 ] as const;
 
@@ -47,6 +57,8 @@ export const STATUS_FOR_CODE: Record<ErrorCode, number> = {
   RATE_LIMITED: 429,
   PAYLOAD_TOO_LARGE: 413,
   CONFLICT: 409,
+  FEATURE_NOT_AVAILABLE: 403,
+  ROW_LIMIT_EXCEEDED: 400,
   INTERNAL: 500,
 };
 
