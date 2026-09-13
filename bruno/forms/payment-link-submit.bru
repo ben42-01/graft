@@ -1,0 +1,78 @@
+meta {
+  name: A payment-enabled form hands the submitter a payment URL
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/api/v1/public/forms/qa-free/qa-payment-form/submissions
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "data": {
+      "name": "{{paymentSubmitName}}",
+      "email": "payment-submit@qa.test",
+      "phone": "+353 1 000 0098"
+    },
+    "_t": {{paymentSubmitRenderedAt}}
+  }
+}
+
+script:pre-request {
+  // Per-run name, same reasoning as public-submit.bru — safe to re-run.
+  bru.setVar("paymentSubmitName", `QA Payment Submit ${Date.now()}`);
+  // Comfortably past MIN_FILL_MS (public-forms.ts) so this isn't scored as spam.
+  bru.setVar("paymentSubmitRenderedAt", Date.now() - 3000);
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.submissionId: isDefined
+  res.body.data.payment.required: eq true
+  res.body.error: isUndefined
+}
+
+tests {
+  const body = res.getBody();
+  // Bruno's script sandbox has no WHATWG `URL`, so the query string is read
+  // the long way round rather than parsed.
+  const params = (url) =>
+    Object.fromEntries(
+      (url.split("?")[1] ?? "")
+        .split("&")
+        .filter(Boolean)
+        .map((pair) => pair.split("=").map(decodeURIComponent)),
+    );
+
+  test("AC4 — the 201 keeps its submissionId and adds a payment block", function () {
+    expect(body.data.submissionId).to.match(/^[0-9a-f]{24}$/);
+    expect(body.data.payment).to.be.an("object");
+  });
+
+  test("AC4 — the URL is the tenant's own Stripe payment link", function () {
+    expect(body.data.payment.url).to.match(/^https:\/\/buy\.stripe\.com\//);
+  });
+
+  test("AC7 — a reference always travels with it; this form raises no order, so it is the submission", function () {
+    expect(params(body.data.payment.url).client_reference_id).to.equal(body.data.submissionId);
+  });
+
+  test("AC8 — the query string the tenant pasted survives", function () {
+    expect(params(body.data.payment.url).prefilled_email).to.equal("x");
+  });
+}
+
+docs {
+  GRAFT-24 AC4, AC7, AC8. Runs against formFreePayment
+  (scripts/seed-qa.ts), a published form of the free tenant seeded with a
+  payment link already on it. AC6's order-id reference needs the booking bridge
+  to have raised an order, which is not observable on this response; it is
+  proven end-to-end against a real transaction in
+  src/server/services/public-forms.integration.test.ts, with `bridgeBooking`
+  stood in for. AC10's read-back is payment-link-submit-persists.bru (seq 20),
+  which reuses the `paymentSubmitName` this file sets and requires
+  bruno/auth/login.bru to have run first (loginAccessToken).
+}

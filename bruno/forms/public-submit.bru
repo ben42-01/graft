@@ -32,6 +32,7 @@ script:pre-request {
 assert {
   res.status: eq 201
   res.body.data.submissionId: isDefined
+  res.body.data.payment: isUndefined
   res.body.error: isUndefined
   res.headers['access-control-allow-origin']: eq *
 }
@@ -41,6 +42,12 @@ tests {
 
   test("AC1 — the submissionId is a real Mongo ObjectId hex", function () {
     expect(body.data.submissionId).to.match(/^[0-9a-f]{24}$/);
+  });
+
+  test("GRAFT-24 AC5 — an ordinary form's response has no payment key at all", function () {
+    // Absent, not null: every form that existed before payment links shipped
+    // keeps byte-for-byte the response it always had.
+    expect(body.data).to.not.have.property("payment");
   });
 
   test("AC1 — the submission actually created a record, not just a 201", async function () {

@@ -42,6 +42,7 @@ import {
   isFormServable,
   type FormDoc,
 } from "./forms";
+import { buildPaymentLinkUrl } from "@/lib/payment-links";
 import {
   bridgeBooking as bridgeBookingDefault,
   mongoBookingBridgeStore,
@@ -91,7 +92,39 @@ export const submitFormSchema = z.object({
 
 export type SubmitFormInput = z.input<typeof submitFormSchema>;
 
-export type SubmitFormResult = { submissionId: string };
+/** Where the submitter is sent to pay, and whether they are sent at all. */
+export type PaymentHandoff = { url: string; required: boolean };
+
+/**
+ * The `payment` key is *absent*, not null, on a form that takes no money —
+ * every form that exists today keeps the response it has always had
+ * (GRAFT-24 AC5).
+ */
+export type SubmitFormResult = { submissionId: string; payment?: PaymentHandoff };
+
+/**
+ * GRAFT-24 AC4–AC8 — the payment half of a submission response.
+ *
+ * `reference` is what the tenant will see beside the payment in their own
+ * Stripe dashboard, and it is the whole reconciliation mechanism: the order
+ * id when the booking bridge raised one, the submission id otherwise. There
+ * is always one.
+ *
+ * The stored URL is re-validated here, on read, not only on write: a document
+ * written before this shipped, or by any path that bypassed the schema, must
+ * not be able to turn the public form into an open redirect. A value that
+ * does not validate is omitted from the response rather than returned, and is
+ * never logged — a payment link can carry `prefilled_email`.
+ */
+export function resolvePaymentHandoff(
+  payment: FormDoc["payment"],
+  reference: string,
+): PaymentHandoff | null {
+  if (!payment || payment.mode !== "link") return null;
+  const url = buildPaymentLinkUrl(payment.link.url, reference);
+  if (url === null) return null;
+  return { url, required: payment.required };
+}
 
 /** AC3, AC4 — a filled honeypot or a too-fast submit, either is spam. */
 export function isSpamSubmission(input: {
@@ -428,7 +461,18 @@ async function writeSubmissionTransactionally(
     updatedAt: now,
   });
 
-  return { submissionId: submissionId.toHexString() };
+  // AC6, AC7 — the order the bridge raised is the reference when there is
+  // one, because that is the row the tenant confirms on the order board;
+  // otherwise the submission itself.
+  const handoff = resolvePaymentHandoff(
+    form.payment,
+    bridged?.orderId?.toHexString() ?? submissionId.toHexString(),
+  );
+
+  return {
+    submissionId: submissionId.toHexString(),
+    ...(handoff ? { payment: handoff } : {}),
+  };
 }
 
 /**
@@ -472,7 +516,11 @@ export async function submitPublicForm(
   // AC3, AC4, AC5 — scored before anything is written, and indistinguishable
   // from a real acceptance either way.
   if (isSpamSubmission({ hp: parsed._hp, renderedAt: parsed._t, now: now.getTime() })) {
-    return { submissionId: new ObjectId().toHexString() };
+    // A payment-enabled form answers with a payment block here too: the whole
+    // point of this branch is that it is indistinguishable from acceptance.
+    const submissionId = new ObjectId().toHexString();
+    const handoff = resolvePaymentHandoff(form.payment, submissionId);
+    return { submissionId, ...(handoff ? { payment: handoff } : {}) };
   }
 
   const entity = await deps.getEntity(ctx, form.entityDefId.toHexString()).catch((error) => {

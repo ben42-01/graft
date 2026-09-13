@@ -138,6 +138,41 @@ Widgets are declared as JSON config, rendered by a **Widget Registry**, so dashb
 - Anti-abuse: rate limiting, CAPTCHA option, spam filtering.
 - Free tier: limited submissions/month; Premium: higher limits + branding removal; Enterprise: unlimited + custom domain.
 
+#### Customer Payments (payment links)
+
+A form can collect money from whoever submits it. The business pastes a
+**Stripe Payment Link** they created in their own Stripe account, and Graft
+redirects the submitter to it after the submission has been accepted.
+
+- **The submission is never conditional on the payment.** The record, the
+  submission row and the meter increment are written first; `required` only
+  decides whether the browser is sent to Stripe or offered a "Pay now" link
+  on the thank-you page.
+- **Link mode does not verify payment.** Graft holds no key of the business's
+  and receives no webhook from their Stripe account, so it cannot know whether
+  anyone paid. An order raised by a booking form stays in **Awaiting payment**
+  until the business confirms it on the orders board — that board is the
+  reconciliation point, not this.
+- **The Graft order id travels with the customer** as `client_reference_id`
+  on the payment link, so a payment in the business's Stripe dashboard names
+  the Graft order it belongs to. Without an order, the submission id is
+  carried instead: every link Graft hands out carries a reference.
+- **One exception to reconciliation.** A public form answers a spam-scored
+  submission exactly as it answers a genuine one — deliberately, so that a bot
+  cannot tell the two apart — and that response carries the payment link too.
+  A bot that follows it pays against a `client_reference_id` matching no order
+  and no submission, and the business sees a payment in their Stripe dashboard
+  that nothing in Graft can be matched to. The reference is always *present*;
+  it is not always *resolvable*. Treat an unmatchable payment as what it is —
+  a payment with no submission behind it — and refund it rather than hunting
+  for the order.
+- **The pasted URL is allow-listed**, on write and again on read: `https:`
+  and a host of exactly `buy.stripe.com`. Graft sends unauthenticated visitors
+  wherever this points, so anything else is refused rather than redirected to.
+- This is the *business* collecting from *their* customer. It is unrelated to
+  the business paying Graft for Premium (§5, [[docs/TIERS.md]] §3), which uses
+  Graft's own Stripe account and shares no code or credential with it.
+
 ---
 
 ## 5. Tiers
