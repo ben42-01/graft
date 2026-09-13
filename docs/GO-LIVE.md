@@ -49,6 +49,7 @@ Legend: 🔴 REQUIRED for launch · 🟡 required within 30 days of launch · �
 - 🔴 Quota meters: 80% warning email + 100% hard-stop verified on a test tenant
 - 🔴 Stripe Tax configured (EU VAT); business entity + terms of sale finalized
 - 🟡 Dunning emails for failed payments; 7-day grace period job
+- 🔴 Trial-expiry job (`scripts/expire-trials.ts`) needs a schedule before launch — it is a runnable entry point only, nothing invokes it in production yet
 
 ## 5. Legal & Compliance
 

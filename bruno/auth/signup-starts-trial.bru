@@ -1,0 +1,55 @@
+meta {
+  name: Signup reaches the trial-granting write path
+  type: http
+  seq: 14
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/signup
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "trial-owner@qa-signup.test",
+    "password": "{{qaPassword}}",
+    "businessName": "QA Trial Signup Co"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.userId: isDefined
+  res.body.data.tenantId: isDefined
+  Object.keys(res.body.data).length: eq 2
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+docs {
+  GRAFT-26 AC1, over HTTP — the half a `.bru` can actually prove.
+
+  Amendment 1 on the issue is what this file obeys: it asserts **only** 201 and
+  that the envelope carries exactly the two ids. It deliberately does not assert
+  trial data on this response. `POST /api/v1/auth/signup` returns
+  `{ userId, tenantId }` and nothing else — the shape is fixed in
+  src/app/api/v1/auth/signup/route.ts:27, a protected path this contract does
+  not touch, and bruno/auth/signup.bru already asserts those are the only two
+  keys. Adding fields here would turn that MUST-pass request red.
+
+  So what this proves is that the signup route still succeeds now that
+  `signup()` grants a 14-day Premium trial inside the same request — the grant
+  is a second write through the billing port, and a failure in it deletes the
+  tenant and surfaces as a 5xx rather than this 201. The trial's *content* is
+  proven where it is readable: accounts.test.ts / accounts.integration.test.ts
+  on the documents, and bruno/billing/trial-days-remaining.bru on GET /me.
+
+  Single-shot against a freshly seeded QA stack, like signup.bru: the email is
+  fixed so the assertions can be, and `npm run qa:db:down` destroys the database
+  between runs (docs/WORKFLOW.md §5.2). Run twice without reseeding and it
+  returns 409, which is correct behaviour, not a flake.
+
+  Every assertion is in the synchronous `assert` block on purpose — Bruno's CLI
+  runs an async `test()` body but does not count it toward pass/fail.
+}

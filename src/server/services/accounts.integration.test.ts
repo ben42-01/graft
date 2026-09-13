@@ -20,6 +20,7 @@ import { createContext } from "@/server/context";
 import { getDb, getMongoClient } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
 import { TIER_LIMITS } from "@/server/tiers";
+import { mongoBillingStore, TRIAL_DAYS } from "./billing";
 import type { AccessTokenInput, Session } from "@/server/services/tokens";
 import {
   getMe,
@@ -107,9 +108,21 @@ describe("signup → verify → login → me", () => {
     expect(tenant).toMatchObject({
       name: "Integration Motors",
       slug: "integration-motors",
-      tier: "free",
-      limits: TIER_LIMITS.free,
+      // GRAFT-26 AC1 — a real sign-up produces a trialling tenant, with the
+      // Premium limits materialised onto the document itself.
+      tier: "premium",
+      limits: TIER_LIMITS.premium,
     });
+    // AC1 — the clock, written through the billing port, on the document.
+    const trialEndsAt = (tenant!.billing as { trialEndsAt?: Date } | undefined)?.trialEndsAt;
+    expect(trialEndsAt).toBeInstanceOf(Date);
+    const days = (trialEndsAt!.getTime() - Date.now()) / (24 * 60 * 60 * 1000);
+    expect(days).toBeGreaterThan(TRIAL_DAYS - 1);
+    expect(days).toBeLessThanOrEqual(TRIAL_DAYS);
+    // AC2 — no card was asked for, so there is no Stripe identity to find.
+    const snapshot = await mongoBillingStore().findTenantById(tenantId);
+    expect(snapshot!.billing.stripeCustomerId).toBeNull();
+    expect(snapshot!.billing.stripeSubscriptionId).toBeNull();
 
     const user = await db.collection("users").findOne({ _id: new ObjectId(userId) });
     expect(user!.email).toBe("owner@integration.test");
@@ -149,9 +162,11 @@ describe("signup → verify → login → me", () => {
       id: tenantId,
       name: "Integration Motors",
       slug: "integration-motors",
-      tier: "free",
-      limits: TIER_LIMITS.free,
+      tier: "premium",
+      limits: TIER_LIMITS.premium,
       branding: null,
+      // GRAFT-26 AC8 — read back off the real document.
+      trialDaysRemaining: TRIAL_DAYS,
     });
     expect(me.memberships).toEqual([
       {

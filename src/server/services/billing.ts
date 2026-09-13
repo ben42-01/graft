@@ -50,6 +50,12 @@ const SYSTEM_ACTOR_ID = "000000000000000000000000";
 
 const GRACE_PERIOD_MS = 7 * 24 * 60 * 60 * 1000;
 
+/** docs/TIERS.md §3: "14-day Premium trial on sign-up (no card required)".
+ * The number lives here, next to the grace window it is a sibling of, so the
+ * two windows are read together and neither is tuned in isolation. */
+export const TRIAL_DAYS = 14;
+const TRIAL_PERIOD_MS = TRIAL_DAYS * 24 * 60 * 60 * 1000;
+
 export const CHECKOUT_PLANS = ["monthly", "annual"] as const;
 export type CheckoutPlan = (typeof CHECKOUT_PLANS)[number];
 
@@ -117,6 +123,10 @@ export type TenantBilling = {
   stripeCustomerId: string | null;
   stripeSubscriptionId: string | null;
   graceExpiresAt: Date | null;
+  /** When the signup trial lapses. Null means "not trialling" — either never
+   * granted, or already consumed by `expireDueTrials` (which nulls it so the
+   * tenant cannot be selected a second time; see AC6). */
+  trialEndsAt: Date | null;
 };
 
 export type BillingTenantSnapshot = { id: string; tier: Tier; billing: TenantBilling };
@@ -140,6 +150,11 @@ export type BillingStore = {
   ): Promise<void>;
   setGraceExpiry(tenantId: string, graceExpiresAt: Date | null): Promise<void>;
   listTenantsWithExpiredGrace(now: Date): Promise<{ id: string }[]>;
+  setTrialEndsAt(tenantId: string, trialEndsAt: Date | null): Promise<void>;
+  /** Read-only, and deliberately not a "downgrade these ids" method: it
+   * answers *which* tenants are due, and the caller then names each one
+   * individually through the single-tenant methods above (AC9). */
+  listTenantsWithExpiredTrial(now: Date): Promise<{ id: string }[]>;
 };
 
 /** Claims an event id exactly once (AC3). */
@@ -171,6 +186,7 @@ type TenantBillingDoc = {
     stripeCustomerId?: string | null;
     stripeSubscriptionId?: string | null;
     graceExpiresAt?: Date | null;
+    trialEndsAt?: Date | null;
   };
 };
 
@@ -181,6 +197,7 @@ export const toSnapshot = (doc: TenantBillingDoc): BillingTenantSnapshot => ({
     stripeCustomerId: doc.billing?.stripeCustomerId ?? null,
     stripeSubscriptionId: doc.billing?.stripeSubscriptionId ?? null,
     graceExpiresAt: doc.billing?.graceExpiresAt ?? null,
+    trialEndsAt: doc.billing?.trialEndsAt ?? null,
   },
 });
 
@@ -266,6 +283,33 @@ export function mongoBillingStore(): BillingStore {
       const col = await tenants();
       const docs = await col
         .find({ tier: "premium", "billing.graceExpiresAt": { $ne: null, $lte: now } })
+        .toArray();
+      return docs.map((doc) => ({ id: doc._id.toHexString() }));
+    },
+
+    async setTrialEndsAt(tenantId, trialEndsAt) {
+      const col = await tenants();
+      await col.updateOne(
+        { _id: new ObjectId(tenantId) },
+        { $set: { "billing.trialEndsAt": trialEndsAt, updatedAt: new Date() } },
+      );
+    },
+
+    /**
+     * AC7 is enforced *here*, in the selector, rather than by a check inside
+     * the loop: a tenant who upgraded during the trial has a
+     * `stripeSubscriptionId` (set on `checkout.session.completed`), so they are
+     * never returned in the first place. A paying customer cannot be
+     * downgraded by this job even if their `trialEndsAt` was left behind.
+     */
+    async listTenantsWithExpiredTrial(now) {
+      const col = await tenants();
+      const docs = await col
+        .find({
+          tier: "premium",
+          "billing.trialEndsAt": { $ne: null, $lte: now },
+          "billing.stripeSubscriptionId": null,
+        })
         .toArray();
       return docs.map((doc) => ({ id: doc._id.toHexString() }));
     },
@@ -460,6 +504,74 @@ export async function expireTrial(
   overrides: Partial<BillingDeps> = {},
 ): Promise<void> {
   await applyDowngradePolicy(tenantId, overrides);
+}
+
+/**
+ * AC1's write half. The tier and its limits are materialised by the caller's
+ * tenant insert (accounts.ts); the only thing this adds is the clock, because
+ * `trialEndsAt` is the one field the tenant document does not already get.
+ *
+ * No card, no Stripe customer, no Checkout Session, no subscription (AC2) —
+ * this function touches exactly one field on one tenant and reads no Stripe
+ * credential. A trialling tenant is genuinely `premium` for entitlement
+ * purposes, which is why `can()` / `checkQuota()` need no trial special case.
+ */
+export async function startTrial(
+  tenantId: string,
+  overrides: Partial<BillingDeps> = {},
+): Promise<Date> {
+  const deps = resolveDeps(overrides);
+  const trialEndsAt = new Date(deps.now().getTime() + TRIAL_PERIOD_MS);
+  await deps.store.setTrialEndsAt(tenantId, trialEndsAt);
+  return trialEndsAt;
+}
+
+/**
+ * AC4, AC5, AC6, AC9 — the trial-expiry entry point, and the exact sibling of
+ * `expireDueGracePeriods` above. Like it, nothing wires this to a schedule yet
+ * (docs/GO-LIVE.md §4): `scripts/expire-trials.ts` is the runnable caller, and
+ * a follow-up chore issue gives it a cron under co-review.
+ *
+ * Two properties worth stating, because both are easy to lose:
+ *
+ *   - **Idempotent (AC6).** After the downgrade, `trialEndsAt` is nulled, so
+ *     the selector cannot return the tenant again. The second run is a no-op
+ *     rather than a second downgrade — which matters because
+ *     `applyDowngradePolicy` re-computes `readOnly` from live meter counts.
+ *   - **One tenant per write (AC9).** The loop names each id individually
+ *     through the single-tenant port methods. There is no bulk update, so a
+ *     caller cannot aim this at a tenant the selector did not return.
+ */
+export async function expireDueTrials(overrides: Partial<BillingDeps> = {}): Promise<number> {
+  const deps = resolveDeps(overrides);
+  const due = await deps.store.listTenantsWithExpiredTrial(deps.now());
+  const log = createLogger({ requestId: "billing.trial-expiry" });
+  for (const tenant of due) {
+    await expireTrial(tenant.id, overrides);
+    // Only after the downgrade landed: if it throws, the trial stays selected
+    // and the next run retries it, rather than the tenant being quietly
+    // dropped from the job with its Premium limits intact.
+    await deps.store.setTrialEndsAt(tenant.id, null);
+    // Ids and counts only, never an email (security checklist, §1.5).
+    log.info("billing.trial.expired", { tenantId: tenant.id });
+  }
+  return due.length;
+}
+
+/**
+ * AC8. Whole days left on the trial, for the upgrade moment docs/TIERS.md §5
+ * describes — `null`, never `0`, for a tenant that is not trialling, so the UI
+ * can tell "no trial" apart from "trial ends today".
+ *
+ * Rounded up: with 13 days and 2 hours left the honest answer to "how long
+ * have I got" is 14, not 13. A `trialEndsAt` already in the past is not a
+ * trial any more (the tenant is awaiting the expiry job), so it reads null.
+ */
+export function trialDaysRemaining(trialEndsAt: Date | null, now: Date): number | null {
+  if (!trialEndsAt) return null;
+  const ms = trialEndsAt.getTime() - now.getTime();
+  if (ms <= 0) return null;
+  return Math.ceil(ms / (24 * 60 * 60 * 1000));
 }
 
 /** `metadata.tenantId`, set by us on every Checkout Session and the

@@ -1,0 +1,87 @@
+meta {
+  name: A trialling tenant reports days remaining on /me
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/v1/me
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{trialAccessToken}}
+}
+
+script:pre-request {
+  // owner@qa-trialling.test (scripts/seed-qa.ts) owns qa-trialling, seeded
+  // mid-trial: Premium tier, Premium limits, `billing.trialEndsAt` 14 days out
+  // and no Stripe identity at all. Logged in here rather than depending on
+  // another request's token, which belongs to a different user.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const password = bru.getEnvVar("qaPassword");
+  const headers = { headers: { "content-type": "application/json" } };
+
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-trialling.test", password },
+    headers,
+  );
+  bru.setVar("trialAccessToken", login.data.data.accessToken);
+
+  // AC8's other half, asserted here rather than in a `test()` body: Bruno's CLI
+  // runs an async test body but does not count it toward pass/fail, and a
+  // throw from pre-request fails the request. qa-free has never had a trial, so
+  // it must report `null` — not `0`, which would be indistinguishable from a
+  // trial ending today.
+  const freeLogin = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-free.test", password },
+    headers,
+  );
+  const freeMe = await axios.get(`${baseUrl}/api/v1/me`, {
+    headers: { Authorization: `Bearer ${freeLogin.data.data.accessToken}` },
+  });
+  const free = freeMe.data.data.tenant;
+  if (!("trialDaysRemaining" in free)) {
+    throw new Error("AC8 — /me must carry trialDaysRemaining on every tenant");
+  }
+  if (free.trialDaysRemaining !== null) {
+    throw new Error(
+      `AC8 — a non-trialling tenant must report null, got ${JSON.stringify(
+        free.trialDaysRemaining,
+      )}`,
+    );
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.tenant.slug: eq qa-trialling
+  res.body.data.tenant.tier: eq premium
+  res.body.data.tenant.trialDaysRemaining: eq 14
+  typeof res.body.data.tenant.trialDaysRemaining: eq number
+  res.body.data.tenant.limits.seats: eq 15
+  res.body.error: isUndefined
+}
+
+docs {
+  GRAFT-26 AC8, and the HTTP-level half of AC1.
+
+  Amendment 1 on the issue puts this proof on `GET /api/v1/me` rather than on
+  the signup response: /me is where tier and materialised limits already live,
+  it is what the API Contract section describes, and src/app/api/v1/me/route.ts
+  is a pass-through that needed no change. A `.bru` cannot read back a tenant it
+  just signed up — the account is unverified and the verification token only
+  ever reaches a log line — so the trialling tenant is a seeded fixture instead.
+
+  The trialling tenant reports 14: `trialDaysRemaining` rounds part-days up, and
+  the fixture's `trialEndsAt` is seeded exactly 14 days from the seed run, so
+  any elapsed time inside the same QA run still rounds back to 14.
+
+  `tier: premium` with Premium limits and no Stripe identity is AC1 and AC2 seen
+  from outside: a trialling tenant is genuinely Premium for entitlements, which
+  is why `can()` / `checkQuota()` need no trial special case.
+}

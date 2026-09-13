@@ -15,7 +15,14 @@ import { MongoMemoryServer } from "mongodb-memory-server";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getDb, getMongoClient } from "@/server/db/mongo";
 import { TIER_LIMITS } from "@/server/tiers";
-import { applyDowngradePolicy, applyUpgrade, mongoBillingStore } from "./billing";
+import {
+  applyDowngradePolicy,
+  applyUpgrade,
+  expireDueTrials,
+  mongoBillingStore,
+  startTrial,
+  TRIAL_DAYS,
+} from "./billing";
 
 const TENANT = "000000000000000000000001";
 const NOW = new Date("2026-04-01T00:00:00.000Z");
@@ -227,5 +234,119 @@ describe("mongoBillingStore — port smoke test against a real tenant document",
 
     const byCustomer = await store.findTenantByStripeCustomerId("cus_integration_test");
     expect(byCustomer?.id).toBe(TENANT);
+  });
+});
+
+/**
+ * GRAFT-26 AC4–AC7, AC9 — the trial-expiry entry point over a real `tenants`
+ * collection. The selector is the part that only a real Mongo query can prove:
+ * a `$ne: null, $lte: now` on a nested field, plus the `stripeSubscriptionId`
+ * clause that keeps a paying customer out of the result set entirely.
+ */
+describe("expireDueTrials — GRAFT-26, real MongoDB", () => {
+  const LAPSED = "000000000000000000000011";
+  const LIVE = "000000000000000000000012";
+  const ALREADY_FREE = "000000000000000000000013";
+  const PAYING = "000000000000000000000014";
+
+  const NOW_T = new Date("2026-06-10T00:00:00.000Z");
+  const PAST = new Date("2026-06-01T00:00:00.000Z");
+  const FUTURE = new Date("2026-06-20T00:00:00.000Z");
+
+  const doc = (id: string, tier: "free" | "premium", billing: Record<string, unknown>) => ({
+    _id: new ObjectId(id),
+    name: `Trial ${id}`,
+    slug: `trial-${id}`,
+    tier,
+    limits: { ...(tier === "premium" ? TIER_LIMITS.premium : TIER_LIMITS.free) },
+    billing,
+    billingAnchorDay: 1,
+  });
+
+  beforeEach(async () => {
+    await (
+      await tenants()
+    ).insertMany([
+      doc(LAPSED, "premium", {
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        trialEndsAt: PAST,
+      }),
+      doc(LIVE, "premium", {
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        trialEndsAt: FUTURE,
+      }),
+      doc(ALREADY_FREE, "free", {
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        trialEndsAt: PAST,
+      }),
+      // AC7 — upgraded during the trial, with the stale clock left behind.
+      doc(PAYING, "premium", {
+        stripeCustomerId: "cus_paying",
+        stripeSubscriptionId: "sub_paying",
+        trialEndsAt: PAST,
+      }),
+    ]);
+  });
+
+  const tierOf = async (id: string) =>
+    (await (await tenants()).findOne({ _id: new ObjectId(id) }))?.tier;
+
+  it("AC4, AC5, AC7 — downgrades exactly the lapsed trial and reports the count", async () => {
+    const count = await expireDueTrials({ now: () => NOW_T });
+
+    expect(count).toBe(1);
+    expect(await tierOf(LAPSED)).toBe("free");
+    // AC5 — the live trial keeps its tier, its limits and its clock.
+    const live = await (await tenants()).findOne({ _id: new ObjectId(LIVE) });
+    expect(live?.tier).toBe("premium");
+    expect(live?.limits).toEqual(TIER_LIMITS.premium);
+    expect(live?.billing?.trialEndsAt).toEqual(FUTURE);
+    // AC7 — the paying customer is never even selected.
+    expect(await tierOf(PAYING)).toBe("premium");
+    expect(await tierOf(ALREADY_FREE)).toBe("free");
+  });
+
+  it("AC4 — the lapsed trial lands on Free by the existing downgrade path", async () => {
+    await (
+      await usageMeters()
+    ).insertMany([
+      { tenantId: new ObjectId(LAPSED), meter: "entities", period: "all", count: 10 },
+      { tenantId: new ObjectId(LAPSED), meter: "records", period: "all", count: 3_000 },
+    ]);
+    const before = await (await tenants()).countDocuments();
+
+    await expireDueTrials({ now: () => NOW_T });
+
+    const tenant = await (await tenants()).findOne({ _id: new ObjectId(LAPSED) });
+    expect(tenant?.tier).toBe("free");
+    expect(tenant?.limits).toEqual(TIER_LIMITS.free);
+    // Data retained, features locked, over-limit resources read-only.
+    expect(new Set(tenant?.readOnly)).toEqual(new Set(["entities", "records"]));
+    expect(await (await tenants()).countDocuments()).toBe(before);
+  });
+
+  it("AC6 — a second run changes nothing", async () => {
+    await expireDueTrials({ now: () => NOW_T });
+    const after = await (await tenants()).find({}).sort({ _id: 1 }).toArray();
+
+    const second = await expireDueTrials({ now: () => NOW_T });
+
+    expect(second).toBe(0);
+    // The clock was consumed, so the selector cannot return the tenant again.
+    expect(after.find((t) => t._id.toHexString() === LAPSED)?.billing?.trialEndsAt).toBeNull();
+    expect(await (await tenants()).find({}).sort({ _id: 1 }).toArray()).toEqual(after);
+  });
+
+  it("AC1 — startTrial writes a 14-day clock through the port", async () => {
+    const store = mongoBillingStore();
+    await startTrial(ALREADY_FREE, { store, now: () => NOW_T });
+
+    const snapshot = await store.findTenantById(ALREADY_FREE);
+    expect(snapshot?.billing.trialEndsAt).toEqual(
+      new Date(NOW_T.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+    );
   });
 });

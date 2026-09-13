@@ -13,6 +13,7 @@ import { ObjectId, type Db } from "mongodb";
 import { connect, COLLECTIONS } from "./lib/db";
 import { TIER_LIMITS } from "../src/server/tiers";
 import { billingPeriod, LIFETIME_PERIOD } from "../src/server/services/meters";
+import { TRIAL_DAYS } from "../src/server/services/billing";
 import { hashRefreshToken, REFRESH_TTL_SECONDS } from "../src/server/auth/refresh-tokens";
 import { hashVerificationToken } from "../src/server/services/accounts";
 import { hashPassword } from "../src/server/auth/passwords";
@@ -58,6 +59,11 @@ const IDS = {
   // customer.subscription.deleted directly and observe the transition,
   // without depending on webhook-idempotency.bru having run first.
   tenantBillingDowngrade: oid(6),
+  // GRAFT-26 AC8 — a tenant mid-trial, so bruno/billing/trial-days-remaining.bru
+  // can read a real number off GET /api/v1/me. Its own tenant rather than a
+  // flag on qa-premium: every existing assertion that qa-premium is a plain
+  // paying Premium tenant has to keep holding exactly as it did.
+  tenantTrialling: oid(7),
   userFreeOwner: oid(11),
   userPremiumOwner: oid(12),
   userPremiumMember: oid(13),
@@ -69,6 +75,7 @@ const IDS = {
   userUnverified: oid(17),
   userBillingOwner: oid(18),
   userBillingDowngradeOwner: oid(19),
+  userTrialling: oid(20),
   entityBillingDowngrade: oid(25),
   entityFreeCustomers: oid(21),
   entityPremiumCustomers: oid(22),
@@ -229,6 +236,27 @@ async function main() {
         settings: { currency: "EUR", timezone: "UTC", locale: "en" },
         ...base,
       },
+      {
+        // GRAFT-26 AC1/AC8 — what signup() now produces: Premium by trial,
+        // with the Premium limits materialised, and no Stripe identity at all
+        // (no card is asked for). `trialEndsAt` is relative to the seed run
+        // rather than FIXED_DATE, because "days remaining" is only a number
+        // while the trial is still live — the assertion that stays stable is
+        // TRIAL_DAYS itself, since the whole-day count rounds up.
+        _id: IDS.tenantTrialling,
+        name: "QA Trialling Tenant",
+        slug: "qa-trialling",
+        tier: "premium",
+        limits: TIER_LIMITS.premium,
+        billing: {
+          stripeCustomerId: null,
+          stripeSubscriptionId: null,
+          trialEndsAt: new Date(Date.now() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+        },
+        billingAnchorDay: BILLING_ANCHOR_DAY,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
     ]);
 
     // One hash for all five: argon2id is deliberately slow, and five identical
@@ -322,6 +350,16 @@ async function main() {
         emailVerifiedAt: FIXED_DATE,
         passwordHash,
         memberships: [{ tenantId: IDS.tenantBillingDowngrade, roles: ["owner"] }],
+        ...base,
+      },
+      {
+        // GRAFT-26 AC8 — logs in for bruno/billing/trial-days-remaining.bru.
+        _id: IDS.userTrialling,
+        email: "owner@qa-trialling.test",
+        name: "QA Trialling Owner",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantTrialling, roles: ["owner"] }],
         ...base,
       },
     ]);

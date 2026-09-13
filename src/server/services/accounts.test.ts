@@ -23,6 +23,7 @@ import { createContext } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
 import { TIER_LIMITS } from "@/server/tiers";
 import type { Session } from "@/server/services/tokens";
+import { startTrial, TRIAL_DAYS, type BillingStore, type StripeClient } from "./billing";
 import { getMe, login, signup, switchTenant, verifyEmail, type AccountDeps } from "./accounts";
 
 const PASSWORD = "correct horse battery staple";
@@ -91,10 +92,74 @@ function fakeStore() {
   return { store, users, tenants, verifications };
 }
 
+/**
+ * GRAFT-26. The billing half of the signup path, as a port: `trialEndsAt` is
+ * billing's field, written through billing's own single-tenant store, so the
+ * fake here mirrors that rather than pretending it is a tenant column.
+ */
+function fakeBilling(tenants: Map<string, TenantRecord>) {
+  const trials = new Map<string, Date | null>();
+
+  const store: BillingStore = {
+    async findTenantById(tenantId) {
+      const t = tenants.get(tenantId);
+      if (!t) return null;
+      return {
+        id: t.id,
+        tier: t.tier,
+        billing: {
+          stripeCustomerId: null,
+          stripeSubscriptionId: null,
+          graceExpiresAt: null,
+          trialEndsAt: trials.get(tenantId) ?? null,
+        },
+      };
+    },
+    async findTenantByStripeCustomerId() {
+      return null;
+    },
+    async setStripeCustomerId() {},
+    async setSubscriptionId() {},
+    async applyUpgrade() {},
+    async applyDowngrade() {},
+    async setGraceExpiry() {},
+    async listTenantsWithExpiredGrace() {
+      return [];
+    },
+    async setTrialEndsAt(tenantId, trialEndsAt) {
+      trials.set(tenantId, trialEndsAt);
+    },
+    async listTenantsWithExpiredTrial() {
+      return [];
+    },
+  };
+
+  return { store, trials };
+}
+
+/**
+ * AC2 — a Stripe client that fails the test if the signup path reaches it at
+ * all. The trial requires no card, so no customer, no Checkout Session and no
+ * credential read may happen anywhere between `signup()` and `startTrial()`.
+ */
+const forbiddenStripe = (): StripeClient => ({
+  createCustomer: vi.fn(async () => {
+    throw new Error("signup must not create a Stripe customer");
+  }),
+  createCheckoutSession: vi.fn(async () => {
+    throw new Error("signup must not create a Checkout Session");
+  }),
+  constructEvent: vi.fn(async () => {
+    throw new Error("signup must not touch Stripe");
+  }),
+});
+
 let fake: ReturnType<typeof fakeStore>;
 let issued: Session[];
 let emitted: { userId: string; email: string; token: string; expiresAt: Date }[];
 let deps: Partial<AccountDeps>;
+let billing: ReturnType<typeof fakeBilling>;
+let stripe: StripeClient;
 
 const sessionFor = (tenantId: string, userId: string): Session => ({
   accessToken: `access.${tenantId}.${userId}`,
@@ -114,10 +179,18 @@ const sessionFor = (tenantId: string, userId: string): Session => ({
 
 beforeEach(() => {
   fake = fakeStore();
+  billing = fakeBilling(fake.tenants);
+  stripe = forbiddenStripe();
   issued = [];
   emitted = [];
   deps = {
     accounts: fake.store,
+    billing: billing.store,
+    // The real grant, over a fake store — so these tests exercise the actual
+    // trial clock rather than a stand-in for it (AC1), with Stripe wired to
+    // an exploding stub (AC2).
+    startTrial: (tenantId) =>
+      startTrial(tenantId, { store: billing.store, stripe, now: () => NOW }),
     now: () => NOW,
     issue: async (input) => {
       const session = sessionFor(input.tenantId, input.userId);
@@ -157,15 +230,58 @@ describe("signup", () => {
     expect(tenant.slug).toBe("bellas-barbershop");
   });
 
-  it("AC1 — materialises limits from TIER_LIMITS.free onto the tenant", async () => {
+  it("GRAFT-26 AC1 — materialises limits from TIER_LIMITS.premium onto the trialling tenant", async () => {
     const { tenantId } = await signup(signupInput, deps);
     const tenant = fake.tenants.get(tenantId)!;
 
-    expect(tenant.tier).toBe("free");
+    // The trial is `premium` for real (docs/TIERS.md §3): the limit matrix is
+    // materialised by the same limitsFor() path every other tier uses, so
+    // can() / checkQuota() read one document and never learn the word "trial".
+    expect(tenant.tier).toBe("premium");
     // A copy of the matrix, not a reference to it: an Enterprise override must
     // be editable per tenant without mutating the shared constant.
-    expect(tenant.limits).toEqual(TIER_LIMITS.free);
-    expect(tenant.limits).not.toBe(TIER_LIMITS.free);
+    expect(tenant.limits).toEqual(TIER_LIMITS.premium);
+    expect(tenant.limits).not.toBe(TIER_LIMITS.premium);
+  });
+
+  it("GRAFT-26 AC1 — sets trialEndsAt to exactly 14 days after creation", async () => {
+    const { tenantId } = await signup(signupInput, deps);
+
+    const snapshot = await billing.store.findTenantById(tenantId);
+    expect(snapshot!.billing.trialEndsAt).toEqual(
+      new Date(NOW.getTime() + TRIAL_DAYS * 24 * 60 * 60 * 1000),
+    );
+  });
+
+  it("GRAFT-26 AC2 — no card, no Stripe: the trial creates no customer and no subscription", async () => {
+    const { tenantId } = await signup(signupInput, deps);
+
+    // The stub throws if called at all; these assert it never was.
+    expect(stripe.createCustomer).not.toHaveBeenCalled();
+    expect(stripe.createCheckoutSession).not.toHaveBeenCalled();
+    const snapshot = await billing.store.findTenantById(tenantId);
+    expect(snapshot!.billing.stripeCustomerId).toBeNull();
+    expect(snapshot!.billing.stripeSubscriptionId).toBeNull();
+  });
+
+  it("GRAFT-26 AC3 — a trial that cannot be granted leaves no tenant behind", async () => {
+    // The compensating discipline the user insert already had, extended to the
+    // grant: a Premium tenant with no trial clock is a workspace on Premium
+    // limits that nothing could ever expire.
+    const tenantsBefore = fake.tenants.size;
+    const error = await signup(signupInput, {
+      ...deps,
+      startTrial: async () => {
+        throw new Error("billing store unavailable");
+      },
+    }).then(
+      () => null,
+      (thrown: unknown) => thrown,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    expect(fake.tenants.size).toBe(tenantsBefore);
+    expect(fake.users.size).toBe(0);
   });
 
   it("AC4 — stores an argon2id hash and never the password", async () => {
@@ -480,10 +596,41 @@ describe("getMe", () => {
       id: tenantId,
       name: "Bella's Barbershop",
       slug: "bellas-barbershop",
+      tier: "premium",
+      limits: TIER_LIMITS.premium,
+      branding: null,
+      // GRAFT-26 AC8 — the upgrade moment docs/TIERS.md §5 describes.
+      trialDaysRemaining: TRIAL_DAYS,
+    });
+  });
+
+  it("GRAFT-26 AC8 — a non-trialling tenant reports null, not 0", async () => {
+    // Seeded directly, so it never went through the signup grant.
+    const tenantId = await fake.store.insertTenant({
+      name: "No Trial Ltd",
+      slug: "no-trial-ltd",
       tier: "free",
       limits: TIER_LIMITS.free,
-      branding: null,
     });
+    const userId = await fake.store.insertUser({
+      email: "no-trial@example.test",
+      name: null,
+      passwordHash: "irrelevant",
+      memberships: [{ tenantId, roles: ["owner"] }],
+    });
+
+    const me = await getMe(ctxFor(tenantId, userId), deps);
+
+    expect(me.tenant.trialDaysRemaining).toBeNull();
+  });
+
+  it("GRAFT-26 AC8 — a lapsed trial reports null, awaiting the expiry job", async () => {
+    const { userId, tenantId } = await signup(signupInput, deps);
+    const later = new Date(NOW.getTime() + (TRIAL_DAYS + 1) * 24 * 60 * 60 * 1000);
+
+    const me = await getMe(ctxFor(tenantId, userId), { ...deps, now: () => later });
+
+    expect(me.tenant.trialDaysRemaining).toBeNull();
   });
 
   it("GRAFT-11.4 AC3 — passes through a tenant's branding colour when the store has one", async () => {
