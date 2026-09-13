@@ -84,6 +84,16 @@ const IDS = {
   formBillingDowngradeOldest: oid(34),
   formBillingDowngradeMiddle: oid(35),
   formBillingDowngradeNewest: oid(36),
+  // GRAFT-24 — a published form with a Stripe payment link on it, so the
+  // submit contract can be proven without a Bruno request having to configure
+  // its own fixture first (and without leaving payment switched on for
+  // qa-public-form, which public-submit.bru asserts is an ordinary form).
+  formFreePayment: oid(37),
+  // GRAFT-24 — the config surface is exercised against the *premium* tenant so
+  // the hostile-URL table (a dozen refused PATCHes in one minute) spends that
+  // tenant's api rate-limit budget rather than the free tenant's 60/min, which
+  // the rest of the Bruno suite shares.
+  formPremiumPayment: oid(38),
   recordFreeFirst: oid(41),
   // BMS inventory (docs/BMS_EXTENSION.md §2.1). A bookable resource needs an
   // entity to be an instance of, a record to *be* the instance, and a pool to
@@ -495,6 +505,51 @@ async function main() {
         killSwitchAt: null,
         killSwitchBy: null,
         fields: CUSTOMER_FIELDS,
+        showBadge: true,
+        deletedAt: null,
+        ...base,
+      },
+      {
+        _id: IDS.formFreePayment,
+        tenantId: IDS.tenantFree,
+        entityDefId: IDS.entityFreeCustomers,
+        name: "QA Payment Form",
+        slug: "qa-payment-form",
+        publicSlug: "qa-free/qa-payment-form",
+        visibility: "public",
+        published: true,
+        enabled: true,
+        killSwitchAt: null,
+        killSwitchBy: null,
+        fields: CUSTOMER_FIELDS,
+        // A real Stripe payment-link URL shape, and not a secret of any kind:
+        // a payment link is public by design (GRAFT-24). This one belongs to
+        // nobody and leads nowhere — the QA suite never follows it.
+        payment: {
+          mode: "link",
+          link: { url: "https://buy.stripe.com/qa_payment_link?prefilled_email=x" },
+          required: true,
+        },
+        showBadge: true,
+        deletedAt: null,
+        ...base,
+      },
+      {
+        _id: IDS.formPremiumPayment,
+        tenantId: IDS.tenantPremium,
+        entityDefId: IDS.entityPremiumCustomers,
+        name: "QA Premium Payment Form",
+        slug: "qa-premium-payment-form",
+        publicSlug: "qa-premium/qa-premium-payment-form",
+        visibility: "public",
+        published: true,
+        enabled: true,
+        killSwitchAt: null,
+        killSwitchBy: null,
+        fields: CUSTOMER_FIELDS,
+        // Payment off to begin with: bruno/forms/payment-link-config.bru turns
+        // it on and off again against this form.
+        payment: null,
         showBadge: true,
         deletedAt: null,
         ...base,

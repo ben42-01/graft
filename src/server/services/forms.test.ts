@@ -17,6 +17,8 @@ import type { Repository } from "@/server/repositories/base";
 import {
   createForm,
   isFormServable,
+  isPaymentLinkUrl,
+  paymentSchema,
   meterForVisibility,
   publishForm,
   resolveBooking,
@@ -25,6 +27,7 @@ import {
   unpublishForm,
   unpublishFormsForEntity,
   updateForm,
+  updateFormSchema,
   type FormDoc,
 } from "./forms";
 
@@ -641,5 +644,156 @@ describe("resolveBooking", () => {
     expect(
       resolveBooking(input({ endKey: null, durationMinutes: 90 }), formFields, catalogue()),
     ).toMatchObject({ endKey: null, durationMinutes: 90 });
+  });
+});
+
+/**
+ * GRAFT-24 — payment links. The rule under test is an allow-list on the
+ * *parsed* URL: Graft sends an unauthenticated visitor wherever this string
+ * points, so anything that is not demonstrably a Stripe payment link is a
+ * validation failure rather than a redirect.
+ */
+describe("isPaymentLinkUrl (GRAFT-24 AC3)", () => {
+  it("accepts an https buy.stripe.com link", () => {
+    expect(isPaymentLinkUrl("https://buy.stripe.com/abc")).toBe(true);
+  });
+
+  it("accepts one that already carries query parameters", () => {
+    expect(isPaymentLinkUrl("https://buy.stripe.com/abc?prefilled_email=x")).toBe(true);
+  });
+
+  it.each([
+    ["http (not https)", "http://buy.stripe.com/x"],
+    ["an unrelated host", "https://evil.test/x"],
+    ["a suffix attack on the host", "https://buy.stripe.com.evil.test/x"],
+    ["a prefix attack on the host", "https://evilbuy.stripe.com/x"],
+    ["the host smuggled into a query string", "https://evil.test/?x=buy.stripe.com"],
+    ["the host smuggled into a path", "https://evil.test/buy.stripe.com"],
+    ["a javascript: URL", "javascript:alert(1)"],
+    ["a protocol-relative URL", "//buy.stripe.com/x"],
+    ["a userinfo trick", "https://buy.stripe.com@evil.test/x"],
+    ["a subdomain of the allowed host", "https://a.buy.stripe.com/x"],
+    ["the empty string", ""],
+    ["whitespace only", "   "],
+    ["a bare host with no scheme", "buy.stripe.com/x"],
+  ])("rejects %s", (_label, value) => {
+    expect(isPaymentLinkUrl(value)).toBe(false);
+  });
+});
+
+describe("paymentSchema (GRAFT-24 AC1, AC2, AC3)", () => {
+  const input = (over: Record<string, unknown> = {}) => ({
+    mode: "link",
+    link: { url: "https://buy.stripe.com/abc" },
+    required: true,
+    ...over,
+  });
+
+  it("accepts a link-mode config", () => {
+    const parsed = paymentSchema.parse(input());
+    expect(parsed).toEqual({
+      mode: "link",
+      link: { url: "https://buy.stripe.com/abc" },
+      required: true,
+    });
+  });
+
+  it("AC2 — refuses keys mode, which does not exist yet", () => {
+    expect(paymentSchema.safeParse(input({ mode: "keys" })).success).toBe(false);
+  });
+
+  it("AC2 — refuses any other mode", () => {
+    expect(paymentSchema.safeParse(input({ mode: "invoice" })).success).toBe(false);
+  });
+
+  it("AC3 — refuses a URL that is not a Stripe payment link", () => {
+    expect(
+      paymentSchema.safeParse(input({ link: { url: "https://evil.test/x" } })).success,
+    ).toBe(false);
+  });
+
+  it("defaults `required` to false when it is not given", () => {
+    const parsed = paymentSchema.parse({
+      mode: "link",
+      link: { url: "https://buy.stripe.com/a" },
+    });
+    expect(parsed.required).toBe(false);
+  });
+});
+
+describe("createForm / updateForm — the payment block (GRAFT-24 AC1)", () => {
+  const payment = {
+    mode: "link" as const,
+    link: { url: "https://buy.stripe.com/abc" },
+    required: true,
+  };
+
+  it("AC1 — a form created without `payment` has payment: null", async () => {
+    const { repo } = fakeRepo();
+    const view = await createForm(
+      ctx,
+      {
+        entityId: ENTITY_ID,
+        name: "Contact",
+        slug: "contact",
+        visibility: "public",
+        fields: [{ key: "name" }],
+      },
+      { repo, getEntity: async () => entity() },
+    );
+    expect(view.payment).toBeNull();
+  });
+
+  it("AC1 — a form created with `payment` keeps it", async () => {
+    const { repo } = fakeRepo();
+    const view = await createForm(
+      ctx,
+      {
+        entityId: ENTITY_ID,
+        name: "Hire",
+        slug: "hire",
+        visibility: "public",
+        fields: [{ key: "name" }],
+        payment,
+      },
+      { repo, getEntity: async () => entity() },
+    );
+    expect(view.payment).toEqual(payment);
+  });
+
+  it("AC1, AC11 — a PATCH sets it, and an explicit null turns it off", async () => {
+    const existing = seedDoc();
+    const { repo } = fakeRepo([existing]);
+    const on = await updateForm(ctx, existing._id.toHexString(), { payment }, { repo });
+    expect(on.payment).toEqual(payment);
+
+    const off = await updateForm(ctx, existing._id.toHexString(), { payment: null }, { repo });
+    expect(off.payment).toBeNull();
+  });
+
+  it('AC1 — `payment` alone satisfies the "Nothing to update" refinement', () => {
+    expect(updateFormSchema.safeParse({ payment: null }).success).toBe(true);
+    expect(updateFormSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("AC3 — a PATCH carrying a hostile URL is a validation failure", async () => {
+    const existing = seedDoc();
+    const { repo } = fakeRepo([existing]);
+    await expect(
+      updateForm(
+        ctx,
+        existing._id.toHexString(),
+        { payment: { ...payment, link: { url: "https://buy.stripe.com.evil.test/x" } } },
+        { repo },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  it("AC12 — another tenant's form is not found, so no payment is written or read", async () => {
+    const otherTenant = seedDoc({ tenantId: new ObjectId("0000000000000000000000ff") });
+    const { repo } = fakeRepo([otherTenant]);
+    await expect(
+      updateForm(ctx, otherTenant._id.toHexString(), { payment }, { repo }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });

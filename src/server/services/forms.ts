@@ -32,6 +32,7 @@ import { clampLimit } from "@/server/http/pagination";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
 import { mongoAccountStore, type AccountStore } from "@/server/auth/accounts-store";
+import { PAYMENT_LINK_HOST, isPaymentLinkUrl } from "@/lib/payment-links";
 import { getEntity as getEntityDefault, type EntityView, type FieldDef } from "./entities";
 import { mediaUrl } from "./media";
 import { consumeQuota as consumeQuotaDefault, type Meter, type QuotaResult } from "./meters";
@@ -178,6 +179,45 @@ export const bookingSchema = z
 
 export type BookingInput = z.input<typeof bookingSchema>;
 
+/**
+ * Payment collection — the missing step between a submission and the money
+ * (GRAFT-24, docs/Graft.md §4.4). Absent/`null` on every form that does not
+ * take money, which is most of them.
+ *
+ * Two things about this shape are deliberate:
+ *
+ *   - **`mode` is an enum with one member, not a boolean.** v1 collects by
+ *     redirecting to a Stripe Payment Link the tenant created in their own
+ *     account. A later `mode: "keys"` — Graft calling Stripe with the
+ *     tenant's own credentials — adds a sibling block beside `link` without
+ *     migrating a single stored document. A boolean could not.
+ *   - **The URL is allow-listed, not merely parsed.** This value is where an
+ *     unauthenticated visitor's browser is sent, so it is checked against
+ *     `buy.stripe.com` on write here *and* again on read in public-forms.ts.
+ *     Nothing in this block is a secret: a payment link is public by design,
+ *     which is exactly why link mode needs no per-tenant credential storage.
+ */
+export const paymentSchema = z.object({
+  mode: z.enum(["link"]),
+  link: z.object({
+    url: z
+      .string()
+      .trim()
+      .refine(
+        isPaymentLinkUrl,
+        `Must be a Stripe payment link (https://${PAYMENT_LINK_HOST}/…)`,
+      ),
+  }),
+  /** True redirects the submitter to payment; false offers it (AC9). Never a
+   * condition on the submission itself — link mode cannot verify payment. */
+  required: z.boolean().default(false),
+});
+
+export type PaymentInput = z.input<typeof paymentSchema>;
+
+/** Re-exported so the one allow-list rule has one home (src/lib/payment-links.ts). */
+export { isPaymentLinkUrl };
+
 export const createFormSchema = z.object({
   entityId: objectIdHex,
   name: z.string().trim().min(1).max(120),
@@ -189,6 +229,8 @@ export const createFormSchema = z.object({
   /** Optional at creation, and only legal alongside a catalogue that has a
    * `selectionKey` — see `resolveBooking`. */
   booking: bookingSchema.nullable().optional(),
+  /** Optional at creation — `null`/absent is a form that takes no money. */
+  payment: paymentSchema.nullable().optional(),
 });
 
 export const updateFormSchema = z
@@ -201,6 +243,8 @@ export const updateFormSchema = z
     catalogue: catalogueSchema.nullable().optional(),
     /** `null` turns booking mode off; absent leaves it as it was. */
     booking: bookingSchema.nullable().optional(),
+    /** `null` turns payment collection off; absent leaves it as it was. */
+    payment: paymentSchema.nullable().optional(),
   })
   .refine(
     (v) =>
@@ -208,7 +252,8 @@ export const updateFormSchema = z
       v.fields !== undefined ||
       v.enabled !== undefined ||
       v.catalogue !== undefined ||
-      v.booking !== undefined,
+      v.booking !== undefined ||
+      v.payment !== undefined,
     { message: "Nothing to update" },
   );
 
@@ -295,6 +340,11 @@ export type FormDoc = {
    * re-derives whether they are real.
    */
   booking?: BookingConfig | null;
+  /**
+   * Payment collection — absent/`null` on a form that takes no money. Stored
+   * exactly as validated; the URL is re-checked on the way out (GRAFT-24).
+   */
+  payment?: PaymentConfig | null;
   /** Constraints — Free retains this; read by GRAFT-10. */
   showBadge: boolean;
   deletedAt: Date | null;
@@ -318,6 +368,7 @@ export type FormView = {
   carousel: CarouselItemView[];
   catalogue: CatalogueView | null;
   booking: BookingConfig | null;
+  payment: PaymentConfig | null;
   showBadge: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -340,6 +391,16 @@ export type BookingConfig = {
   rateKey: string | null;
   labelKey: string | null;
   depositPercent: number | null;
+};
+
+/**
+ * A payment config as stored — a public URL and two flags, no secret of any
+ * kind (GRAFT-24 Constraints).
+ */
+export type PaymentConfig = {
+  mode: "link";
+  link: { url: string };
+  required: boolean;
 };
 
 export type CatalogueConfig = {
@@ -399,6 +460,7 @@ function toView(doc: { _id: ObjectId } & FormDoc): FormView {
     carousel: toCarouselView(doc.carousel),
     catalogue: toCatalogueView(doc.catalogue),
     booking: doc.booking ?? null,
+    payment: doc.payment ?? null,
     showBadge: doc.showBadge,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -685,6 +747,7 @@ export async function createForm(
   const booking = parsed.booking
     ? resolveBooking(parsed.booking, fields, catalogue, catalogueEntityFields)
     : null;
+  const payment = parsed.payment ?? null;
 
   if (await deps.repo.findOne(ctx, { slug: parsed.slug } as Filter<FormDoc>)) {
     throw new AppError("CONFLICT", "A form with that slug already exists");
@@ -709,6 +772,7 @@ export async function createForm(
       carousel: [],
       catalogue,
       booking,
+      payment,
       showBadge: true,
       deletedAt: null,
     });
@@ -837,6 +901,8 @@ export async function updateForm(
       ...(fields !== undefined ? { fields } : {}),
       ...(catalogue !== undefined ? { catalogue } : {}),
       ...(booking !== undefined ? { booking } : {}),
+      // `undefined` leaves payment alone; an explicit `null` turns it off.
+      ...(parsed.payment !== undefined ? { payment: parsed.payment ?? null } : {}),
       ...(parsed.enabled !== undefined ? { enabled: parsed.enabled } : {}),
       ...(killSwitchChanged
         ? { killSwitchAt: new Date(), killSwitchBy: new ObjectId(ctx.userId) }

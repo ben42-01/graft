@@ -3,6 +3,17 @@
 **Status:** In progress — picking this up later to test the Pro (Premium) upgrade flow end-to-end.
 See [[docs/TIERS.md]] §3 for the pricing this catalog implements.
 
+## Not to be confused with: tenant payment links
+
+Everything in this document is **Graft's own** Stripe account — tenants paying
+Graft for Premium ([[docs/TIERS.md]] §3). A tenant collecting money from *their*
+customer on a public form is a different thing entirely: they paste a Stripe
+Payment Link from their own Stripe account into the form builder, and Graft
+redirects the submitter to it ([[docs/Graft.md]] §4.4, "Customer Payments").
+That path stores no tenant credential, calls no Stripe API, and receives no
+webhook — it handles a public URL and nothing else. The two never meet, and no
+key or webhook secret below is ever read by it.
+
 ## Why a dedicated Stripe account
 
 Billing must be tested against a Stripe account of its own, not whatever

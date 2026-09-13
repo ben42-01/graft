@@ -1,0 +1,86 @@
+meta {
+  name: Only an https buy.stripe.com link is accepted as a payment link
+  type: http
+  seq: 17
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000026
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumAccessToken}}
+}
+
+body:json {
+  {
+    "payment": {
+      "mode": "link",
+      "link": { "url": "https://buy.stripe.com.evil.test/x" },
+      "required": true
+    }
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const auth = {
+    headers: { Authorization: `Bearer ${bru.getVar("premiumAccessToken")}` },
+    validateStatus: () => true,
+  };
+  const formUrl = `${baseUrl}/api/v1/forms/000000000000000000000026`;
+  const patch = (body) => axios.patch(formUrl, body, auth);
+  const link = (url) => ({ payment: { mode: "link", link: { url }, required: true } });
+
+  // The rest of AC3's table — the shape above is the request itself. The host
+  // is compared against the *parsed* URL's host, so none of these can pass by
+  // containing the allowed host somewhere in the string.
+  const hostile = [
+    "http://buy.stripe.com/x",
+    "https://evil.test/x",
+    "https://evil.test/?x=buy.stripe.com",
+    "javascript:alert(1)",
+    "//buy.stripe.com/x",
+    "",
+  ];
+
+  test("AC3 — every hostile URL is refused with VALIDATION_FAILED", async function () {
+    for (const url of hostile) {
+      const response = await patch(link(url));
+      expect(response.status, url).to.equal(400);
+      expect(response.data.error.code, url).to.equal("VALIDATION_FAILED");
+    }
+  });
+
+  test("AC2 — keys mode does not exist yet and is refused the same way", async function () {
+    const response = await patch({
+      payment: { mode: "keys", link: { url: "https://buy.stripe.com/abc" }, required: true },
+    });
+    expect(response.status).to.equal(400);
+    expect(response.data.error.code).to.equal("VALIDATION_FAILED");
+  });
+
+  test("AC3 — nothing hostile was stored by any of the refused attempts", async function () {
+    const read = await axios.get(formUrl, auth);
+    expect(read.data.data.payment).to.equal(null);
+  });
+}
+
+docs {
+  GRAFT-24 AC2, AC3. Open redirect is the whole risk of link mode: Graft sends
+  an unauthenticated visitor to a URL a tenant typed, so the allow-list is on
+  the parsed URL's protocol and host, never a substring test. Reuses
+  `premiumAccessToken` from payment-link-config.bru (seq 16), which explains
+  why these run against the premium tenant. The same table runs as pure unit
+  coverage in src/server/services/forms.test.ts.
+}

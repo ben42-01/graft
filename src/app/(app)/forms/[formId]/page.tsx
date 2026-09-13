@@ -25,6 +25,7 @@ import {
   type EntityOption,
 } from "@/components/forms/catalogue-editor";
 import { BookingEditor, type BookingView } from "@/components/forms/booking-editor";
+import { PaymentEditor, type PaymentView } from "@/components/forms/payment-editor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,6 +48,7 @@ type FormView = {
   carousel: CarouselItem[];
   catalogue: CatalogueView | null;
   booking: BookingView | null;
+  payment: PaymentView | null;
 };
 
 type EntityView = { id: string; name: string; fields: FieldLike[] };
@@ -344,6 +346,17 @@ export default function FormPage() {
           hasSelection={form.catalogue?.selectionKey != null}
           busy={busy}
           onSave={(booking) => void patch({ booking }, () => void load())}
+        />
+      ) : null}
+
+      {/* Payment is a public-page step — an internal form has nobody to
+       * redirect. Unlike bookings it needs no catalogue: a deposit on a plain
+       * enquiry form is a perfectly ordinary thing to ask for. */}
+      {form.visibility === "public" ? (
+        <PaymentEditor
+          payment={form.payment}
+          busy={busy}
+          onSave={(payment) => void patch({ payment }, () => void load())}
         />
       ) : null}
 

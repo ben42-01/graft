@@ -17,6 +17,7 @@ import { TIER_LIMITS } from "@/server/tiers";
 import {
   MIN_FILL_MS,
   isSpamSubmission,
+  resolvePaymentHandoff,
   resolveSelection,
   submitPublicForm,
 } from "./public-forms";
@@ -292,5 +293,128 @@ describe("resolveSelection", () => {
     });
     const result = await resolveSelection(noKey, { name: "Ada" }, ITEM_ID, found);
     expect(result.selectedRecordId).toBeNull();
+  });
+});
+
+/**
+ * GRAFT-24 — the payment handoff (AC4–AC8). Pure by design: the reference the
+ * URL carries is decided from the order the bridge raised (or, failing that,
+ * the submission), and everything about *building* the URL is provable
+ * without a transaction.
+ */
+describe("resolvePaymentHandoff", () => {
+  const ORDER_ID = "0000000000000000000000a1";
+  const SUBMISSION_ID = "0000000000000000000000b2";
+
+  const payment = (over: Partial<NonNullable<FormDoc["payment"]>> = {}) => ({
+    mode: "link" as const,
+    link: { url: "https://buy.stripe.com/abc" },
+    required: true,
+    ...over,
+  });
+
+  it("AC5 — a form with no payment config hands off nothing", () => {
+    expect(resolvePaymentHandoff(null, SUBMISSION_ID)).toBeNull();
+    expect(resolvePaymentHandoff(undefined, SUBMISSION_ID)).toBeNull();
+  });
+
+  it("AC4, AC6 — the order id is the reference when there is an order", () => {
+    const handoff = resolvePaymentHandoff(payment(), ORDER_ID);
+    expect(handoff).not.toBeNull();
+    const url = new URL(handoff!.url);
+    expect(url.origin).toBe("https://buy.stripe.com");
+    expect(url.searchParams.get("client_reference_id")).toBe(ORDER_ID);
+    expect(handoff!.required).toBe(true);
+  });
+
+  it("AC7 — the reference is never empty", () => {
+    const handoff = resolvePaymentHandoff(payment(), SUBMISSION_ID);
+    expect(new URL(handoff!.url).searchParams.get("client_reference_id")).toBe(SUBMISSION_ID);
+  });
+
+  it("AC8 — the tenant's own query string survives", () => {
+    const handoff = resolvePaymentHandoff(
+      payment({ link: { url: "https://buy.stripe.com/abc?prefilled_email=x" } }),
+      ORDER_ID,
+    );
+    const url = new URL(handoff!.url);
+    expect(url.searchParams.get("prefilled_email")).toBe("x");
+    expect(url.searchParams.get("client_reference_id")).toBe(ORDER_ID);
+  });
+
+  it("AC8 — a client_reference_id the tenant pasted is overwritten, not duplicated", () => {
+    const handoff = resolvePaymentHandoff(
+      payment({ link: { url: "https://buy.stripe.com/abc?client_reference_id=theirs" } }),
+      ORDER_ID,
+    );
+    const url = new URL(handoff!.url);
+    expect(url.searchParams.getAll("client_reference_id")).toEqual([ORDER_ID]);
+  });
+
+  it("AC9 — `required: false` is carried through as an offer, not a redirect", () => {
+    expect(resolvePaymentHandoff(payment({ required: false }), ORDER_ID)!.required).toBe(false);
+  });
+
+  /**
+   * Fail closed (Constraints): the stored value is re-validated on the way
+   * out, so a document written before this shipped — or by any path that
+   * bypassed the schema — cannot turn the public form into an open redirect.
+   */
+  it("omits a stored URL that no longer validates rather than returning it", () => {
+    expect(
+      resolvePaymentHandoff(
+        { mode: "link", link: { url: "https://evil.test/x" }, required: true },
+        ORDER_ID,
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("submitPublicForm — the payment block on the response (GRAFT-24)", () => {
+  const overrides = () => ({
+    findByPublicSlug: vi.fn().mockResolvedValue(
+      form({
+        payment: { mode: "link", link: { url: "https://buy.stripe.com/abc" }, required: true },
+      }),
+    ),
+    getEntity: vi.fn().mockResolvedValue(entity()),
+    loadEntitlements: vi.fn().mockResolvedValue(entitlements()),
+    now: () => new Date("2026-03-01T12:00:00.000Z"),
+  });
+
+  const body = (extra: Record<string, unknown> = {}) => ({
+    data: { name: "Ada Lovelace" },
+    _t: new Date("2026-03-01T12:00:00.000Z").getTime() - (MIN_FILL_MS + 1_000),
+    ...extra,
+  });
+
+  /**
+   * The spam path is the one response shape provable without a replica set,
+   * and it has to carry the payment block for the same reason it carries a
+   * submissionId: a bot must not be able to tell acceptance from rejection.
+   */
+  it("AC4, AC7 — a payment-enabled form answers with a payment URL keyed by the submission", async () => {
+    const result = await submitPublicForm(
+      "req-1",
+      ["acme", "contact"],
+      body({ _hp: "filled" }),
+      overrides(),
+    );
+    expect(result.payment).toBeDefined();
+    expect(new URL(result.payment!.url).searchParams.get("client_reference_id")).toBe(
+      result.submissionId,
+    );
+  });
+
+  it("AC5 — an ordinary form's response has no payment key at all", async () => {
+    const plain = overrides();
+    plain.findByPublicSlug.mockResolvedValue(form());
+    const result = await submitPublicForm(
+      "req-1",
+      ["acme", "contact"],
+      body({ _hp: "filled" }),
+      plain,
+    );
+    expect("payment" in result).toBe(false);
   });
 });

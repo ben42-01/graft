@@ -46,10 +46,13 @@ export type CatalogueShape = { selectionKey: string | null } | null;
 
 type FormValues = Record<string, unknown>;
 
+/** The payment handoff a 201 may carry (GRAFT-24 AC4, AC9). */
+export type PaymentHandoff = { url: string; required: boolean };
+
 type SubmitState =
   | { status: "idle" }
   | { status: "submitting" }
-  | { status: "success" }
+  | { status: "success"; payment: PaymentHandoff | null }
   | { status: "error"; message: string };
 
 export function PublicFormRenderer({
@@ -59,6 +62,7 @@ export function PublicFormRenderer({
   primaryColor,
   catalogue = null,
   timeFields = [],
+  navigate = (url: string) => window.location.assign(url),
 }: {
   tenantSlug: string;
   formSlug: string;
@@ -71,6 +75,13 @@ export function PublicFormRenderer({
    * hire, so these ask for a time as well.
    */
   timeFields?: string[];
+  /**
+   * How the browser leaves for payment (AC9). A seam, not a feature: jsdom
+   * has no navigation, so a component test needs somewhere to observe that
+   * the redirect happened — and it happens only *after* the 201, never
+   * before.
+   */
+  navigate?: (url: string) => void;
 }) {
   const renderedAt = useRef(Date.now());
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -128,7 +139,13 @@ export function PublicFormRenderer({
         });
         return;
       }
-      setState({ status: "success" });
+      // AC9, AC10 — the submission is already accepted and written by the
+      // time any of this runs: the record, the submission row and the meter
+      // increment do not depend on the visitor ever paying. `required` only
+      // decides whether they are sent to Stripe or offered the link.
+      const payment = (body?.data?.payment as PaymentHandoff | undefined) ?? null;
+      setState({ status: "success", payment });
+      if (payment?.required) navigate(payment.url);
     } catch {
       setState({ status: "error", message: "Network error. Please try again." });
     }
@@ -138,6 +155,21 @@ export function PublicFormRenderer({
     return (
       <div role="status" className="rounded-lg border border-border bg-card p-6 text-center">
         <p className="text-lg font-medium">Thanks — your submission was received.</p>
+        {state.payment ? (
+          <p className="mt-3 text-sm">
+            {state.payment.required ? (
+              <>Taking you to payment…</>
+            ) : (
+              <a
+                className="underline underline-offset-4"
+                href={state.payment.url}
+                rel="noopener noreferrer"
+              >
+                Pay now
+              </a>
+            )}
+          </p>
+        ) : null}
       </div>
     );
   }

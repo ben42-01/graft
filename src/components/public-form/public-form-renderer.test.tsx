@@ -90,3 +90,72 @@ describe("PublicFormRenderer", () => {
     });
   });
 });
+
+/**
+ * GRAFT-24 AC9 — the payment handoff. The submission has already been
+ * accepted and written by the time any of this runs: `payment` arrives on the
+ * 201, so the only decision left here is where the visitor goes next.
+ */
+describe("PublicFormRenderer — payment handoff", () => {
+  const PAY_URL = "https://buy.stripe.com/abc?client_reference_id=x";
+
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const respondWith = (payment: unknown) => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: { submissionId: "abc", ...(payment ? { payment } : {}) },
+      }),
+    });
+  };
+
+  const submit = async (navigate: (url: string) => void) => {
+    const user = userEvent.setup();
+    render(
+      <PublicFormRenderer
+        tenantSlug="acme"
+        formSlug="contact"
+        fields={FIELDS}
+        primaryColor={null}
+        navigate={navigate}
+      />,
+    );
+    await user.type(screen.getByLabelText(/Name/), "Ada Lovelace");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+  };
+
+  it("AC9 — navigates to the payment URL when payment is required", async () => {
+    respondWith({ url: PAY_URL, required: true });
+    const navigate = vi.fn();
+    await submit(navigate);
+
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith(PAY_URL));
+  });
+
+  it("AC9 — offers a 'Pay now' link, and does not navigate, when it is optional", async () => {
+    respondWith({ url: PAY_URL, required: false });
+    const navigate = vi.fn();
+    await submit(navigate);
+
+    const link = await screen.findByRole("link", { name: /pay now/i });
+    expect(link).toHaveAttribute("href", PAY_URL);
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it("AC5, AC9 — an ordinary form neither navigates nor offers a link", async () => {
+    respondWith(null);
+    const navigate = vi.fn();
+    await submit(navigate);
+
+    await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("received"));
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("link", { name: /pay now/i })).not.toBeInTheDocument();
+  });
+});

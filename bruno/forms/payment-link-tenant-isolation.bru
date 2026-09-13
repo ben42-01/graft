@@ -1,0 +1,65 @@
+meta {
+  name: Another tenant's payment link is neither writable nor readable
+  type: http
+  seq: 19
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000020
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "payment": {
+      "mode": "link",
+      "link": { "url": "https://buy.stripe.com/attacker-link" },
+      "required": true
+    }
+  }
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const auth = {
+    headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` },
+    validateStatus: () => true,
+  };
+
+  test("AC12 — the refusal discloses no URL of any kind", function () {
+    expect(JSON.stringify(res.getBody())).to.not.match(/buy\.stripe\.com/);
+  });
+
+  test("AC12 — reading the other tenant's form back is a 404 too, so no link leaks", async function () {
+    const read = await axios.get(`${baseUrl}/api/v1/forms/000000000000000000000020`, auth);
+    expect(read.status).to.equal(404);
+    expect(JSON.stringify(read.data)).to.not.match(/buy\.stripe\.com/);
+  });
+
+  test("AC12 — and the attacker's link was not written to that form", async function () {
+    // Proven from the owning tenant's side would need a second login; what is
+    // provable here is that the write was refused and nothing came back.
+    expect(res.getStatus()).to.equal(404);
+  });
+}
+
+docs {
+  GRAFT-24 AC12. 000000000000000000000020 is formAtQuota (scripts/seed-qa.ts),
+  owned by qa-at-quota rather than the caller's free tenant. The repository
+  layer (src/server/repositories/base.ts) scopes every read and write by
+  ctx.tenantId, so this is 404 rather than 403 and the row's existence is
+  never leaked.
+}

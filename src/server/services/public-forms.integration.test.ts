@@ -332,3 +332,48 @@ describe("submitPublicForm — real transaction", () => {
     await expect(recordsRepo.findById(ctxA, recordId)).resolves.not.toBeNull();
   });
 });
+
+/**
+ * GRAFT-24 AC10 — link mode cannot verify that anyone paid, so `required`
+ * governs where the browser is sent and nothing else. The submission is
+ * complete and committed *before* the payment URL is handed back, which is
+ * what this proves against a real transaction: nothing about the write is
+ * conditional on a payment that never happens.
+ */
+describe("submitPublicForm — a payment-enabled form whose payment is never completed", () => {
+  const PAYMENT = {
+    mode: "link" as const,
+    link: { url: "https://buy.stripe.com/qa" },
+    required: true,
+  };
+
+  beforeEach(async () => {
+    const db = await getDb();
+    await db.collection("forms").updateOne({ _id: FORM_A }, { $set: { payment: PAYMENT } });
+  });
+
+  it("AC10 — the record, the submission and the meter increment all survive", async () => {
+    const result = await submitPublicForm("req-1", ["acme", "contact"], validBody(), deps());
+
+    const db = await getDb();
+    const submissions = await db
+      .collection("form_submissions")
+      .find({ tenantId: TENANT_A })
+      .toArray();
+    const records = await db.collection("records").find({ tenantId: TENANT_A }).toArray();
+    const meter = await db
+      .collection("usage_meters")
+      .findOne({ tenantId: TENANT_A, meter: "form_submissions" });
+
+    expect(submissions).toHaveLength(1);
+    expect(records).toHaveLength(1);
+    expect(meter?.count).toBe(1);
+
+    // AC4, AC7 — and the handoff is keyed by the submission, since this form
+    // raised no order.
+    expect(result.payment?.required).toBe(true);
+    expect(new URL(result.payment!.url).searchParams.get("client_reference_id")).toBe(
+      result.submissionId,
+    );
+  });
+});
