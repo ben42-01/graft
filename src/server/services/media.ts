@@ -44,11 +44,25 @@ export const ALLOWED_IMAGE_TYPES = [
 
 export type AllowedImageType = (typeof ALLOWED_IMAGE_TYPES)[number];
 
-const EXTENSIONS: Record<AllowedImageType, string> = {
+/**
+ * What a batch record import may be (GRAFT-25.1, docs/TIERS.md §2.3). An
+ * import file is tenant business data the *server* parses, never anything a
+ * browser is handed back, so the risk an SVG poses to the image list does not
+ * apply — but it is still an allow-list, so XLSX and friends are refused by
+ * default rather than by omission.
+ */
+export const ALLOWED_IMPORT_TYPES = ["text/csv", "application/json"] as const;
+
+export type AllowedImportType = (typeof ALLOWED_IMPORT_TYPES)[number];
+export type AllowedContentType = AllowedImageType | AllowedImportType;
+
+const EXTENSIONS: Record<AllowedContentType, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
   "image/avif": "avif",
+  "text/csv": "csv",
+  "application/json": "json",
 };
 
 /**
@@ -56,6 +70,13 @@ const EXTENSIONS: Record<AllowedImageType, string> = {
  * spend a Free plan's 250 MB in a handful of requests.
  */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+/**
+ * An import file is text, and 10,000 rows of it (the Premium per-import
+ * ceiling) is nowhere near this — the cap is here so a signed URL cannot be
+ * spent filling the bucket, not to bound a legitimate import.
+ */
+export const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 
 const objectIdHex = z.string().regex(/^[0-9a-f]{24}$/i, "Expected a 24-character id");
 
@@ -65,7 +86,33 @@ export const requestUploadSchema = z.object({
   sizeBytes: z.number().int().positive().max(MAX_IMAGE_BYTES),
 });
 
+/** The same two calls, for a file the server will parse rather than serve. */
+export const requestImportUploadSchema = z.object({
+  contentType: z.enum(ALLOWED_IMPORT_TYPES),
+  sizeBytes: z.number().int().positive().max(MAX_IMPORT_BYTES),
+});
+
 export type RequestUploadInput = z.input<typeof requestUploadSchema>;
+export type RequestImportUploadInput = z.input<typeof requestImportUploadSchema>;
+
+/**
+ * What `requestUpload` accepts, across both owner shapes. The allow-list and
+ * the ceiling are still chosen by the owner (`uploadSchemaFor`), not by the
+ * caller — this union only stops an import's `text/csv` from having to be cast
+ * through the image schema's type on the way in.
+ */
+export type RequestAnyUploadInput = RequestUploadInput | RequestImportUploadInput;
+
+/**
+ * One owner kind, one allow-list and one ceiling. Kept as functions of the
+ * owner rather than as a parameter the caller passes, so a new call site
+ * cannot pick its own limits.
+ */
+export const uploadSchemaFor = (owner: MediaOwner) =>
+  owner === "import" ? requestImportUploadSchema : requestUploadSchema;
+
+export const maxBytesFor = (owner: MediaOwner): number =>
+  owner === "import" ? MAX_IMPORT_BYTES : MAX_IMAGE_BYTES;
 
 export const mediaIdParamSchema = z.object({ mediaId: objectIdHex });
 
@@ -81,7 +128,7 @@ export const mediaIdParamSchema = z.object({ mediaId: objectIdHex });
  * and every authorization decision is made against the owner document, never
  * against the media row alone.
  */
-export const MEDIA_OWNERS = ["form", "record"] as const;
+export const MEDIA_OWNERS = ["form", "record", "import"] as const;
 export type MediaOwner = (typeof MEDIA_OWNERS)[number];
 
 export type MediaStatus = "pending" | "ready";
@@ -90,7 +137,7 @@ export type MediaDoc = {
   tenantId: ObjectId;
   /** The object key in the bucket. Derived here, never supplied by a client. */
   key: string;
-  contentType: AllowedImageType;
+  contentType: AllowedContentType;
   /** 0 until `confirmUpload` reads the real length from the bucket. */
   sizeBytes: number;
   status: MediaStatus;
@@ -114,7 +161,7 @@ export type UploadTicket = {
   mediaId: string;
   uploadUrl: string;
   /** The header the browser MUST send; it is part of the signature. */
-  contentType: AllowedImageType;
+  contentType: AllowedContentType;
   expiresInSeconds: number;
 };
 
@@ -163,7 +210,7 @@ function objectKey(
   owner: MediaOwner,
   ownerId: string,
   random: string,
-  contentType: AllowedImageType,
+  contentType: AllowedContentType,
 ): string {
   return `tenants/${tenantId}/${owner}s/${ownerId}/${random}.${EXTENSIONS[contentType]}`;
 }
@@ -179,14 +226,14 @@ export const megabytesFor = (bytes: number): number =>
 export async function requestUpload(
   ctx: Ctx,
   owner: { type: MediaOwner; id: string },
-  input: RequestUploadInput,
+  input: RequestAnyUploadInput,
   overrides: Partial<MediaDeps> = {},
 ): Promise<UploadTicket> {
   const deps = resolveDeps(overrides);
   // `sizeBytes` is validated by the schema (a declaration above the cap is a
   // 400 here rather than a wasted upload) but deliberately not stored: the
   // only size that ever gets recorded is the one the bucket reports on confirm.
-  const { contentType } = requestUploadSchema.parse(input);
+  const { contentType } = uploadSchemaFor(owner.type).parse(input);
 
   const key = objectKey(ctx.tenantId, owner.type, owner.id, deps.randomKey(), contentType);
   const doc = await deps.repo.insertOne(ctx, {
@@ -228,12 +275,17 @@ export async function confirmUpload(
   if (!head) {
     throw new AppError("VALIDATION_FAILED", "No file was uploaded to this URL");
   }
-  if (head.sizeBytes > MAX_IMAGE_BYTES) {
+  if (head.sizeBytes > maxBytesFor(doc.ownerType)) {
     // The object is unusable and nothing has been charged for it; leaving it in
     // the bucket would be a way to store bytes for free.
     await deps.store.remove(doc.key);
     await deps.repo.softDelete(ctx, mediaId);
-    throw new AppError("PAYLOAD_TOO_LARGE", "That image is larger than 5 MB");
+    throw new AppError(
+      "PAYLOAD_TOO_LARGE",
+      doc.ownerType === "import"
+        ? "That file is larger than 25 MB"
+        : "That image is larger than 5 MB",
+    );
   }
 
   // Charged before the promotion, not after: if the quota refuses, the row must
@@ -311,6 +363,32 @@ export async function findReadyMedia(
     status: "ready",
     deletedAt: null,
   });
+}
+
+/**
+ * The bytes of a `ready` object, as text, for the server to parse
+ * (GRAFT-25.1 AC9). Tenant-scoped through the repository, so another tenant's
+ * media id is simply absent — and restricted to `import` objects, because
+ * nothing else in the system has a reason to read an object's content into the
+ * app process.
+ */
+export async function readImportText(
+  ctx: Ctx,
+  mediaId: string,
+  overrides: Partial<MediaDeps> = {},
+): Promise<{ text: string; contentType: AllowedContentType }> {
+  const deps = resolveDeps(overrides);
+  const doc = ObjectId.isValid(mediaId) ? await deps.repo.findById(ctx, mediaId) : null;
+  if (!doc || doc.ownerType !== "import") throw new AppError("NOT_FOUND", "Upload not found");
+  if (doc.status !== "ready") {
+    throw new AppError("VALIDATION_FAILED", "That upload has not been confirmed yet", {
+      source: "body",
+      fields: { mediaId: "Confirm the upload before starting the import" },
+    });
+  }
+  const text = await deps.store.getText(doc.key);
+  if (text === null) throw new AppError("NOT_FOUND", "Upload not found");
+  return { text, contentType: doc.contentType };
 }
 
 /** A time-limited URL for the bytes themselves. */

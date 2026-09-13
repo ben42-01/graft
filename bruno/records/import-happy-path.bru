@@ -1,0 +1,203 @@
+meta {
+  name: A CSV import applies the good rows and reports the bad ones by row number
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000016/imports
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{importAccessToken}}
+}
+
+body:json {
+  {
+    "mediaId": "{{importMediaId}}",
+    "format": "csv",
+    "mapping": { "Full Name": "name", "Email": "email", "Phone": "phone" },
+    "dryRun": false
+  }
+}
+
+script:pre-request {
+  // Logged in as the *premium* tenant's owner: csv_import is a paid feature, and
+  // the `api` rate-limit scope is keyed by tenant (Free is 60/min and already
+  // shared by the rest of this suite).
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const entity = "000000000000000000000016";
+
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const token = login.data.data.accessToken;
+  bru.setVar("importAccessToken", token);
+  const auth = { headers: { Authorization: `Bearer ${token}` } };
+
+  // AC3 — the headers are deliberately NOT the entity's field keys. Every stored
+  // key comes from the mapping's target, which is checked against entity_defs;
+  // "Full Name" never reaches Mongo, and neither would "isAdmin".
+  const rows = [
+    "Full Name,Email,Phone",
+    "Ada Lovelace,ada@qa-import.test,+353 1 000 0001",
+    ",missing-name@qa-import.test,+353 1 000 0002",
+    "Grace Hopper,grace@qa-import.test,+353 1 000 0003",
+    "Alan Turing,alan@qa-import.test,+353 1 000 0004",
+    "Bad Email,not-an-email,+353 1 000 0005",
+    "Katherine Johnson,katherine@qa-import.test,+353 1 000 0006",
+  ];
+  const csv = rows.join("\n") + "\n";
+  const mapping = { "Full Name": "name", Email: "email", Phone: "phone" };
+
+  // AC9 — the two-call presigned upload. The bytes go straight to the bucket;
+  // the import endpoint is handed an id.
+  const upload = async (text, contentType) => {
+    const ticket = await axios.post(
+      `${baseUrl}/api/v1/entities/${entity}/import-uploads`,
+      { contentType, sizeBytes: Buffer.byteLength(text) },
+      auth,
+    );
+    if (!/X-Amz-Signature=/.test(ticket.data.data.uploadUrl)) {
+      throw new Error("AC9 — the upload URL is not a signed bucket URL");
+    }
+    await axios.put(ticket.data.data.uploadUrl, text, {
+      headers: { "Content-Type": contentType },
+    });
+    await axios.post(
+      `${baseUrl}/api/v1/entities/${entity}/import-uploads/${ticket.data.data.mediaId}`,
+      {},
+      auth,
+    );
+    return ticket.data.data.mediaId;
+  };
+
+  bru.setVar("importMediaId", await upload(csv, "text/csv"));
+
+  // AC9 — posting the file as a JSON body instead is refused by the 1 MB
+  // ceiling before the handler runs, so bytes never pass through a route.
+  const fat = "x".repeat(1024 * 1024 + 1024);
+  const oversized = await axios.post(
+    `${baseUrl}/api/v1/entities/${entity}/imports`,
+    { mediaId: "0000000000000000000000ff", format: "csv", mapping: {}, blob: fat },
+    { ...auth, validateStatus: () => true },
+  );
+  if (oversized.status !== 413 || oversized.data.error.code !== "PAYLOAD_TOO_LARGE") {
+    throw new Error(`AC9 — an oversized body was not refused: ${oversized.status}`);
+  }
+
+  // AC10 — the same six records as JSON must produce the same result. Both are
+  // dry runs so the comparison costs nothing and writes nothing; the real
+  // import is the request below.
+  const asJson = [
+    { "Full Name": "Ada Lovelace", Email: "ada@qa-import.test", Phone: "+353 1 000 0001" },
+    { "Full Name": "", Email: "missing-name@qa-import.test", Phone: "+353 1 000 0002" },
+    { "Full Name": "Grace Hopper", Email: "grace@qa-import.test", Phone: "+353 1 000 0003" },
+    { "Full Name": "Alan Turing", Email: "alan@qa-import.test", Phone: "+353 1 000 0004" },
+    { "Full Name": "Bad Email", Email: "not-an-email", Phone: "+353 1 000 0005" },
+    {
+      "Full Name": "Katherine Johnson",
+      Email: "katherine@qa-import.test",
+      Phone: "+353 1 000 0006",
+    },
+  ];
+  const jsonMediaId = await upload(JSON.stringify(asJson), "application/json");
+
+  const dryRun = async (mediaId, format) => {
+    const res = await axios.post(
+      `${baseUrl}/api/v1/entities/${entity}/imports`,
+      { mediaId, format, mapping, dryRun: true },
+      auth,
+    );
+    return res.data.data;
+  };
+
+  const fromCsv = await dryRun(bru.getVar("importMediaId"), "csv");
+  const fromJson = await dryRun(jsonMediaId, "json");
+  if (fromCsv.total !== fromJson.total || fromCsv.imported !== fromJson.imported) {
+    throw new Error(`AC10 — csv ${fromCsv.imported}/${fromCsv.total} vs json ${fromJson.imported}/${fromJson.total}`);
+  }
+  if (JSON.stringify(fromCsv.rejected) !== JSON.stringify(fromJson.rejected)) {
+    throw new Error("AC10 — the two formats disagreed about which rows are bad, or why");
+  }
+
+  // AC10 — an unparseable file is a 400 naming the format, not a 500.
+  const brokenId = await upload("{ not json at all", "application/json");
+  const broken = await axios.post(
+    `${baseUrl}/api/v1/entities/${entity}/imports`,
+    { mediaId: brokenId, format: "json", mapping: {}, dryRun: true },
+    { ...auth, validateStatus: () => true },
+  );
+  if (broken.status !== 400 || broken.data.error.code !== "VALIDATION_FAILED") {
+    throw new Error(`AC10 — an unparseable file was not refused: ${broken.status}`);
+  }
+  if (!/json/i.test(broken.data.error.details.fields["(file)"])) {
+    throw new Error("AC10 — the refusal did not name the format");
+  }
+
+  // AC3 — a mapping target that is not a field on the entity is refused whole.
+  const crafted = await axios.post(
+    `${baseUrl}/api/v1/entities/${entity}/imports`,
+    {
+      mediaId: bru.getVar("importMediaId"),
+      format: "csv",
+      mapping: { "Full Name": "is_admin" },
+      dryRun: true,
+    },
+    { ...auth, validateStatus: () => true },
+  );
+  if (crafted.status !== 400 || crafted.data.error.code !== "VALIDATION_FAILED") {
+    throw new Error(`AC3 — an unmapped target was accepted: ${crafted.status}`);
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.dryRun: eq false
+  res.body.data.format: eq csv
+  res.body.data.total: eq 6
+  res.body.data.imported: eq 4
+  res.body.data.rejectedCount: eq 2
+  res.body.data.rejected[0].row: eq 2
+  res.body.data.rejected[0].field: eq name
+  res.body.data.rejected[1].row: eq 5
+  res.body.data.rejected[1].field: eq email
+  res.body.data.dedupe.applied: eq false
+  res.body.data.dedupe.key: isNull
+  res.body.data.quota.meter: eq records
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  // Read back by import-tenant-isolation.bru, which proves another tenant
+  // cannot fetch this result.
+  bru.setVar("importResultId", res.body.data.importId);
+}
+
+tests {
+  const result = res.getBody().data;
+
+  test("each rejection carries a human-readable reason", function () {
+    for (const row of result.rejected) {
+      expect(row.reason).to.be.a("string").and.to.have.length.greaterThan(0);
+    }
+  });
+}
+
+docs {
+  AC3, AC4, AC9, AC10. Imports into 000000000000000000000016, the *premium*
+  tenant's "customers" entity (scripts/seed-qa.ts) — Free has no csv_import.
+
+  The file's headers ("Full Name", "Email", "Phone") are deliberately not the
+  entity's field keys: the mapping names the target, the target is checked
+  against entity_defs, and a header that resolves to nothing rejects its row by
+  name. There is no path from a header to a stored Mongo key.
+
+  AC6 (within-file dedupe) and AC7 (against-stored dedupe) are proven in
+  src/server/services/imports.test.ts and imports.integration.test.ts, where the
+  stored record's `updatedAt` can be compared directly.
+}

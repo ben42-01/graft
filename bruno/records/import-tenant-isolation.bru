@@ -1,0 +1,90 @@
+meta {
+  name: An import cannot cross a tenant boundary, in either direction
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000015/imports
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{importAccessToken}}
+}
+
+body:json {
+  {
+    "mediaId": "{{dryRunMediaId}}",
+    "format": "csv",
+    "mapping": {},
+    "dryRun": true
+  }
+}
+
+script:pre-request {
+  // AC11. The read half: the Free tenant's owner tries to fetch the *premium*
+  // tenant's import result. The repository injects ctx.tenantId, so the row is
+  // simply absent — a 404 that says nothing about whether it exists.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const freeAuth = {
+    headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` },
+    validateStatus: () => true,
+  };
+
+  const stolen = await axios.get(
+    `${baseUrl}/api/v1/entities/000000000000000000000016/imports/${bru.getVar("importResultId")}`,
+    freeAuth,
+  );
+  if (stolen.status !== 404 && stolen.status !== 403) {
+    throw new Error(`AC11 — another tenant's import result was readable: ${stolen.status}`);
+  }
+  const leaked = JSON.stringify(stolen.data);
+  if (/qa-import\.test|Lovelace|imported/.test(leaked)) {
+    throw new Error("AC11 — the refusal leaked the other tenant's import");
+  }
+
+  const recordsBefore = await axios.get(
+    `${baseUrl}/api/v1/entities/000000000000000000000015/records?limit=100`,
+    { headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` } },
+  );
+  bru.setVar("isolationRecordCount", String(recordsBefore.data.data.length));
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+script:post-response {
+  // The write half must have written nothing: the free tenant's entity is
+  // unchanged after the premium tenant tried to import into it.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const after = await axios.get(
+    `${baseUrl}/api/v1/entities/000000000000000000000015/records?limit=100`,
+    { headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` } },
+  );
+  if (String(after.data.data.length) !== bru.getVar("isolationRecordCount")) {
+    throw new Error("AC11 — a cross-tenant import wrote into the other tenant's entity");
+  }
+}
+
+docs {
+  AC11. Both directions of the boundary:
+
+  - the write: the *premium* owner (who does have csv_import, so the refusal is
+    about the tenant and not about the plan) posts an import against
+    000000000000000000000015, the *free* tenant's "customers" entity. getEntity
+    is tenant-scoped, so the entity is a 404 and nothing is written — the record
+    count is compared in script:post-response, which throws on a mismatch.
+  - the read: the free owner fetches the premium tenant's import result id and
+    gets a 404 that carries nothing about it.
+
+  Requires bruno/auth/login.bru (loginAccessToken) and import-happy-path.bru
+  (importAccessToken, importResultId).
+}

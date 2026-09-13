@@ -1,0 +1,112 @@
+meta {
+  name: A dry run reports every row and writes nothing
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000016/imports
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{importAccessToken}}
+}
+
+body:json {
+  {
+    "mediaId": "{{dryRunMediaId}}",
+    "format": "csv",
+    "mapping": {},
+    "dryRun": true
+  }
+}
+
+script:pre-request {
+  // AC5. "The record count is unchanged afterwards" spans three requests, so it
+  // is proven here, synchronously, and a mismatch throws.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const entity = "000000000000000000000016";
+  const auth = { headers: { Authorization: `Bearer ${bru.getVar("importAccessToken")}` } };
+
+  const csv = [
+    "name,email,phone",
+    "Dry One,dry1@qa-import.test,+353 1 000 0011",
+    "Dry Two,dry2@qa-import.test,+353 1 000 0012",
+    "Dry Bad,not-an-email,+353 1 000 0013",
+  ].join("\n");
+
+  const ticket = await axios.post(
+    `${baseUrl}/api/v1/entities/${entity}/import-uploads`,
+    { contentType: "text/csv", sizeBytes: Buffer.byteLength(csv) },
+    auth,
+  );
+  await axios.put(ticket.data.data.uploadUrl, csv, {
+    headers: { "Content-Type": "text/csv" },
+  });
+  await axios.post(
+    `${baseUrl}/api/v1/entities/${entity}/import-uploads/${ticket.data.data.mediaId}`,
+    {},
+    auth,
+  );
+  const mediaId = ticket.data.data.mediaId;
+  bru.setVar("dryRunMediaId", mediaId);
+
+  const countRecords = async () => {
+    const page = await axios.get(`${baseUrl}/api/v1/entities/${entity}/records?limit=100`, auth);
+    return page.data.data.length;
+  };
+
+  const before = await countRecords();
+
+  const preview = await axios.post(
+    `${baseUrl}/api/v1/entities/${entity}/imports`,
+    { mediaId, format: "csv", mapping: {}, dryRun: true },
+    auth,
+  );
+  if (preview.data.data.imported !== 2 || preview.data.data.rejectedCount !== 1) {
+    throw new Error(
+      `AC5 — the preview disagreed: ${preview.data.data.imported} in, ${preview.data.data.rejectedCount} out`,
+    );
+  }
+
+  const after = await countRecords();
+  if (after !== before) {
+    throw new Error(`AC5 — a dry run wrote ${after - before} record(s)`);
+  }
+
+  // The same file for real would write two rows; the preview promised the same
+  // two. Proven without writing them by re-reading the stored result instead.
+  const reread = await axios.get(
+    `${baseUrl}/api/v1/entities/${entity}/imports/${preview.data.data.importId}`,
+    auth,
+  );
+  if (reread.data.data.imported !== 2 || reread.data.data.dryRun !== true) {
+    throw new Error("AC5 — the stored dry-run result does not match what was returned");
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.dryRun: eq true
+  res.body.data.total: eq 3
+  res.body.data.imported: eq 2
+  res.body.data.rejectedCount: eq 1
+  res.body.data.rejected[0].row: eq 3
+  res.body.data.rejected[0].field: eq email
+  res.body.error: isUndefined
+}
+
+docs {
+  AC5. The same per-row report a real import produces, and nothing written —
+  the record count is read before and after inside script:pre-request, because
+  that comparison cannot live in a response assertion.
+
+  That the `records` meter has not moved either is asserted directly against a
+  real counter in src/server/services/imports.integration.test.ts, where the
+  usage_meters document can be read; the QA API exposes no meter read.
+
+  Requires import-happy-path.bru (seq 5) for `importAccessToken`.
+}

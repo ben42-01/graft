@@ -110,6 +110,12 @@ export const READ_URL_TTL_SECONDS = 60 * 60;
 export type ObjectStore = {
   presignPut(key: string, contentType: string): Promise<string>;
   presignGet(key: string): Promise<string>;
+  /**
+   * The bytes, as text, read server-side. Only for objects the app itself has
+   * to parse — a CSV/JSON import file (GRAFT-25.1) — never for anything a
+   * browser wants, which still goes through a presigned GET.
+   */
+  getText(key: string): Promise<string | null>;
   /** `null` when the object is absent — an upload that never happened. */
   head(key: string): Promise<{ sizeBytes: number; contentType: string | null } | null>;
   remove(key: string): Promise<void>;
@@ -140,6 +146,16 @@ export function s3ObjectStore(): ObjectStore {
       return getSignedUrl(s3(), new GetObjectCommand({ Bucket: bucket(), Key: key }), {
         expiresIn: READ_URL_TTL_SECONDS,
       });
+    },
+
+    async getText(key) {
+      try {
+        const result = await s3().send(new GetObjectCommand({ Bucket: bucket(), Key: key }));
+        return (await result.Body?.transformToString()) ?? null;
+      } catch (error) {
+        if (isNotFound(error)) return null;
+        throw error;
+      }
     },
 
     async head(key) {

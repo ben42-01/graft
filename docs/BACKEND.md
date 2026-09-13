@@ -29,7 +29,13 @@
   ```json
   { "error": { "code": "QUOTA_EXCEEDED", "message": "...", "details": {...}, "requestId": "..." } }
   ```
-- Stable machine-readable error codes (`VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `EMAIL_NOT_VERIFIED`, `NOT_FOUND`, `QUOTA_EXCEEDED`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `CONFLICT`, `INTERNAL`).
+- Stable machine-readable error codes (`VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `EMAIL_NOT_VERIFIED`, `NOT_FOUND`, `QUOTA_EXCEEDED`, `FEATURE_NOT_AVAILABLE`, `RATE_LIMITED`, `PAYLOAD_TOO_LARGE`, `ROW_LIMIT_EXCEEDED`, `CONFLICT`, `INTERNAL`).
+  `FEATURE_NOT_AVAILABLE` is a 403 distinct from `QUOTA_EXCEEDED`: the capability
+  is not on the tenant's plan at all, so the client's remedy is an upgrade prompt
+  naming the feature rather than "wait until next period" (GRAFT-25.1 AC1).
+  `ROW_LIMIT_EXCEEDED` is a 400 distinct from `PAYLOAD_TOO_LARGE`: the request
+  body was small and well-formed, the *file it named* had more rows than the tier
+  allows in one batch (GRAFT-25.1 AC2).
   `EMAIL_NOT_VERIFIED` is a 403 distinct from `FORBIDDEN`: the credentials were
   correct and the account simply is not usable yet, which is a state the client
   offers a specific remedy for (GRAFT-03.2 AC3).
@@ -72,6 +78,14 @@ Layered, Redis-backed (sliding window or token bucket via `rate-limiter-flexible
 - Respond `429` with `Retry-After` and `X-RateLimit-Limit/Remaining/Reset` headers.
 - Body size limits (1 MB JSON default; uploads via signed URLs, not through the API). An over-sized body is refused with `413 PAYLOAD_TOO_LARGE` before the handler runs.
 - **Uploads are two calls plus a direct PUT** (implemented in `src/server/storage/s3.ts` and `src/server/services/media.ts`): `POST …/media` records intent and returns a presigned `PUT` (5 min TTL); the browser uploads straight to the bucket; `POST …/media/:mediaId` re-reads the object with a `HEAD`, charges `storage_mb` in whole megabytes and promotes the row to `ready`. Bytes never pass through a route handler, so the 1 MB JSON ceiling above stays a real ceiling. Content types are an **allow-list** of raster formats — `image/svg+xml` is refused, since an SVG served to anonymous visitors is a script host.
+- **Batch record import reuses that pattern exactly** (GRAFT-25.1,
+  docs/TIERS.md §2.3): `POST /api/v1/entities/:entityId/import-uploads` mints the
+  presigned PUT for a `text/csv` or `application/json` file (25 MB ceiling),
+  `POST …/import-uploads/:mediaId` confirms it, and only then does
+  `POST /api/v1/entities/:entityId/imports` — which receives a `mediaId`, never
+  bytes — parse it. `GET /api/v1/entities/:entityId/imports/:importId` re-reads
+  one result. All four are gated on `can(ctx, "csv_import")` and are limited by
+  the authenticated-API scopes above (`global-ip`, `api`, `user`).
 - **Buckets are private in every environment.** Reads go through the application (`GET /api/v1/public/media/:mediaId`), which 307s to a presigned `GET` (1 h TTL) only while the *owning* resource is public — a form's images go dark the moment it is unpublished or killed. MinIO in dev and QA, any S3-compatible endpoint in production, so the signed-URL path is identical everywhere.
 - Auth endpoints are charged on **failure**: a correct password never spends the 5-per-15-minutes budget.
 - When Redis is unavailable the limiter fails **closed** on the unauthenticated write surfaces (public form, auth) and **open** on authenticated traffic and the global IP layer, logging `ratelimit.degraded` with the decision either way.

@@ -77,6 +77,10 @@ describe("status mapping", () => {
       "RATE_LIMITED",
       "PAYLOAD_TOO_LARGE",
       "CONFLICT",
+      // GRAFT-25.1 — the plan does not include the capability at all, and a
+      // batch larger than the tier's per-request row ceiling.
+      "FEATURE_NOT_AVAILABLE",
+      "ROW_LIMIT_EXCEEDED",
       "INTERNAL",
     ]);
   });

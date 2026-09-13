@@ -26,6 +26,7 @@ import {
   mediaUrl,
   megabytesFor,
   presignedReadUrl,
+  readImportText,
   requestUpload,
   requestUploadSchema,
   toMediaView,
@@ -58,6 +59,7 @@ function fakeStore(over: Partial<ObjectStore> = {}): ObjectStore {
   return {
     presignPut: vi.fn(async (key: string) => `https://bucket.test/${key}?sig=put`),
     presignGet: vi.fn(async (key: string) => `https://bucket.test/${key}?sig=get`),
+    getText: vi.fn(async () => "name\nAda\n"),
     head: vi.fn(async () => ({ sizeBytes: 1024, contentType: "image/png" })),
     remove: vi.fn(async () => {}),
     ...over,
@@ -408,6 +410,44 @@ describe("the read helpers", () => {
     expect(collection.findOne).toHaveBeenCalledWith(
       expect.objectContaining({ status: "ready", deletedAt: null }),
     );
+  });
+
+  it("reads an import file's bytes back as text (GRAFT-25.1 AC9)", async () => {
+    const ready = seedMedia({
+      status: "ready",
+      sizeBytes: 64,
+      ownerType: "import",
+      contentType: "text/csv",
+    });
+    const read = await readImportText(ctx, ready._id.toHexString(), deps([ready]));
+    expect(read).toEqual({ text: "name\nAda\n", contentType: "text/csv" });
+  });
+
+  it("refuses to read anything that is not an import object", async () => {
+    const image = seedMedia({ status: "ready", sizeBytes: 64 });
+    await expect(
+      readImportText(ctx, image._id.toHexString(), deps([image])),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(readImportText(ctx, "not-an-object-id", deps([]))).rejects.toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it("refuses an upload that was never confirmed, so an unread object is never parsed", async () => {
+    const pending = seedMedia({ ownerType: "import", contentType: "text/csv" });
+    await expect(
+      readImportText(ctx, pending._id.toHexString(), deps([pending])),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  it("treats a missing object as not found rather than an empty import", async () => {
+    const ready = seedMedia({ status: "ready", ownerType: "import", contentType: "text/csv" });
+    await expect(
+      readImportText(ctx, ready._id.toHexString(), {
+        ...deps([ready]),
+        store: fakeStore({ getText: async () => null }),
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("hands out a presigned read URL for a key", async () => {

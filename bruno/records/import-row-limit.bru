@@ -1,0 +1,95 @@
+meta {
+  name: Premium refuses 10,001 rows and accepts exactly 10,000
+  type: http
+  seq: 7
+}
+
+post {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000016/imports
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{importAccessToken}}
+}
+
+body:json {
+  {
+    "mediaId": "{{overLimitMediaId}}",
+    "format": "csv",
+    "mapping": {},
+    "dryRun": true
+  }
+}
+
+script:pre-request {
+  // AC2. The boundary — exactly 10,000 accepted — is proven here as a dry run:
+  // the point is that the row ceiling lets the file through, and writing 10,000
+  // records into a shared QA tenant to say so would be a fixture, not a test.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const entity = "000000000000000000000016";
+  const auth = { headers: { Authorization: `Bearer ${bru.getVar("importAccessToken")}` } };
+
+  const build = (count) => {
+    const lines = ["name,email,phone"];
+    for (let i = 1; i <= count; i += 1) {
+      lines.push(`Row ${i},row${i}@qa-import.test,+353 1 000 0001`);
+    }
+    return lines.join("\n");
+  };
+
+  const upload = async (text) => {
+    const ticket = await axios.post(
+      `${baseUrl}/api/v1/entities/${entity}/import-uploads`,
+      { contentType: "text/csv", sizeBytes: Buffer.byteLength(text) },
+      auth,
+    );
+    await axios.put(ticket.data.data.uploadUrl, text, {
+      headers: { "Content-Type": "text/csv" },
+    });
+    await axios.post(
+      `${baseUrl}/api/v1/entities/${entity}/import-uploads/${ticket.data.data.mediaId}`,
+      {},
+      auth,
+    );
+    return ticket.data.data.mediaId;
+  };
+
+  bru.setVar("overLimitMediaId", await upload(build(10001)));
+
+  const atLimit = await axios.post(
+    `${baseUrl}/api/v1/entities/${entity}/imports`,
+    { mediaId: await upload(build(10000)), format: "csv", mapping: {}, dryRun: true },
+    { ...auth, validateStatus: () => true },
+  );
+  if (atLimit.status !== 201) {
+    throw new Error(`AC2 — exactly 10,000 rows was refused: ${atLimit.status}`);
+  }
+  if (atLimit.data.data.total !== 10000) {
+    throw new Error(`AC2 — the boundary file parsed as ${atLimit.data.data.total} rows`);
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq ROW_LIMIT_EXCEEDED
+  res.body.error.details.limit: eq 10000
+  res.body.error.details.rows: eq 10001
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+docs {
+  AC2. docs/TIERS.md §2.3 — Premium imports at most 10k rows per file, and the
+  refusal happens before a single row is written (the ceiling is checked
+  immediately after parsing, src/server/services/imports.ts).
+
+  Enterprise carries `records: null`, which is what makes its per-import cap
+  absent rather than zero — branched on, never coalesced. No QA tenant is on
+  Enterprise, so that branch is proven in imports.test.ts and against a real
+  meter in imports.integration.test.ts.
+
+  Requires import-happy-path.bru (seq 5) for `importAccessToken`.
+}

@@ -1,0 +1,92 @@
+meta {
+  name: A Free tenant cannot import — the csv_import gate refuses before anything is read
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/entities/000000000000000000000015/imports
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "mediaId": "0000000000000000000000ff",
+    "format": "csv",
+    "mapping": {},
+    "dryRun": false
+  }
+}
+
+script:pre-request {
+  // AC1. The load-bearing half of this file runs here, synchronously, because
+  // "no file is parsed and no record is written" is a statement about two
+  // requests and a record count — none of which a response assertion can see.
+  // A failure throws, which fails the request in `bru run` (async test() bodies
+  // are executed but not folded into the pass/fail totals).
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const auth = { headers: { Authorization: `Bearer ${bru.getVar("loginAccessToken")}` } };
+  const entity = "000000000000000000000015";
+  const any = { ...auth, validateStatus: () => true };
+
+  const countRecords = async () => {
+    const page = await axios.get(`${baseUrl}/api/v1/entities/${entity}/records?limit=100`, auth);
+    return page.data.data.length;
+  };
+
+  const before = await countRecords();
+
+  // A Free tenant cannot even stage a file: the gate is on the upload ticket
+  // too, so there is no bucket object for an import to have parsed.
+  const ticket = await axios.post(
+    `${baseUrl}/api/v1/entities/${entity}/import-uploads`,
+    { contentType: "text/csv", sizeBytes: 64 },
+    any,
+  );
+  if (ticket.status !== 403 || ticket.data.error.code !== "FEATURE_NOT_AVAILABLE") {
+    throw new Error(`AC1 — Free was handed an upload ticket: ${ticket.status}`);
+  }
+
+  const attempt = await axios.post(
+    `${baseUrl}/api/v1/entities/${entity}/imports`,
+    { mediaId: "0000000000000000000000ff", format: "csv", mapping: {} },
+    any,
+  );
+  if (attempt.status !== 403) {
+    throw new Error(`AC1 — a Free import was not refused: ${attempt.status}`);
+  }
+  // A 404 here would mean the service went looking for the file before checking
+  // the plan. The 403 is the proof that nothing was read.
+  if (attempt.data.error.code !== "FEATURE_NOT_AVAILABLE") {
+    throw new Error(`AC1 — wrong code: ${attempt.data.error.code}`);
+  }
+
+  const after = await countRecords();
+  if (after !== before) {
+    throw new Error(`AC1 — the refused import wrote ${after - before} record(s)`);
+  }
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq FEATURE_NOT_AVAILABLE
+  res.body.error.details.feature: eq csv_import
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+docs {
+  AC1. The first enforcement of `can(ctx, "csv_import")` in the codebase
+  (src/server/services/imports.ts). qa-free is a Free tenant (scripts/seed-qa.ts)
+  and 000000000000000000000015 is its "customers" entity. Requires
+  bruno/auth/login.bru to have run first (loginAccessToken).
+
+  The upgrade prompt is the code plus `details.feature`: the client switches on
+  FEATURE_NOT_AVAILABLE and names the feature, rather than parsing prose.
+}
