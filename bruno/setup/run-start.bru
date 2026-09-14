@@ -11,7 +11,32 @@ post {
 }
 
 headers {
-  Authorization: Bearer {{loginAccessToken}}
+  Authorization: Bearer {{setupAccessToken}}
+}
+
+script:pre-request {
+  // Logged in as the *premium* tenant's owner rather than reusing
+  // `loginAccessToken` (the free tenant): the `api` rate-limit scope is keyed
+  // by tenant (src/server/rate-limit/scopes.ts) and free is 60/min, which the
+  // rest of this suite already shares and spends in full before this folder
+  // runs — `setup` sorts last, so every request here was answered 429
+  // RATE_LIMITED rather than on its merits. The same reasoning, and the same
+  // fix, as bruno/forms/payment-link-config.bru.
+  //
+  // The token is minted once here and reused by the other four files in this
+  // folder (seq 2-5), so the whole guided-setup contract costs the premium
+  // tenant's 600/min budget five points and the free tenant nothing.
+  //
+  // `setup_runs` is not seeded (scripts/seed-qa.ts), so the premium tenant has
+  // no run open and this POST opens the first one — which is exactly what the
+  // assertions below describe.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  bru.setVar("setupAccessToken", login.data.data.accessToken);
 }
 
 assert {
