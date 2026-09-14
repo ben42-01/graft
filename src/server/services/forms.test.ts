@@ -797,3 +797,115 @@ describe("createForm / updateForm — the payment block (GRAFT-24 AC1)", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("createForm / updateForm — notes and links for customers", () => {
+  const notice = {
+    id: "policy",
+    kind: "notice" as const,
+    title: "Cancellation policy",
+    body: "Cancel up to 24 hours before for a full refund.",
+    after: null,
+  };
+  const link = (after: string | null) => ({
+    id: "terms",
+    kind: "link" as const,
+    label: "Terms of hire",
+    url: "https://example.com/terms",
+    requireAgreement: true,
+    after,
+  });
+
+  it("a form created without content has none", async () => {
+    const { repo } = fakeRepo();
+    const view = await createForm(
+      ctx,
+      {
+        entityId: ENTITY_ID,
+        name: "Contact",
+        slug: "contact",
+        visibility: "public",
+        fields: [{ key: "name" }],
+      },
+      { repo, getEntity: async () => entity() },
+    );
+    expect(view.content).toEqual([]);
+  });
+
+  it("stores blocks in order, each placed at the top or after a field the form collects", async () => {
+    const existing = seedDoc();
+    const { repo } = fakeRepo([existing]);
+    const afterKey = existing.fields[0]!.key;
+
+    const view = await updateForm(
+      ctx,
+      existing._id.toHexString(),
+      { content: [notice, link(afterKey)] },
+      { repo },
+    );
+
+    expect(view.content).toEqual([notice, link(afterKey)]);
+  });
+
+  it("an empty list removes every block", async () => {
+    const existing = seedDoc({ content: [notice] });
+    const { repo } = fakeRepo([existing]);
+    const view = await updateForm(ctx, existing._id.toHexString(), { content: [] }, { repo });
+    expect(view.content).toEqual([]);
+  });
+
+  it("refuses a block placed after a field the form does not collect", async () => {
+    const existing = seedDoc();
+    const { repo } = fakeRepo([existing]);
+    await expect(
+      updateForm(ctx, existing._id.toHexString(), { content: [link("not_on_form")] }, { repo }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      details: { fields: { content: expect.stringContaining("not_on_form") } },
+    });
+  });
+
+  it("refuses a link that is not an http(s) web address", async () => {
+    const existing = seedDoc();
+    const { repo } = fakeRepo([existing]);
+    for (const url of [
+      "javascript:alert(1)",
+      "data:text/html,<script>alert(1)</script>",
+      "https://user:pw@example.com",
+    ]) {
+      await expect(
+        updateForm(
+          ctx,
+          existing._id.toHexString(),
+          { content: [{ ...link(null), url }] },
+          { repo },
+        ),
+        url,
+      ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    }
+  });
+
+  it("refuses two blocks with the same id, and a message with no text", async () => {
+    const existing = seedDoc();
+    const { repo } = fakeRepo([existing]);
+    await expect(
+      updateForm(
+        ctx,
+        existing._id.toHexString(),
+        { content: [notice, { ...notice }] },
+        { repo },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    await expect(
+      updateForm(
+        ctx,
+        existing._id.toHexString(),
+        { content: [{ ...notice, body: "   " }] },
+        { repo },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+  });
+
+  it('`content` alone satisfies the "Nothing to update" refinement', () => {
+    expect(updateFormSchema.safeParse({ content: [] }).success).toBe(true);
+  });
+});

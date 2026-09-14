@@ -19,6 +19,7 @@
  * would be offering them a control whose value is discarded.
  */
 import { useRef, useState } from "react";
+import { ExternalLinkIcon } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -39,6 +40,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CatalogueBrowser } from "@/components/public-form/catalogue-browser";
+import { placeContent, type ContentBlock, type LinkBlock } from "@/lib/content-blocks";
 import { contrastingTextColor } from "@/lib/contrast";
 import type { FieldDef } from "@/server/services/entities";
 
@@ -62,6 +64,7 @@ export function PublicFormRenderer({
   primaryColor,
   catalogue = null,
   timeFields = [],
+  content = [],
   navigate = (url: string) => window.location.assign(url),
 }: {
   tenantSlug: string;
@@ -75,6 +78,8 @@ export function PublicFormRenderer({
    * hire, so these ask for a time as well.
    */
   timeFields?: string[];
+  /** Notes and links the business placed between the fields. */
+  content?: ContentBlock[];
   /**
    * How the browser leaves for payment (AC9). A seam, not a feature: jsdom
    * has no navigation, so a component test needs somewhere to observe that
@@ -95,6 +100,11 @@ export function PublicFormRenderer({
   // validates strictly (an unknown key there is a 400, not silently dropped).
   const honeypotRef = useRef<HTMLInputElement>(null);
   const [state, setState] = useState<SubmitState>({ status: "idle" });
+  const [agreed, setAgreed] = useState<Set<string>>(new Set());
+  const [agreementErrors, setAgreementErrors] = useState<Record<string, string>>({});
+  const mustAgree = content.filter(
+    (block): block is LinkBlock => block.kind === "link" && block.requireAgreement,
+  );
   const form = useForm<FormValues>({
     defaultValues: Object.fromEntries(
       fields.map((f) => [f.key, f.type === "checkbox" ? false : ""]),
@@ -106,6 +116,15 @@ export function PublicFormRenderer({
     : undefined;
 
   async function onSubmit(values: FormValues) {
+    // Checked here so the visitor is told at once; the server checks again.
+    const unticked = mustAgree.filter((block) => !agreed.has(block.id));
+    setAgreementErrors(
+      Object.fromEntries(
+        unticked.map((block) => [block.id, `Please agree to ${block.label} before sending.`]),
+      ),
+    );
+    if (unticked.length > 0) return;
+
     setState({ status: "submitting" });
     try {
       const response = await fetch(
@@ -119,6 +138,7 @@ export function PublicFormRenderer({
             _hp: honeypotRef.current?.value || undefined,
             _t: renderedAt.current,
             _selection: selectedId ?? undefined,
+            _agreed: agreed.size > 0 ? [...agreed] : undefined,
           }),
         },
       );
@@ -126,6 +146,12 @@ export function PublicFormRenderer({
       if (!response.ok) {
         const fieldErrors = body?.error?.details?.fields as Record<string, string> | undefined;
         if (fieldErrors) {
+          const serverAgreements: Record<string, string> = {};
+          for (const [key, message] of Object.entries(fieldErrors)) {
+            if (key.startsWith("_agreed."))
+              serverAgreements[key.slice("_agreed.".length)] = message;
+          }
+          if (Object.keys(serverAgreements).length > 0) setAgreementErrors(serverAgreements);
           for (const [key, message] of Object.entries(fieldErrors)) {
             const fieldKey = key.split(".")[0];
             if (fields.some((f) => f.key === fieldKey)) {
@@ -199,26 +225,51 @@ export function PublicFormRenderer({
             <input id="_hp" type="text" tabIndex={-1} autoComplete="off" ref={honeypotRef} />
           </div>
 
-          {visibleFields.map((field) => (
-            <FormField
-              key={field.key}
-              control={form.control}
-              name={field.key}
-              rules={{ required: field.required ? "This field is required" : false }}
-              render={({ field: rhf }) => (
-                <FormItem>
-                  <FormLabel>
-                    {field.label}
-                    {field.required ? <span aria-hidden="true"> *</span> : null}
-                  </FormLabel>
-                  <FormControl>
-                    {renderInput(field, rhf, timeFields.includes(field.key))}
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          ))}
+          {/* Placed over *all* fields, so a note after the hidden selection
+           * field still lands where the business put it. */}
+          {placeContent(fields, content).map((item) => {
+            if (item.kind === "block") {
+              const { block } = item;
+              return (
+                <ContentBlockView
+                  key={`block-${block.id}`}
+                  block={block}
+                  agreed={agreed.has(block.id)}
+                  error={agreementErrors[block.id] ?? null}
+                  onAgreeChange={(on) =>
+                    setAgreed((prev) => {
+                      const next = new Set(prev);
+                      if (on) next.add(block.id);
+                      else next.delete(block.id);
+                      return next;
+                    })
+                  }
+                />
+              );
+            }
+            const field = item.field;
+            if (!visibleFields.includes(field)) return null;
+            return (
+              <FormField
+                key={field.key}
+                control={form.control}
+                name={field.key}
+                rules={{ required: field.required ? "This field is required" : false }}
+                render={({ field: rhf }) => (
+                  <FormItem>
+                    <FormLabel>
+                      {field.label}
+                      {field.required ? <span aria-hidden="true"> *</span> : null}
+                    </FormLabel>
+                    <FormControl>
+                      {renderInput(field, rhf, timeFields.includes(field.key))}
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            );
+          })}
 
           {state.status === "error" ? (
             <p role="alert" className="text-sm text-destructive">
@@ -232,6 +283,69 @@ export function PublicFormRenderer({
         </div>
       </form>
     </Form>
+  );
+}
+
+/**
+ * A note or a link the business left. A note is plain text — never HTML — and
+ * a link always opens in a new tab without handing this page to it.
+ */
+function ContentBlockView({
+  block,
+  agreed,
+  error,
+  onAgreeChange,
+}: {
+  block: ContentBlock;
+  agreed: boolean;
+  error: string | null;
+  onAgreeChange: (agreed: boolean) => void;
+}) {
+  if (block.kind === "notice") {
+    return (
+      <div role="note" className="rounded-md border bg-muted/40 px-3 py-2 text-sm">
+        {block.title ? <p className="font-medium">{block.title}</p> : null}
+        <p className="whitespace-pre-line text-muted-foreground">{block.body}</p>
+      </div>
+    );
+  }
+
+  const link = (
+    <a
+      href={block.url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="font-medium underline underline-offset-4"
+    >
+      {block.label}
+      <ExternalLinkIcon className="ml-1 inline size-3" aria-hidden="true" />
+      <span className="sr-only"> (opens in a new tab)</span>
+    </a>
+  );
+  if (!block.requireAgreement) return <p className="text-sm">{link}</p>;
+
+  const id = `agree-${block.id}`;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="flex items-start gap-2 text-sm">
+        <Checkbox
+          id={id}
+          checked={agreed}
+          onCheckedChange={(checked) => onAgreeChange(checked === true)}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? `${id}-error` : undefined}
+        />
+        <label htmlFor={id}>
+          I agree to {link}
+          <span aria-hidden="true"> *</span>
+        </label>
+      </div>
+      {error ? (
+        <p id={`${id}-error`} role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 

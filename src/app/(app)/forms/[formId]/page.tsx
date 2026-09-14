@@ -26,6 +26,8 @@ import {
 } from "@/components/forms/catalogue-editor";
 import { BookingEditor, type BookingView } from "@/components/forms/booking-editor";
 import { PaymentEditor, type PaymentView } from "@/components/forms/payment-editor";
+import { ContentEditor } from "@/components/forms/content-editor";
+import type { ContentBlock } from "@/lib/content-blocks";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -49,6 +51,7 @@ type FormView = {
   catalogue: CatalogueView | null;
   booking: BookingView | null;
   payment: PaymentView | null;
+  content: ContentBlock[];
 };
 
 type EntityView = { id: string; name: string; fields: FieldLike[] };
@@ -357,6 +360,16 @@ export default function FormPage() {
           payment={form.payment}
           busy={busy}
           onSave={(payment) => void patch({ payment }, () => void load())}
+        />
+      ) : null}
+
+      {/* A note or link is for the customer reading the public page. */}
+      {form.visibility === "public" ? (
+        <ContentEditor
+          content={form.content ?? []}
+          fields={form.fields}
+          busy={busy}
+          onSave={(content) => void patch({ content }, () => void load())}
         />
       ) : null}
 

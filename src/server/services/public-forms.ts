@@ -43,6 +43,7 @@ import {
   type FormDoc,
 } from "./forms";
 import { buildPaymentLinkUrl } from "@/lib/payment-links";
+import { MAX_CONTENT_BLOCKS, type LinkBlock } from "@/lib/content-blocks";
 import {
   bridgeBooking as bridgeBookingDefault,
   mongoBookingBridgeStore,
@@ -88,6 +89,12 @@ export const submitFormSchema = z.object({
     .string()
     .regex(/^[0-9a-f]{24}$/i, "Not a valid selection")
     .optional(),
+  /**
+   * The ids of the link blocks the visitor ticked "I agree" on. Out of band
+   * for the same reason as `_selection`: an agreement is not something the
+   * visitor types into the record, it is a fact about the submission.
+   */
+  _agreed: z.array(z.string().max(24)).max(MAX_CONTENT_BLOCKS).optional(),
 });
 
 export type SubmitFormInput = z.input<typeof submitFormSchema>;
@@ -231,6 +238,44 @@ function resolveDeps(overrides: Partial<PublicFormDeps> = {}): PublicFormDeps {
  * real one, and a port is what lets a test induce a failure *between* two
  * genuine, session-bound writes without mocking the transaction itself away.
  */
+/** What a visitor agreed to, as it read when they agreed. */
+export type AgreementRecord = { blockId: string; label: string; url: string; agreedAt: Date };
+
+/**
+ * Every link on the form that requires agreement must have been ticked, or
+ * the submission is refused naming each one. What was agreed is snapshotted —
+ * label and URL as they stood — so editing the link later cannot rewrite what
+ * a customer agreed to. Ids that name no required link are ignored.
+ */
+export function resolveAgreements(
+  content: FormDoc["content"],
+  agreed: readonly string[] | undefined,
+  now: Date,
+): AgreementRecord[] {
+  const ticked = new Set(agreed ?? []);
+  const required = (content ?? []).filter(
+    (block): block is LinkBlock => block.kind === "link" && block.requireAgreement,
+  );
+  const missing: Record<string, string> = {};
+  for (const block of required) {
+    if (!ticked.has(block.id)) {
+      missing[`_agreed.${block.id}`] = `Please agree to ${block.label} before sending.`;
+    }
+  }
+  if (Object.keys(missing).length > 0) {
+    throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+      source: "body",
+      fields: missing,
+    });
+  }
+  return required.map((block) => ({
+    blockId: block.id,
+    label: block.label,
+    url: block.url,
+    agreedAt: now,
+  }));
+}
+
 export type PublicFormWriteStore = {
   /** Create-if-absent via upsert (see the implementation for why this can't
    * be an `insertOne` that swallows a duplicate-key error, unlike
@@ -269,6 +314,8 @@ export type PublicFormWriteStore = {
       orderId: ObjectId | null;
       /** The capacity it reserved, if the resource had a pool. */
       allocationId: ObjectId | null;
+      /** The links this submission agreed to, snapshotted (`resolveAgreements`). */
+      agreements: AgreementRecord[];
       deletedAt: null;
       createdAt: Date;
       updatedAt: Date;
@@ -396,6 +443,7 @@ async function writeSubmissionTransactionally(
   data: Record<string, unknown>,
   selectedRecordId: ObjectId | null,
   now: Date,
+  agreements: AgreementRecord[],
 ): Promise<SubmitFormResult> {
   const store = deps.store;
   const tenantId = new ObjectId(ctx.tenantId);
@@ -456,6 +504,7 @@ async function writeSubmissionTransactionally(
     selectedRecordId,
     orderId: bridged?.orderId ?? null,
     allocationId: bridged?.allocationId ?? null,
+    agreements,
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
@@ -513,6 +562,9 @@ export async function submitPublicForm(
   const data = parse(compiled, rawData, "body") as Record<string, unknown>;
 
   const now = deps.now();
+  // Refused with the other validation, before spam scoring: a missing
+  // agreement is a visitor's mistake to fix, not a signal about a bot.
+  const agreements = resolveAgreements(form.content, parsed._agreed, now);
   // AC3, AC4, AC5 — scored before anything is written, and indistinguishable
   // from a real acceptance either way.
   if (isSpamSubmission({ hp: parsed._hp, renderedAt: parsed._t, now: now.getTime() })) {
@@ -545,6 +597,7 @@ export async function submitPublicForm(
         data,
         selectedRecordId,
         now,
+        agreements,
       ),
     );
   } finally {

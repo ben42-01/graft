@@ -17,6 +17,7 @@ import { TIER_LIMITS } from "@/server/tiers";
 import {
   MIN_FILL_MS,
   isSpamSubmission,
+  resolveAgreements,
   resolvePaymentHandoff,
   resolveSelection,
   submitPublicForm,
@@ -416,5 +417,71 @@ describe("submitPublicForm — the payment block on the response (GRAFT-24)", ()
       plain,
     );
     expect("payment" in result).toBe(false);
+  });
+});
+
+describe("resolveAgreements — links a customer must agree to", () => {
+  const NOW = new Date("2026-03-01T12:00:00.000Z");
+  const terms = {
+    id: "terms",
+    kind: "link" as const,
+    label: "Terms of hire",
+    url: "https://example.com/terms",
+    requireAgreement: true,
+    after: null,
+  };
+  const site = {
+    id: "site",
+    kind: "link" as const,
+    label: "Our website",
+    url: "https://example.com",
+    requireAgreement: false,
+    after: null,
+  };
+
+  it("records nothing on a form with no required agreement", () => {
+    expect(resolveAgreements(undefined, undefined, NOW)).toEqual([]);
+    expect(resolveAgreements([site], undefined, NOW)).toEqual([]);
+  });
+
+  it("refuses a submission that did not agree, naming the link", () => {
+    expect(() => resolveAgreements([terms, site], ["site"], NOW)).toThrow(
+      expect.objectContaining({
+        code: "VALIDATION_FAILED",
+        details: {
+          source: "body",
+          fields: { "_agreed.terms": "Please agree to Terms of hire before sending." },
+        },
+      }),
+    );
+  });
+
+  it("snapshots what was agreed to, ignoring ids that name no required link", () => {
+    expect(resolveAgreements([terms, site], ["terms", "site", "bogus"], NOW)).toEqual([
+      {
+        blockId: "terms",
+        label: "Terms of hire",
+        url: "https://example.com/terms",
+        agreedAt: NOW,
+      },
+    ]);
+  });
+
+  it("submitPublicForm refuses a missing agreement before loading the entity", async () => {
+    const getEntity = vi.fn().mockResolvedValue(entity());
+    await expect(
+      submitPublicForm(
+        "req-1",
+        ["acme", "contact"],
+        { data: { name: "Ada" }, _t: NOW.getTime() - (MIN_FILL_MS + 1_000) },
+        {
+          findByPublicSlug: vi.fn().mockResolvedValue(form({ content: [terms] })),
+          getEntity,
+          loadEntitlements: vi.fn().mockResolvedValue(entitlements()),
+          now: () => NOW,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(getEntity).not.toHaveBeenCalled();
   });
 });

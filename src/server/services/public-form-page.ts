@@ -36,6 +36,7 @@ import {
   type TenantBranding,
 } from "@/server/auth/accounts-store";
 import { TIER_FEATURES } from "@/server/tiers";
+import { isSafeLinkUrl, type ContentBlock } from "@/lib/content-blocks";
 
 export type PublicFormPageData = {
   formName: string;
@@ -58,6 +59,8 @@ export type PublicFormPageData = {
    * express a four-hour hire.
    */
   timeFields: string[];
+  /** Notes and links for customers, in order. */
+  content: ContentBlock[];
   tenantName: string;
   tenantSlug: string;
   formSlug: string;
@@ -133,6 +136,11 @@ export async function getPublicFormPage(
     carousel: toCarouselView(form.carousel),
     catalogue: toCatalogueView(form.catalogue),
     timeFields: bookingTimeFields(form.booking),
+    // Re-checked on read, like the payment link: a document written before the
+    // rule, or by any path around the schema, must not put a script URL here.
+    content: (form.content ?? []).filter(
+      (block) => block.kind !== "link" || isSafeLinkUrl(block.url),
+    ),
     tenantName: tenant.name,
     tenantSlug: tenantParsed.data,
     formSlug: formParsed.data,

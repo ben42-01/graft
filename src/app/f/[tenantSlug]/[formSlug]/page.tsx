@@ -82,6 +82,7 @@ export default async function PublicFormPage({ params }: { params: Promise<Param
         primaryColor={page.branding.primaryColor}
         catalogue={page.catalogue ? { selectionKey: page.catalogue.selectionKey } : null}
         timeFields={page.timeFields}
+        content={page.content}
       />
 
       {/* The badge is Free-only (AC5), so it cannot carry the privacy link:
