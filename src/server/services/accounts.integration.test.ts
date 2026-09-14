@@ -19,7 +19,7 @@ import { mongoAccountStore, VERIFICATION_COLLECTION } from "@/server/auth/accoun
 import { createContext } from "@/server/context";
 import { getDb, getMongoClient } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
-import { TIER_LIMITS } from "@/server/tiers";
+import { TIER_FEATURES, TIER_LIMITS } from "@/server/tiers";
 import { mongoBillingStore, TRIAL_DAYS } from "./billing";
 import type { AccessTokenInput, Session } from "@/server/services/tokens";
 import {
@@ -164,6 +164,7 @@ describe("signup → verify → login → me", () => {
       slug: "integration-motors",
       tier: "premium",
       limits: TIER_LIMITS.premium,
+      features: TIER_FEATURES.premium,
       branding: null,
       // GRAFT-26 AC8 — read back off the real document.
       trialDaysRemaining: TRIAL_DAYS,

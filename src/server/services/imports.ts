@@ -123,8 +123,14 @@ export const startImportSchema = z.object({
    * itself, which is what makes a file whose headers already match the entity
    * importable with `{}`. The *target* is what is validated against
    * `entity_defs`; the source is never trusted for anything but lookup.
+   *
+   * `null` skips the column: its cells are never read. Without it a file with
+   * one column the entity lacks (`notes`) rejected every row, and a column
+   * named like a field could not be left out at all (GRAFT-25.2 wizard).
    */
-  mapping: z.record(z.string().min(1).max(200), z.string().min(1).max(64)).default({}),
+  mapping: z
+    .record(z.string().min(1).max(200), z.string().min(1).max(64).nullable())
+    .default({}),
   dedupeKey: fieldKey.nullish(),
   dryRun: z.boolean().default(false),
 });
@@ -393,14 +399,14 @@ const quotaReason = (meter: Meter) =>
   `Your plan's "${meter}" limit was reached before this row — upgrade to import the rest`;
 
 function assertMapping(
-  mapping: Record<string, string>,
+  mapping: Record<string, string | null>,
   dedupeKey: string | null,
   fields: readonly FieldDef[],
 ): void {
   const known = new Set(fields.map((f) => f.key));
   const errors: Record<string, string> = {};
   for (const [source, target] of Object.entries(mapping)) {
-    if (!known.has(target)) {
+    if (target !== null && !known.has(target)) {
       errors[`mapping.${source}`] = `This entity has no field "${target}"`;
     }
   }
@@ -417,7 +423,7 @@ function assertMapping(
  */
 function buildRow(
   parsed: ParsedRow,
-  mapping: Record<string, string>,
+  mapping: Record<string, string | null>,
   byKey: Map<string, FieldDef>,
   schema: z.ZodTypeAny,
 ): { data?: Record<string, unknown>; rejection?: RejectedRow } {
@@ -427,6 +433,7 @@ function buildRow(
   const data: Record<string, unknown> = {};
   for (const [source, raw] of Object.entries(parsed.values)) {
     const target = Object.hasOwn(mapping, source) ? mapping[source] : source;
+    if (target === null) continue; // Skipped — the cell is never read.
     const field = byKey.get(target);
     if (!field) {
       return {

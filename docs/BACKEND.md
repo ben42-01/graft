@@ -86,6 +86,10 @@ Layered, Redis-backed (sliding window or token bucket via `rate-limiter-flexible
   bytes — parse it. `GET /api/v1/entities/:entityId/imports/:importId` re-reads
   one result. All four are gated on `can(ctx, "csv_import")` and are limited by
   the authenticated-API scopes above (`global-ip`, `api`, `user`).
+  In `mapping`, a source column mapped to `null` is skipped — its cells are never
+  read. An unmentioned column still maps to itself. The client gates its import
+  UI on `GET /api/v1/me` → `tenant.features.csv_import`, which is the resolved
+  entitlement (tier plus per-tenant override), never on `tenant.tier`.
 - **Buckets are private in every environment.** Reads go through the application (`GET /api/v1/public/media/:mediaId`), which 307s to a presigned `GET` (1 h TTL) only while the *owning* resource is public — a form's images go dark the moment it is unpublished or killed. MinIO in dev and QA, any S3-compatible endpoint in production, so the signed-URL path is identical everywhere.
 - Auth endpoints are charged on **failure**: a correct password never spends the 5-per-15-minutes budget.
 - When Redis is unavailable the limiter fails **closed** on the unauthenticated write surfaces (public form, auth) and **open** on authenticated traffic and the global IP layer, logging `ratelimit.degraded` with the decision either way.

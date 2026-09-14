@@ -21,9 +21,10 @@ import {
 } from "@/server/auth/accounts-store";
 import { createContext } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
-import { TIER_LIMITS } from "@/server/tiers";
+import { TIER_FEATURES, TIER_LIMITS, type TierLimits } from "@/server/tiers";
 import type { Session } from "@/server/services/tokens";
 import { startTrial, TRIAL_DAYS, type BillingStore, type StripeClient } from "./billing";
+import { resolveEntitlements } from "./entitlements";
 import { getMe, login, signup, switchTenant, verifyEmail, type AccountDeps } from "./accounts";
 
 const PASSWORD = "correct horse battery staple";
@@ -198,6 +199,18 @@ beforeEach(() => {
       return session;
     },
     emitVerificationToken: (event) => emitted.push(event),
+    // The real resolver over the fake tenant, so `features` is exactly what
+    // `can()` would decide — overrides included.
+    entitlements: async (ctx) => {
+      const tenant = fake.tenants.get(ctx.tenantId);
+      if (!tenant) throw new Error(`no fake tenant ${ctx.tenantId}`);
+      return resolveEntitlements({
+        ...tenant,
+        readOnly: [],
+        downgradedAt: null,
+        billingAnchorDay: 1,
+      });
+    },
   };
 });
 
@@ -598,10 +611,32 @@ describe("getMe", () => {
       slug: "bellas-barbershop",
       tier: "premium",
       limits: TIER_LIMITS.premium,
+      features: TIER_FEATURES.premium,
       branding: null,
       // GRAFT-26 AC8 — the upgrade moment docs/TIERS.md §5 describes.
       trialDaysRemaining: TRIAL_DAYS,
     });
+  });
+
+  it("reports resolved features, so a per-tenant override reaches the UI", async () => {
+    // Free does not include csv_import; this tenant has it switched on by hand.
+    const tenantId = await fake.store.insertTenant({
+      name: "Override Ltd",
+      slug: "override-ltd",
+      tier: "free",
+      limits: { ...TIER_LIMITS.free, csv_import: true } as TierLimits,
+    });
+    const userId = await fake.store.insertUser({
+      email: "override@example.test",
+      name: null,
+      passwordHash: "irrelevant",
+      memberships: [{ tenantId, roles: ["owner"] }],
+    });
+
+    const me = await getMe(ctxFor(tenantId, userId), deps);
+
+    expect(TIER_FEATURES.free.csv_import).toBe(false);
+    expect(me.tenant.features.csv_import).toBe(true);
   });
 
   it("GRAFT-26 AC8 — a non-trialling tenant reports null, not 0", async () => {

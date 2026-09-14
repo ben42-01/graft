@@ -56,6 +56,13 @@ tests {
     expect(me.tenant.limits.plugins).to.equal(3);
   });
   
+  test("the active tenant carries resolved features, the same answer can() gives", function () {
+    // The wizard reads csv_import from here rather than guessing from `tier`:
+    // a per-tenant override in `tenants.limits` can switch a feature either way.
+    expect(me.tenant.features.csv_import).to.equal(false);
+    expect(typeof me.tenant.features.inbound_webhooks).to.equal("boolean");
+  });
+
   test("AC4 — no hash is ever returned", function () {
     expect(JSON.stringify(me)).to.not.contain("argon2");
     expect(me.user.passwordHash).to.be.undefined;
