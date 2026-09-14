@@ -34,13 +34,14 @@ import type { Ctx } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
-import { TIER_LIMITS, type Tier, type TierLimits } from "@/server/tiers";
+import { TIER_LIMITS, type Tier, type TierFeatures, type TierLimits } from "@/server/tiers";
 import {
   mongoBillingStore,
   startTrial as startTrialDefault,
   trialDaysRemaining,
   type BillingStore,
 } from "./billing";
+import { loadEntitlements, type Entitlements } from "./entitlements";
 import { isReservedSlug, slugify } from "./slugs";
 import { issueSession, type AccessTokenInput, type Session } from "./tokens";
 
@@ -114,6 +115,8 @@ export type AccountDeps = {
   /** AC8's read half — the active tenant's billing sub-document, for
    * days-remaining. Same port, same one-tenant-per-call shape. */
   billing: BillingStore;
+  /** The same resolver `can()` reads, so `/me`'s `features` cannot disagree with it. */
+  entitlements: (ctx: Ctx) => Promise<Entitlements>;
 };
 
 /**
@@ -158,6 +161,7 @@ function resolve(overrides: Partial<AccountDeps> = {}): AccountDeps {
     emitVerificationToken: overrides.emitVerificationToken ?? logVerificationToken,
     startTrial: overrides.startTrial ?? ((tenantId) => startTrialDefault(tenantId)),
     billing: overrides.billing ?? mongoBillingStore(),
+    entitlements: overrides.entitlements ?? loadEntitlements,
   };
 }
 
@@ -379,6 +383,12 @@ export type MeView = {
     slug: string;
     tier: Tier;
     limits: TierLimits;
+    /**
+     * Resolved features — tier defaults plus any per-tenant override in
+     * `tenants.limits`. The UI renders a gate from this, never from `tier`:
+     * a tier-derived guess is wrong for exactly the tenants with an override.
+     */
+    features: TierFeatures;
     /** GRAFT-11.4 AC3 — the shell's only source for the tenant's brand colour. */
     branding: { logoUrl: string | null; primaryColor: string | null } | null;
     /**
@@ -422,6 +432,7 @@ export async function getMe(ctx: Ctx, overrides: Partial<AccountDeps> = {}): Pro
   // AC8. Only for the active tenant — the memberships list is a switcher, not
   // an entitlement surface, so it does not need a billing read per workspace.
   const billing = await deps.billing.findTenantById(tenant.id);
+  const { features } = await deps.entitlements(ctx);
 
   return {
     user: {
@@ -437,6 +448,7 @@ export async function getMe(ctx: Ctx, overrides: Partial<AccountDeps> = {}): Pro
       slug: tenant.slug,
       tier: tenant.tier,
       limits: tenant.limits,
+      features,
       branding: tenant.branding,
       trialDaysRemaining: trialDaysRemaining(billing?.billing.trialEndsAt ?? null, deps.now()),
     },

@@ -344,6 +344,48 @@ describe("startImport — mapping and validation", () => {
     expect(h.records.docs[0]?.data).toEqual({ name: "Widget", price: 19.99 });
   });
 
+  it("skip — a column mapped to null is ignored instead of rejecting every row", async () => {
+    const h = harness(
+      csv([
+        ["Product Name", "Internal notes"],
+        ["Widget", "do not ship"],
+      ]),
+    );
+    const result = await startImport(
+      ctx,
+      ENTITY,
+      body({ mapping: { "Product Name": "name", "Internal notes": null } }),
+      h.deps,
+    );
+    expect(result.imported).toBe(1);
+    expect(result.rejectedCount).toBe(0);
+    expect(h.records.docs[0]?.data).toEqual({ name: "Widget" });
+  });
+
+  it("skip — a column whose header matches a field can still be left out", async () => {
+    const h = harness(
+      csv([
+        ["name", "price"],
+        ["Widget", "19.99"],
+      ]),
+    );
+    const result = await startImport(ctx, ENTITY, body({ mapping: { price: null } }), h.deps);
+    expect(result.imported).toBe(1);
+    expect(h.records.docs[0]?.data).toEqual({ name: "Widget" });
+  });
+
+  it("skip — skipping the column a required field comes from rejects the row by that field", async () => {
+    const h = harness(
+      csv([
+        ["name", "sku"],
+        ["Widget", "W-1"],
+      ]),
+    );
+    const result = await startImport(ctx, ENTITY, body({ mapping: { name: null } }), h.deps);
+    expect(result.imported).toBe(0);
+    expect(result.rejected[0]).toMatchObject({ row: 1, field: "name" });
+  });
+
   it("AC3 — a required field missing is a row rejection naming the field", async () => {
     const h = harness(
       csv([
@@ -542,6 +584,7 @@ describe("startImport — quota (AC8)", () => {
     const result = await startImport(ctx, ENTITY, body(), h.deps);
 
     expect(result.imported).toBe(50);
+    expect(result.quotaRefused).toBe(50);
     expect(result.rejected).toHaveLength(50);
     expect(result.rejected[0]?.reason).toContain("records");
     expect(result.rejected.map((r) => r.row)).toEqual(
@@ -560,6 +603,7 @@ describe("startImport — quota (AC8)", () => {
     });
     const result = await startImport(ctx, ENTITY, body(), h.deps);
     expect(result.imported).toBe(0);
+    expect(result.quotaRefused).toBe(2);
     expect(result.rejected).toHaveLength(2);
     expect(h.records.docs).toHaveLength(0);
     expect(h.checkQuota).toHaveBeenCalledTimes(1);
@@ -615,6 +659,9 @@ describe("startImport — dry run (AC5)", () => {
     expect(preview.total).toBe(real.total);
     expect(preview.imported).toBe(real.imported);
     expect(preview.rejected).toEqual(real.rejected);
+    // A validation rejection is not a quota refusal.
+    expect(real.quotaRefused).toBe(0);
+    expect(preview.quotaRefused).toBe(0);
     expect(dry.records.docs).toHaveLength(0);
     expect(dry.checkQuota).not.toHaveBeenCalled();
   });
@@ -625,6 +672,7 @@ describe("startImport — dry run (AC5)", () => {
     const h = harness(csv(rows), { peek: quota({ used: 99_996, remaining: 4 }) });
     const result = await startImport(ctx, ENTITY, body({ dryRun: true }), h.deps);
     expect(result.imported).toBe(4);
+    expect(result.quotaRefused).toBe(6);
     expect(result.rejected).toHaveLength(6);
     expect(h.checkQuota).not.toHaveBeenCalled();
   });
