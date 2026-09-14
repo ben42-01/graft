@@ -1,0 +1,28 @@
+meta {
+  name: Reopening setup resumes the same run
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/v1/setup
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.step: eq records
+  res.body.data.thingLabel: eq Kilns
+  res.body.error: isUndefined
+}
+
+tests {
+  test("it is the run started at the top of this folder, not a fresh one", function () {
+    expect(res.getBody().data.id).to.equal(bru.getVar("setupRunId"));
+  });
+}

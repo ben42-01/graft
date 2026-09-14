@@ -59,8 +59,8 @@ export function buildSetupSteps(input: {
       title: "Define what you track",
       description:
         "Customers, jobs, bookable items — entities are the shapes your business runs on.",
-      href: "/entities/templates",
-      cta: "Start from a template",
+      href: "/setup",
+      cta: "Walk me through it",
       status: statusOf(input.entityCount),
     },
     {
