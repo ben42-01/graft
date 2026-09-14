@@ -1,0 +1,34 @@
+meta {
+  name: Starting a guided setup run opens it at the first step
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/setup
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.step: eq thing
+  res.body.data.intent: eq null
+  res.body.data.resourceEntityId: eq null
+  res.body.data.completedAt: eq null
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  bru.setVar("setupRunId", res.getBody().data.id);
+}
+
+docs {
+  The run owns nothing. It records which step a tenant reached and which
+  ordinary objects that step created, so a half-finished run leaves usable
+  entities behind rather than debris.
+}

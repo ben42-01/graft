@@ -11,6 +11,13 @@
  * is the timestamp `isSpamSubmission` compares against, captured once at
  * mount so it reflects render time, not submit time.
  *
+ * What is sent is built by `toRecordPayload`, the same function the in-app
+ * record dialog uses, rather than by posting the form's raw values. An
+ * untouched optional input holds `""`, and `""` is not an absent value to the
+ * compiled entity schema — it is an invalid date, an invalid phone number and
+ * a NaN. Posting raw values 400s a form whose visitor simply left the
+ * optional field alone, which is exactly what they are for.
+ *
  * Catalogue mode lives here rather than one level up because the chosen item
  * is part of the submission: it travels as `_selection`, beside `_hp` and
  * `_t`, never inside `data`. The server treats the selection key as its own
@@ -39,9 +46,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { DateField } from "@/components/ui/date-field";
 import { CatalogueBrowser } from "@/components/public-form/catalogue-browser";
 import { placeContent, type ContentBlock, type LinkBlock } from "@/lib/content-blocks";
 import { contrastingTextColor } from "@/lib/contrast";
+import {
+  toRecordPayload,
+  type FormValues as RecordFormValues,
+} from "@/lib/entities/record-values";
 import type { FieldDef } from "@/server/services/entities";
 
 export type CatalogueShape = { selectionKey: string | null } | null;
@@ -117,6 +129,8 @@ export function PublicFormRenderer({
 
   async function onSubmit(values: FormValues) {
     // Checked here so the visitor is told at once; the server checks again.
+    // First, because an unticked agreement is a fix the visitor can make
+    // without ever seeing a payload error underneath it.
     const unticked = mustAgree.filter((block) => !agreed.has(block.id));
     setAgreementErrors(
       Object.fromEntries(
@@ -124,6 +138,16 @@ export function PublicFormRenderer({
       ),
     );
     if (unticked.length > 0) return;
+
+    // The selection key is never rendered and never sent inside `data` — the
+    // server writes it from `_selection` — so it is dropped before the
+    // payload is built rather than being offered as an empty string.
+    const answerable = visibleFields.filter((field) => field.type !== "file");
+    const payload = toRecordPayload(values as RecordFormValues, answerable);
+    if (!payload.ok) {
+      setState({ status: "error", message: payload.message });
+      return;
+    }
 
     setState({ status: "submitting" });
     try {
@@ -134,7 +158,7 @@ export function PublicFormRenderer({
           credentials: "omit",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            data: values,
+            data: payload.data,
             _hp: honeypotRef.current?.value || undefined,
             _t: renderedAt.current,
             _selection: selectedId ?? undefined,
@@ -393,12 +417,12 @@ function renderInput(
       );
     case "date":
       return (
-        <Input
-          type={withTime ? "datetime-local" : "date"}
-          value={rhf.value as string}
-          onChange={(e) => rhf.onChange(e.target.value)}
-          onBlur={rhf.onBlur}
+        <DateField
+          value={(rhf.value as string) ?? ""}
+          onChange={rhf.onChange}
+          withTime={withTime}
           name={rhf.name}
+          aria-label={field.label}
         />
       );
     case "email":

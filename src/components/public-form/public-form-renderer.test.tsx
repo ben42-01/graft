@@ -264,3 +264,104 @@ describe("PublicFormRenderer — notes and links for customers", () => {
     expect(body.data).not.toHaveProperty("terms");
   });
 });
+
+/**
+ * The payload, rather than the pixels.
+ *
+ * An untouched optional input holds `""`, and `""` is not "absent" to the
+ * compiled entity schema — it is an invalid date, an invalid phone number and
+ * a NaN. Posting the form's raw values therefore 400s a submission whose only
+ * sin was leaving an optional field alone, which is what happened to a real
+ * booking form. These assert on what goes over the wire.
+ */
+describe("PublicFormRenderer — what it sends", () => {
+  const BOOKING_FIELDS: FieldDef[] = [
+    { key: "name", label: "Their name", type: "text", required: true },
+    { key: "phone", label: "Phone", type: "phone", required: false },
+    { key: "starts_at", label: "From", type: "date", required: true },
+    { key: "ends_at", label: "Until", type: "date", required: false },
+    { key: "party_size", label: "Party size", type: "number", required: false },
+  ];
+
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { submissionId: "abc" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  const sent = () =>
+    JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string).data;
+
+  async function fillAndSubmit() {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <PublicFormRenderer
+        tenantSlug="boats4all"
+        formSlug="book-boats"
+        fields={BOOKING_FIELDS}
+        primaryColor={null}
+        timeFields={["starts_at", "ends_at"]}
+      />,
+    );
+
+    await user.type(screen.getByLabelText(/Their name/), "Ada Lovelace");
+
+    // The date picker, driven the way a keyboard-first visitor drives it.
+    await user.click(screen.getByRole("button", { name: "From" }));
+    const typed = await screen.findByLabelText("Type a date");
+    await user.type(typed, "2026-09-20{Enter}");
+    await user.keyboard("{Escape}");
+
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    return user;
+  }
+
+  it("omits optional fields the visitor left alone, instead of sending empty strings", async () => {
+    await fillAndSubmit();
+
+    const data = sent();
+    expect(data).not.toHaveProperty("phone");
+    expect(data).not.toHaveProperty("ends_at");
+    expect(data).not.toHaveProperty("party_size");
+  });
+
+  it("sends what the visitor did answer", async () => {
+    await fillAndSubmit();
+
+    const data = sent();
+    expect(data.name).toBe("Ada Lovelace");
+    expect(data.starts_at).toMatch(/^2026-09-20/);
+  });
+
+  it("sends a number as a number, not as the string the input held", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    render(
+      <PublicFormRenderer
+        tenantSlug="boats4all"
+        formSlug="book-boats"
+        fields={[
+          { key: "name", label: "Their name", type: "text", required: true },
+          { key: "party_size", label: "Party size", type: "number", required: false },
+        ]}
+        primaryColor={null}
+      />,
+    );
+
+    await user.type(screen.getByLabelText(/Their name/), "Ada");
+    await user.type(screen.getByLabelText(/Party size/), "4");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(sent().party_size).toBe(4);
+  });
+});

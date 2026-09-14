@@ -50,13 +50,13 @@ import {
   type FormValues,
 } from "@/lib/entities/record-values";
 import { ImageField } from "@/components/entities/image-field";
+import { DateField } from "@/components/ui/date-field";
 
 export type RecordRow = { id: string; data: Record<string, unknown> };
 
 const INPUT_TYPE: Record<string, string> = {
   text: "text",
   number: "number",
-  date: "date",
   email: "email",
   phone: "tel",
 };
@@ -193,7 +193,14 @@ export function RecordDialog({
                   {field.required ? <span aria-hidden>*</span> : null}
                 </Label>
 
-                {field.type === "select" ? (
+                {field.type === "date" ? (
+                  <DateField
+                    id={inputId}
+                    value={typeof value === "string" ? value : ""}
+                    onChange={(next) => setValue(field.key, next)}
+                    aria-label={field.label}
+                  />
+                ) : field.type === "select" ? (
                   <Select
                     value={typeof value === "string" ? value : ""}
                     onValueChange={(next) => setValue(field.key, next)}
