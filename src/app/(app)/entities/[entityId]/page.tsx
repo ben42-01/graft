@@ -29,6 +29,7 @@ import {
   PencilIcon,
   PlusIcon,
   Trash2Icon,
+  UploadIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -48,6 +49,8 @@ import { LoadingState } from "@/components/shell/loading-state";
 import { FieldRowsEditor } from "@/components/entities/field-rows-editor";
 import { RecordDialog, type RecordRow } from "@/components/entities/record-dialog";
 import { BookableDialog, type PoolView } from "@/components/entities/bookable-dialog";
+import { ImportWizard } from "@/components/entities/import-wizard";
+import { useMe } from "@/lib/session";
 import {
   draftFieldsFrom,
   removedKeys,
@@ -98,6 +101,10 @@ export default function EntityPage() {
    */
   const [pools, setPools] = useState<Map<string, PoolView>>(new Map());
   const [bookableFor, setBookableFor] = useState<RecordRow | null>(null);
+
+  // The import gate is `/me`'s resolved features, never the tier (GRAFT-25.2 AC1).
+  const { status: sessionStatus, me } = useMe();
+  const [importOpen, setImportOpen] = useState(false);
 
   const [schemaOpen, setSchemaOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -261,6 +268,14 @@ export default function EntityPage() {
               <Link href={`/forms?entity=${entityId}`}>
                 <FileTextIcon /> Collect with a form
               </Link>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setImportOpen(true)}
+            >
+              <UploadIcon /> Import
             </Button>
             <Button
               type="button"
@@ -497,6 +512,19 @@ export default function EntityPage() {
           recordLabel={recordLabel(bookableFor, entity.fields)}
           pool={pools.get(bookableFor.id) ?? null}
           onSaved={() => void loadPools()}
+        />
+      ) : null}
+
+      {/* Mounted only while open, so each import starts from step one. */}
+      {importOpen ? (
+        <ImportWizard
+          open
+          onOpenChange={setImportOpen}
+          entityId={entityId}
+          entityName={entity.name}
+          fields={entity.fields}
+          features={sessionStatus === "loading" ? null : (me?.tenant.features ?? {})}
+          onImported={() => void loadRecords(null)}
         />
       ) : null}
     </div>
