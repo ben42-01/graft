@@ -259,3 +259,80 @@ describe("getPublicCatalogue", () => {
     expect(d.deps.findByPublicSlug).not.toHaveBeenCalled();
   });
 });
+
+describe("getPublicCatalogue — search", () => {
+  const filterOf = (d: ReturnType<typeof deps>, call = 0) =>
+    d.seen[call]!.filter as Record<string, unknown>;
+
+  it("matches the card's name field case-insensitively, as a literal", async () => {
+    const d = deps(seedForm(), []);
+    const page = await getPublicCatalogue(
+      "harbour",
+      "book-a-boat",
+      { q: "  Kay.k(  " },
+      d.deps,
+    );
+
+    expect(filterOf(d)["data.name"]).toEqual({ $regex: "Kay\\.k\\(", $options: "i" });
+    expect(page?.meta.searchLabel).toBe("Name");
+  });
+
+  it("stays inside this tenant, this entity and live records", async () => {
+    const d = deps(seedForm(), []);
+    await getPublicCatalogue("harbour", "book-a-boat", { q: "kayak" }, d.deps);
+
+    const filter = filterOf(d);
+    expect(String(filter.tenantId)).toBe(TENANT);
+    expect(String(filter.entityDefId)).toBe(CATALOGUE_ENTITY);
+    expect(filter.deletedAt).toBeNull();
+  });
+
+  it("caps the length of what is searched for", async () => {
+    const d = deps(seedForm(), []);
+    await getPublicCatalogue("harbour", "book-a-boat", { q: "x".repeat(500) }, d.deps);
+    expect((filterOf(d)["data.name"] as { $regex: string }).$regex).toHaveLength(60);
+  });
+
+  it("treats a blank query as no search", async () => {
+    const d = deps(seedForm(), []);
+    await getPublicCatalogue("harbour", "book-a-boat", { q: "   " }, d.deps);
+    expect(filterOf(d)).not.toHaveProperty("data.name");
+  });
+
+  it("offers no search, and ignores one, when the form shows no text field", async () => {
+    const form = seedForm();
+    const d = deps({ ...form, catalogue: { ...form.catalogue!, fields: ["price"] } }, []);
+    const page = await getPublicCatalogue("harbour", "book-a-boat", { q: "kayak" }, d.deps);
+
+    expect(page?.meta.searchLabel).toBeNull();
+    expect(Object.keys(filterOf(d)).some((key) => key.startsWith("data."))).toBe(false);
+  });
+
+  it("never searches a field the form does not show", async () => {
+    // cost_price is on the entity but not allowlisted, and name is not text here.
+    const form = seedForm();
+    const d = deps({ ...form, catalogue: { ...form.catalogue!, fields: ["cost_price"] } }, []);
+    await getPublicCatalogue("harbour", "book-a-boat", { q: "10" }, d.deps);
+    expect(filterOf(d)).not.toHaveProperty("data.cost_price");
+  });
+
+  it("keeps the search when paging on with a cursor", async () => {
+    const records = [
+      seedRecord(1, { name: "Kayak A" }),
+      seedRecord(2, { name: "Kayak B" }),
+      seedRecord(3, { name: "Kayak C" }),
+    ];
+    const d = deps(seedForm(), records);
+    const first = await getPublicCatalogue("harbour", "book-a-boat", { q: "kayak" }, d.deps);
+    await getPublicCatalogue(
+      "harbour",
+      "book-a-boat",
+      { q: "kayak", cursor: first!.meta.cursor! },
+      d.deps,
+    );
+
+    const second = filterOf(d, 1);
+    expect(second).toHaveProperty("_id");
+    expect(second["data.name"]).toEqual({ $regex: "kayak", $options: "i" });
+  });
+});

@@ -54,7 +54,9 @@ export type CatalogueCard = {
 
 export type PublicCataloguePage = {
   items: CatalogueCard[];
-  meta: PageMeta;
+  /** `searchLabel` names the field a search matches, or `null` when this
+   * catalogue shows no text field to search. */
+  meta: PageMeta & { searchLabel: string | null };
 };
 
 export type PublicCatalogueDeps = {
@@ -148,6 +150,28 @@ export function toCard(
   return { id: record._id.toHexString(), image, values };
 }
 
+/** Long enough for any product name; short enough that a query stays a query. */
+export const MAX_SEARCH_LENGTH = 60;
+
+const escapeRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * The field a visitor's search matches: the first allowlisted `text` field,
+ * which is what a card shows as its name. Only ever an allowlisted field, so
+ * search cannot find records by something the form does not already show.
+ */
+export function searchFieldFor(
+  catalogue: CatalogueConfig,
+  fields: readonly FieldDef[],
+): FieldDef | null {
+  const byKey = new Map(fields.map((field) => [field.key, field]));
+  for (const key of catalogue.fields) {
+    const field = byKey.get(key);
+    if (field?.type === "text") return field;
+  }
+  return null;
+}
+
 /**
  * One page of a published form's catalogue. `null` for anything that is not a
  * live catalogue, whatever the reason.
@@ -155,7 +179,7 @@ export function toCard(
 export async function getPublicCatalogue(
   tenantSlug: string,
   formSlug: string,
-  query: { cursor?: string; limit?: unknown } = {},
+  query: { cursor?: string; limit?: unknown; q?: string } = {},
   overrides: Partial<PublicCatalogueDeps> = {},
 ): Promise<PublicCataloguePage | null> {
   const deps = resolveDeps(overrides);
@@ -192,6 +216,19 @@ export async function getPublicCatalogue(
     filter._id = { $lt: new ObjectId(decodeCursor(query.cursor).id) };
   }
 
+  // Search is a literal, case-insensitive match on the card's name field. The
+  // key comes from the entity definition, never the request, and the text is
+  // escaped, so a visitor cannot send a pattern of their own. It composes with
+  // the cursor, so paging through search results works like paging at all.
+  const searchField = searchFieldFor(catalogue, entity.fields);
+  const q = typeof query.q === "string" ? query.q.trim().slice(0, MAX_SEARCH_LENGTH) : "";
+  if (searchField && q) {
+    (filter as Record<string, unknown>)[`data.${searchField.key}`] = {
+      $regex: escapeRegex(q),
+      $options: "i",
+    };
+  }
+
   // One extra row is how `hasMore` is known without a second count query.
   const rows = await deps.findRecords(filter, limit + 1);
   const hasMore = rows.length > limit;
@@ -206,6 +243,7 @@ export async function getPublicCatalogue(
       limit,
       hasMore,
       cursor: hasMore && last ? encodeCursor({ id: last.id }) : null,
+      searchLabel: searchField?.label ?? null,
     },
   };
 }
