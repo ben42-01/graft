@@ -11,7 +11,7 @@
  * allowlist, the server-side page cap, the soft-delete exclusion, and the
  * collapse of unknown/unpublished/killed/not-a-catalogue into one 404 so a
  * scraper cannot tell them apart. This route only passes through the two slug
- * segments and the paging knobs.
+ * segments, the paging knobs and the search text (`q`).
  *
  * Rate limiting is the `public-form` scope, inherited from the `/api/v1/public/`
  * row in rate-limit/policy.ts — deliberately the same budget the submit
@@ -43,6 +43,7 @@ export const GET = route<Params>(
     const page = await getPublicCatalogue(params.tenantSlug, params.formSlug, {
       cursor: url.searchParams.get("cursor") ?? undefined,
       limit: url.searchParams.get("limit") ?? undefined,
+      q: url.searchParams.get("q") ?? undefined,
     });
     if (!page) return jsonError(new AppError("NOT_FOUND", "Form not found"), requestId);
     return jsonOk(page.items, requestId, page.meta);
