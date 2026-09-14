@@ -206,6 +206,8 @@ redirects the submitter to it after the submission has been accepted.
 | Email | Resend / SES | Verification, notifications, automations |
 | Hosting | Vercel (app) + Atlas | Enterprise: option for dedicated cluster |
 
+**Notes and links for customers.** A public form can carry messages and links between its fields: a short cancellation policy to read, or a link to the business's terms, website or anything else. They are not fields and never land in a record. A link opens in a new tab and must be an `http(s)` address. The business can require the customer to tick "I agree" to a link before the form will send, and what was agreed is saved with the submission as it read at that moment.
+
 ### Multi-tenancy & Security Principles
 
 - Every query is scoped by `tenantId` at the service layer — never trust the client.

@@ -1,0 +1,76 @@
+meta {
+  name: Notes and links for customers can be set on a form
+  type: http
+  seq: 22
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000026
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumAccessToken}}
+}
+
+body:json {
+  {
+    "content": [
+      {
+        "id": "policy",
+        "kind": "notice",
+        "title": "Cancellation policy",
+        "body": "Cancel up to 24 hours before for a full refund.",
+        "after": null
+      },
+      {
+        "id": "terms",
+        "kind": "link",
+        "label": "Terms of hire",
+        "url": "https://example.com/terms",
+        "requireAgreement": true,
+        "after": null
+      }
+    ]
+  }
+}
+
+script:pre-request {
+  // The premium tenant's owner, for the same rate-limit reason as
+  // payment-link-config.bru, which uses the same form.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  bru.setVar("premiumAccessToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.content: length 2
+  res.body.error: isUndefined
+}
+
+tests {
+  const content = res.getBody().data.content;
+
+  test("blocks are stored in the order they were sent", function () {
+    expect(content[0].kind).to.equal("notice");
+    expect(content[1].kind).to.equal("link");
+  });
+
+  test("the link keeps its address and its must-agree flag", function () {
+    expect(content[1].url).to.equal("https://example.com/terms");
+    expect(content[1].requireAgreement).to.equal(true);
+  });
+}
+
+docs {
+  Runs against formPremiumPayment (000000000000000000000026,
+  scripts/seed-qa.ts). content-blocks-rejects-unsafe-link.bru (seq 23) clears
+  the blocks again before its own request, so the fixture ends the run with no
+  content.
+}

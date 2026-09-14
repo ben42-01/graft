@@ -33,6 +33,13 @@ import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
 import { mongoAccountStore, type AccountStore } from "@/server/auth/accounts-store";
 import { PAYMENT_LINK_HOST, isPaymentLinkUrl } from "@/lib/payment-links";
+import {
+  MAX_BLOCK_TITLE,
+  MAX_CONTENT_BLOCKS,
+  MAX_NOTICE_BODY,
+  isSafeLinkUrl,
+  type ContentBlock,
+} from "@/lib/content-blocks";
 import { getEntity as getEntityDefault, type EntityView, type FieldDef } from "./entities";
 import { mediaUrl } from "./media";
 import { consumeQuota as consumeQuotaDefault, type Meter, type QuotaResult } from "./meters";
@@ -218,6 +225,66 @@ export type PaymentInput = z.input<typeof paymentSchema>;
 /** Re-exported so the one allow-list rule has one home (src/lib/payment-links.ts). */
 export { isPaymentLinkUrl };
 
+const blockId = z.string().regex(/^[a-z0-9]{1,24}$/, "Not a valid block id");
+
+/**
+ * Notes and links for customers (src/lib/content-blocks.ts). Not fields: no
+ * customer input lands in them, so they live on the form and never in a
+ * record. The URL rule is the shared `isSafeLinkUrl`, checked again when the
+ * public page is built.
+ */
+export const contentBlockSchema = z.discriminatedUnion("kind", [
+  z.object({
+    id: blockId,
+    kind: z.literal("notice"),
+    title: z.string().trim().max(MAX_BLOCK_TITLE).default(""),
+    body: z
+      .string()
+      .trim()
+      .min(1, "Write the message customers should read")
+      .max(MAX_NOTICE_BODY),
+    after: fieldKey.nullable().default(null),
+  }),
+  z.object({
+    id: blockId,
+    kind: z.literal("link"),
+    label: z.string().trim().min(1, "Give the link a label").max(MAX_BLOCK_TITLE),
+    url: z
+      .string()
+      .trim()
+      .refine(isSafeLinkUrl, "Must be a full web address starting with https:// or http://"),
+    requireAgreement: z.boolean().default(false),
+    after: fieldKey.nullable().default(null),
+  }),
+]);
+
+const contentSchema = z.array(contentBlockSchema).max(MAX_CONTENT_BLOCKS);
+
+/**
+ * Checks what the schema cannot see on its own: every id is unique, and a
+ * block placed after a field is placed after a field this form collects.
+ */
+export function resolveContent(
+  input: z.infer<typeof contentSchema>,
+  fields: readonly FieldDef[],
+): ContentBlock[] {
+  const keys = new Set(fields.map((field) => field.key));
+  const ids = new Set<string>();
+  const refuse = (message: string) =>
+    new AppError("VALIDATION_FAILED", "Invalid request body", {
+      source: "body",
+      fields: { content: message },
+    });
+  for (const block of input) {
+    if (ids.has(block.id)) throw refuse(`Two blocks share the id "${block.id}"`);
+    ids.add(block.id);
+    if (block.after !== null && !keys.has(block.after)) {
+      throw refuse(`"${block.after}" is not a field on this form`);
+    }
+  }
+  return input;
+}
+
 export const createFormSchema = z.object({
   entityId: objectIdHex,
   name: z.string().trim().min(1).max(120),
@@ -231,6 +298,8 @@ export const createFormSchema = z.object({
   booking: bookingSchema.nullable().optional(),
   /** Optional at creation — `null`/absent is a form that takes no money. */
   payment: paymentSchema.nullable().optional(),
+  /** Notes and links for customers, in order. Absent is none. */
+  content: contentSchema.optional(),
 });
 
 export const updateFormSchema = z
@@ -245,6 +314,8 @@ export const updateFormSchema = z
     booking: bookingSchema.nullable().optional(),
     /** `null` turns payment collection off; absent leaves it as it was. */
     payment: paymentSchema.nullable().optional(),
+    /** Replaces the whole list; `[]` removes every block. */
+    content: contentSchema.optional(),
   })
   .refine(
     (v) =>
@@ -253,7 +324,8 @@ export const updateFormSchema = z
       v.enabled !== undefined ||
       v.catalogue !== undefined ||
       v.booking !== undefined ||
-      v.payment !== undefined,
+      v.payment !== undefined ||
+      v.content !== undefined,
     { message: "Nothing to update" },
   );
 
@@ -345,6 +417,9 @@ export type FormDoc = {
    * exactly as validated; the URL is re-checked on the way out (GRAFT-24).
    */
   payment?: PaymentConfig | null;
+  /** Notes and links for customers, in order. Absent on older documents,
+   * which read as none. */
+  content?: ContentBlock[];
   /** Constraints — Free retains this; read by GRAFT-10. */
   showBadge: boolean;
   deletedAt: Date | null;
@@ -369,6 +444,7 @@ export type FormView = {
   catalogue: CatalogueView | null;
   booking: BookingConfig | null;
   payment: PaymentConfig | null;
+  content: ContentBlock[];
   showBadge: boolean;
   createdAt: Date;
   updatedAt: Date;
@@ -461,6 +537,7 @@ function toView(doc: { _id: ObjectId } & FormDoc): FormView {
     catalogue: toCatalogueView(doc.catalogue),
     booking: doc.booking ?? null,
     payment: doc.payment ?? null,
+    content: doc.content ?? [],
     showBadge: doc.showBadge,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
@@ -748,6 +825,7 @@ export async function createForm(
     ? resolveBooking(parsed.booking, fields, catalogue, catalogueEntityFields)
     : null;
   const payment = parsed.payment ?? null;
+  const content = resolveContent(parsed.content ?? [], fields);
 
   if (await deps.repo.findOne(ctx, { slug: parsed.slug } as Filter<FormDoc>)) {
     throw new AppError("CONFLICT", "A form with that slug already exists");
@@ -773,6 +851,7 @@ export async function createForm(
       catalogue,
       booking,
       payment,
+      content,
       showBadge: true,
       deletedAt: null,
     });
@@ -886,6 +965,12 @@ export async function updateForm(
     );
   }
 
+  // Placement is checked against the field list this update leaves behind.
+  const content =
+    parsed.content !== undefined
+      ? resolveContent(parsed.content, fields ?? existing.fields)
+      : undefined;
+
   const killSwitchChanged = parsed.enabled !== undefined && parsed.enabled !== existing.enabled;
   if (killSwitchChanged) {
     createLogger({ requestId: ctx.requestId }).info("forms.kill_switch.toggled", {
@@ -903,6 +988,7 @@ export async function updateForm(
       ...(booking !== undefined ? { booking } : {}),
       // `undefined` leaves payment alone; an explicit `null` turns it off.
       ...(parsed.payment !== undefined ? { payment: parsed.payment ?? null } : {}),
+      ...(content !== undefined ? { content } : {}),
       ...(parsed.enabled !== undefined ? { enabled: parsed.enabled } : {}),
       ...(killSwitchChanged
         ? { killSwitchAt: new Date(), killSwitchBy: new ObjectId(ctx.userId) }

@@ -124,6 +124,7 @@ describe("mongoPublicFormWriteStore", () => {
       selectedRecordId: null,
       orderId: null,
       allocationId: null,
+      agreements: [],
       deletedAt: null,
       createdAt: NOW,
       updatedAt: NOW,

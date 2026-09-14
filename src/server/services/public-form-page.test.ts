@@ -82,12 +82,39 @@ describe("getPublicFormPage", () => {
       // Same convention again: a form that takes no bookings reports no time
       // fields rather than omitting the key.
       timeFields: [],
+      content: [],
       tenantName: "Acme",
       tenantSlug: "acme",
       formSlug: "contact",
       branding: tenant.branding,
       showBadge: true,
     });
+  });
+
+  it("passes notes and links through, but drops a link stored before the URL rule existed", async () => {
+    const notice = {
+      id: "policy",
+      kind: "notice" as const,
+      title: "",
+      body: "Cancel 24 hours before.",
+      after: null,
+    };
+    const safe = {
+      id: "site",
+      kind: "link" as const,
+      label: "Our website",
+      url: "https://example.com",
+      requireAgreement: false,
+      after: null,
+    };
+    const page = await getPublicFormPage("acme", "contact", {
+      findByPublicSlug: async () =>
+        form({
+          content: [notice, safe, { ...safe, id: "evil", url: "javascript:alert(1)" }],
+        }),
+      accounts: { findTenantById: async () => tenant } as never,
+    });
+    expect(page?.content).toEqual([notice, safe]);
   });
 
   it("AC1 — 404-collapses an unknown slug", async () => {

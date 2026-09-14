@@ -1,0 +1,61 @@
+meta {
+  name: A link that is not an http(s) web address is refused
+  type: http
+  seq: 23
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000026
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumAccessToken}}
+}
+
+body:json {
+  {
+    "content": [
+      {
+        "id": "evil",
+        "kind": "link",
+        "label": "Click me",
+        "url": "javascript:alert(document.cookie)",
+        "requireAgreement": false,
+        "after": null
+      }
+    ]
+  }
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const token = login.data.data.accessToken;
+  bru.setVar("premiumAccessToken", token);
+  // Leave the shared fixture with no content, whatever ran before.
+  await axios.patch(
+    `${baseUrl}/api/v1/forms/000000000000000000000026`,
+    { content: [] },
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.data: isUndefined
+}
+
+docs {
+  A `javascript:` URL on a page shown to anonymous visitors is a stored XSS.
+  The schema refuses it with the shared `isSafeLinkUrl` rule
+  (src/lib/content-blocks.ts), and the public page filters it again on read.
+  Synchronous asserts only: an async `test()` body would not count towards the
+  gate.
+}
