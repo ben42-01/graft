@@ -22,6 +22,12 @@ export type MeResponse = {
     slug: string;
     tier: string;
     limits: Record<string, unknown>;
+    /**
+     * Resolved features — tier plus any per-tenant override. A gate renders
+     * from this, never from `tier`. Optional only so older fixtures still
+     * type-check; the server always sends it, and absent reads as "not included".
+     */
+    features?: Record<string, boolean>;
     branding: TenantBrandingView | null;
   };
 };

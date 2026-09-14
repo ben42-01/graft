@@ -115,6 +115,8 @@ audit_log        — who did what, when (Premium+)
 
 Key pattern: **`records` is a single polymorphic collection** — each document stores `tenantId`, `entityDefId`, and a `data` object validated at the API layer against the tenant's `entity_defs`. Compound indexes on `(tenantId, entityDefId)` plus selective indexes on promoted/searchable fields keep it fast.
 
+**Import wizard** (GRAFT-25.2, Premium+): an entity's page has an **Import** button that opens a four-step wizard over the GRAFT-25.1 endpoints. Pick a CSV or JSON file (it uploads straight to the bucket), match each column to one of the entity's fields or skip it, preview a real dry run that lists every rejected row with its reason, then import exactly what the preview showed. A partial import caused by the records limit is reported as partial. Free tenants see an upgrade prompt instead of a file picker, rendered from `/me`'s resolved `tenant.features`.
+
 ### 4.3 shadcn/ui as Business Building Blocks
 
 Every shadcn component is wrapped as a **Graft Widget** with a config schema:
