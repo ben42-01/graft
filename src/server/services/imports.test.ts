@@ -584,6 +584,7 @@ describe("startImport — quota (AC8)", () => {
     const result = await startImport(ctx, ENTITY, body(), h.deps);
 
     expect(result.imported).toBe(50);
+    expect(result.quotaRefused).toBe(50);
     expect(result.rejected).toHaveLength(50);
     expect(result.rejected[0]?.reason).toContain("records");
     expect(result.rejected.map((r) => r.row)).toEqual(
@@ -602,6 +603,7 @@ describe("startImport — quota (AC8)", () => {
     });
     const result = await startImport(ctx, ENTITY, body(), h.deps);
     expect(result.imported).toBe(0);
+    expect(result.quotaRefused).toBe(2);
     expect(result.rejected).toHaveLength(2);
     expect(h.records.docs).toHaveLength(0);
     expect(h.checkQuota).toHaveBeenCalledTimes(1);
@@ -657,6 +659,9 @@ describe("startImport — dry run (AC5)", () => {
     expect(preview.total).toBe(real.total);
     expect(preview.imported).toBe(real.imported);
     expect(preview.rejected).toEqual(real.rejected);
+    // A validation rejection is not a quota refusal.
+    expect(real.quotaRefused).toBe(0);
+    expect(preview.quotaRefused).toBe(0);
     expect(dry.records.docs).toHaveLength(0);
     expect(dry.checkQuota).not.toHaveBeenCalled();
   });
@@ -667,6 +672,7 @@ describe("startImport — dry run (AC5)", () => {
     const h = harness(csv(rows), { peek: quota({ used: 99_996, remaining: 4 }) });
     const result = await startImport(ctx, ENTITY, body({ dryRun: true }), h.deps);
     expect(result.imported).toBe(4);
+    expect(result.quotaRefused).toBe(6);
     expect(result.rejected).toHaveLength(6);
     expect(h.checkQuota).not.toHaveBeenCalled();
   });

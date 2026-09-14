@@ -148,6 +148,13 @@ export type ImportResult = {
   rejected: RejectedRow[];
   /** The true count; `rejected` is capped at `MAX_STORED_REJECTIONS`. */
   rejectedCount: number;
+  /**
+   * How many of `rejectedCount` were valid rows refused only because the
+   * `records` ceiling was reached (AC8). Exact, uncapped, and separate from
+   * validation and dedupe rejections, so a client can report a partial import
+   * as partial without string-matching reasons.
+   */
+  quotaRefused: number;
   /** AC6 — states in the result that no dedupe was performed. */
   dedupe: { key: string | null; applied: boolean };
   quota: { meter: Meter; remaining: number | null };
@@ -163,6 +170,8 @@ export type ImportDoc = {
   imported: number;
   rejected: RejectedRow[];
   rejectedCount: number;
+  /** Absent on results stored before it existed; read back as 0. */
+  quotaRefused?: number;
   dedupeKey: string | null;
   quotaRemaining: number | null;
   deletedAt: Date | null;
@@ -575,6 +584,7 @@ function toResult(doc: ImportDoc & { _id: ObjectId }): ImportResult {
     imported: doc.imported,
     rejected: doc.rejected,
     rejectedCount: doc.rejectedCount,
+    quotaRefused: doc.quotaRefused ?? 0,
     dedupe: { key: doc.dedupeKey, applied: doc.dedupeKey !== null },
     quota: { meter: "records", remaining: doc.quotaRemaining },
   };
@@ -665,6 +675,7 @@ export async function startImport(
     imported: accepted.length,
     rejected: rejected.slice(0, MAX_STORED_REJECTIONS),
     rejectedCount: rejected.length,
+    quotaRefused: candidates.length - accepted.length,
     dedupeKey,
     quotaRemaining: remaining,
     deletedAt: null,
