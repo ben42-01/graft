@@ -45,7 +45,10 @@ type Mapping = {
   endKey: string;
   rateKey: string;
   labelKey: string;
-  rateBasis: (typeof RATE_BASES)[number]["value"];
+  // No default on purpose — see the `invalid` check below. An hourly rate
+  // silently applied to a nightly price (or the reverse) is a three-figure
+  // billing error, not something a sensible fallback can guess its way out of.
+  rateBasis: (typeof RATE_BASES)[number]["value"] | "";
 };
 
 const NONE = "__none__";
@@ -101,7 +104,7 @@ export function FormStep({
     endKey: dateFields[1]?.key ?? NONE,
     rateKey: numberFields[0]?.key ?? NONE,
     labelKey: textFields[0]?.key ?? NONE,
-    rateBasis: "hourly",
+    rateBasis: "",
   }));
 
   const patch = (next: Partial<Mapping>) => setMapping((prev) => ({ ...prev, ...next }));
@@ -131,7 +134,9 @@ export function FormStep({
               // the form invites a visitor to skip and then rejects them for
               // skipping, naming a field it called optional.
               `Make "${endField.label}" required on the requests list, or pick a fixed duration instead — a booking with no end cannot be worked out.`
-            : null;
+            : booking && !mapping.rateBasis
+              ? "Say whether that price is per hour, per day, or a flat fee — an hourly rate applied to a nightly price would charge the wrong amount."
+              : null;
 
   async function create() {
     if (invalid || !selectionField) return;
@@ -168,7 +173,9 @@ export function FormStep({
                 startKey: mapping.startKey,
                 endKey: mapping.endKey === NONE ? null : mapping.endKey,
                 durationMinutes: mapping.endKey === NONE ? 60 : null,
-                rateBasis: mapping.rateBasis,
+                // `invalid` (checked above) already refuses to reach here
+                // with rateBasis unset.
+                rateBasis: mapping.rateBasis as (typeof RATE_BASES)[number]["value"],
                 rateKey: mapping.rateKey === NONE ? null : mapping.rateKey,
                 labelKey: mapping.labelKey === NONE ? null : mapping.labelKey,
               }
@@ -330,7 +337,7 @@ export function FormStep({
               onValueChange={(value) => patch({ rateBasis: value as Mapping["rateBasis"] })}
             >
               <SelectTrigger id="map-basis">
-                <SelectValue />
+                <SelectValue placeholder="Choose…" />
               </SelectTrigger>
               <SelectContent>
                 {RATE_BASES.map((basis) => (

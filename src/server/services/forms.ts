@@ -162,7 +162,10 @@ export const bookingSchema = z
     durationMinutes: z.number().int().min(1).max(MAX_BOOKING_MINUTES).nullable().default(null),
     /** A `number` field: how many of a pooled resource. Absent means one. */
     quantityKey: fieldKey.nullable().default(null),
-    rateBasis: z.enum(RATE_BASES).default("hourly"),
+    // No default: a $/hour rate applied to a nightly-priced room (or vice
+    // versa) is a silent, three-figure billing error, not something a
+    // sensible fallback can guess its way out of — the builder must choose.
+    rateBasis: z.enum(RATE_BASES),
     /**
      * A `number` field **on the resource's entity** holding its rate, and a
      * text field holding its name. Both used to be conventions — `hourly_rate`

@@ -60,7 +60,19 @@ afterEach(() => {
 
 const sentBody = () => JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
 
+/** Only present in booking mode with a rate field mapped — picks one so the
+ * rest of these tests can submit without every one of them re-asserting the
+ * separate "no default rate basis" rule covered below. */
+async function chooseRateBasis(label = "Per hour") {
+  const user = userEvent.setup({ pointerEventsCheck: 0 });
+  const trigger = screen.queryByRole("combobox", { name: /and that price is/i });
+  if (!trigger) return;
+  await user.click(trigger);
+  await user.click(await screen.findByRole("option", { name: label }));
+}
+
 async function submit() {
+  await chooseRateBasis();
   await userEvent
     .setup({ pointerEventsCheck: 0 })
     .click(screen.getByRole("button", { name: /create the form/i }));
@@ -125,6 +137,16 @@ describe("FormStep — booking runs", () => {
 
     expect(screen.getByRole("button", { name: /create the form/i })).toBeDisabled();
     expect(screen.getByText(/raised at zero/i)).toBeInTheDocument();
+  });
+
+  it("refuses to create a booking form with no rate basis chosen", () => {
+    // The exact "$3K for a hotel room" bug: leaving this on a silent default
+    // would let an hourly rate get applied to what was actually a nightly
+    // price, or the reverse.
+    render(<FormStep {...props} intent="bookings" />);
+
+    expect(screen.getByRole("button", { name: /create the form/i })).toBeDisabled();
+    expect(screen.getByText(/per hour, per day, or a flat fee/i)).toBeInTheDocument();
   });
 
   it("says what is missing when the requests list has no date on it", async () => {

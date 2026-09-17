@@ -63,6 +63,14 @@ export type BookingView = {
   depositPercent: number | null;
 };
 
+/** The in-progress form has one state `BookingView` cannot: no basis chosen
+ * yet. There is no sensible default — an hourly rate applied to a nightly
+ * price (or the reverse) is a silent billing error, so the builder must pick
+ * one before this can be saved at all. */
+type BookingDraft = Omit<BookingView, "rateBasis"> & {
+  rateBasis: BookingView["rateBasis"] | "";
+};
+
 const DEFAULT_DURATION_MINUTES = 60;
 
 export function BookingEditor({
@@ -107,13 +115,13 @@ export function BookingEditor({
         ? "range"
         : "fixed",
   );
-  const [draft, setDraft] = useState<BookingView>(
+  const [draft, setDraft] = useState<BookingDraft>(
     booking ?? {
       startKey: "",
       endKey: null,
       durationMinutes: DEFAULT_DURATION_MINUTES,
       quantityKey: null,
-      rateBasis: "hourly",
+      rateBasis: "",
       rateKey: null,
       labelKey: null,
       depositPercent: null,
@@ -130,18 +138,22 @@ export function BookingEditor({
   }, [booking]);
 
   const endFields = dateFields.filter((field) => field.key !== draft.startKey);
-  const basis = RATE_BASES.find((option) => option.value === draft.rateBasis) ?? RATE_BASES[0];
+  const basis = RATE_BASES.find((option) => option.value === draft.rateBasis) ?? null;
 
   const fixedLength = mode === "fixed";
   const ready =
     hasSelection &&
     draft.startKey !== "" &&
+    draft.rateBasis !== "" &&
     (fixedLength ? (draft.durationMinutes ?? 0) > 0 : draft.endKey !== null);
 
   // The two halves are mutually exclusive on the wire, whatever is left in
   // the draft from an earlier edit — `bookingSchema` rejects having both.
+  // `ready` (checked by every caller before this runs) already guarantees
+  // rateBasis is one of the three real values, not "".
   const saved = (): BookingView => ({
     ...draft,
+    rateBasis: draft.rateBasis as BookingView["rateBasis"],
     endKey: fixedLength ? null : draft.endKey,
     durationMinutes: fixedLength ? draft.durationMinutes : null,
   });
@@ -303,7 +315,7 @@ export function BookingEditor({
                   aria-label="Charge"
                   className="w-full max-w-xs"
                 >
-                  <SelectValue />
+                  <SelectValue placeholder="Choose how it's charged…" />
                 </SelectTrigger>
                 <SelectContent>
                   {RATE_BASES.map((option) => (
@@ -314,7 +326,9 @@ export function BookingEditor({
                 </SelectContent>
               </Select>
               <p className="mt-1 text-xs text-muted-foreground">
-                How the rate is multiplied — {basis.label.toLowerCase()} of the booking.
+                {basis === null
+                  ? "An hourly rate applied to a nightly price (or the reverse) silently charges the wrong amount — there is no default on purpose."
+                  : `How the rate is multiplied — ${basis.label.toLowerCase()} of the booking.`}
               </p>
             </div>
 
