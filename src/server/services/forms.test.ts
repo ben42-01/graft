@@ -16,6 +16,7 @@ import type { Meter, QuotaResult } from "@/server/services/meters";
 import type { Repository } from "@/server/repositories/base";
 import {
   createForm,
+  deleteForm,
   isFormServable,
   isPaymentLinkUrl,
   paymentSchema,
@@ -126,7 +127,9 @@ function fakeRepo(seed: (WithId<FormDoc> & { tenantId: ObjectId })[] = []) {
     },
 
     async insertOne(_ctx, doc) {
-      const existing = [...docs.values()].find((d) => d.slug === doc.slug);
+      // Mirrors the DB's partial unique index (scripts/create-indexes.ts):
+      // scoped to live rows only, so a soft-deleted form frees its slug.
+      const existing = [...docs.values()].find((d) => d.slug === doc.slug && !d.deletedAt);
       if (existing)
         throw new MongoServerError({ message: "E11000 duplicate key", code: 11000 });
       const full = {
@@ -159,7 +162,10 @@ function fakeRepo(seed: (WithId<FormDoc> & { tenantId: ObjectId })[] = []) {
       return updated;
     },
 
-    async softDelete() {
+    async softDelete(_ctx, id) {
+      const target = docs.get(id.toString());
+      if (!target || !target.tenantId.equals(tenantId)) return false;
+      docs.set(target._id.toHexString(), { ...target, deletedAt: new Date() });
       return true;
     },
 
@@ -429,6 +435,27 @@ describe("createForm — slug collision (AC1)", () => {
         { repo, getEntity: async () => entity() },
       ),
     ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("lets a slug be reused once the form at it is soft-deleted", async () => {
+    const existing = seedDoc();
+    const { repo, docs } = fakeRepo([existing]);
+
+    await deleteForm(ctx, existing._id.toHexString(), { repo });
+    expect(docs.get(existing._id.toHexString())?.deletedAt).not.toBeNull();
+
+    const recreated = await createForm(
+      ctx,
+      {
+        entityId: ENTITY_ID,
+        name: "Hotel Rooms (retry)",
+        slug: existing.slug,
+        visibility: "public",
+        fields: [{ key: "name" }],
+      },
+      { repo, getEntity: async () => entity() },
+    );
+    expect(recreated.slug).toBe(existing.slug);
   });
 });
 

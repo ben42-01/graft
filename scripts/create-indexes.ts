@@ -34,7 +34,15 @@ const INDEXES: IndexDef[] = [
   // GRAFT-25.1 — an import result is always read back by (tenant, entity, id),
   // and listed newest-first when the wizard reopens.
   { collection: "imports", keys: { tenantId: 1, entityDefId: 1, createdAt: -1 } },
-  { collection: "forms", keys: { tenantId: 1, slug: 1 }, options: { unique: true } },
+  // Partial on `deletedAt: null` — same reasoning as the `publicSlug` index
+  // below it: a soft-deleted form must free its slug for reuse, or deleting a
+  // broken form and recreating it under the same name is stuck forever behind
+  // a row nothing can see any more.
+  {
+    collection: "forms",
+    keys: { tenantId: 1, slug: 1 },
+    options: { unique: true, partialFilterExpression: { deletedAt: null } },
+  },
   // Public form lookup by URL: /f/{tenantSlug}/{formSlug}
   {
     collection: "forms",
