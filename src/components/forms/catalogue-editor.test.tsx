@@ -33,10 +33,17 @@ const bookings: EntityOption = {
   ],
 };
 
+const vehicles: EntityOption = {
+  id: "cat3",
+  name: "Vehicles",
+  fields: [{ key: "model", label: "Model", type: "text" }],
+};
+
 const props = {
   catalogue: null,
-  entities: [items, bookings],
+  entities: [items, bookings, vehicles],
   submissionFields: bookings.fields as FieldLike[],
+  submissionEntityId: bookings.id,
   busy: false,
   onSave: vi.fn(),
 };
@@ -121,7 +128,7 @@ describe("CatalogueEditor", () => {
 
     // Keys belong to the old entity; carrying them over would publish whatever
     // happens to share a name on the new one.
-    await choose("Records to show", "Bookings");
+    await choose("Records to show", "Vehicles");
     await user.click(screen.getByRole("button", { name: "Save catalogue" }));
 
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ fields: [] }));
@@ -159,6 +166,20 @@ describe("CatalogueEditor", () => {
     await user.click(screen.getByRole("checkbox", { name: /Show a catalogue/ }));
 
     expect(screen.getByRole("button", { name: "Save catalogue" })).toBeDisabled();
+  });
+
+  it("never offers the form's own submission entity to browse", async () => {
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+
+    render(<CatalogueEditor {...props} />);
+    await user.click(screen.getByRole("checkbox", { name: /Show a catalogue/ }));
+    await user.click(screen.getByRole("combobox", { name: "Records to show" }));
+
+    // "Bookings" is where this form writes submissions — browsing it would
+    // duplicate every field as both a read-only card and an input the
+    // customer must also fill in, and would leak other visitors' entries.
+    const options = (await screen.findAllByRole("option")).map((o) => o.textContent);
+    expect(options).toEqual(["Rental Items", "Vehicles"]);
   });
 
   it("re-seeds from the server's answer", () => {

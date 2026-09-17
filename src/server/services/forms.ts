@@ -595,7 +595,23 @@ export function resolveCatalogue(
   input: z.infer<typeof catalogueSchema>,
   catalogueEntityFields: readonly FieldDef[],
   submissionEntityFields: readonly FieldDef[],
+  submissionEntityId: string,
 ): CatalogueConfig {
+  // Browsing and submitting have to be different entities. Collapse them and
+  // every catalogue field doubles as a submission field: a visitor sees a
+  // room's own photo and price as a read-only card, then has to fill in
+  // "photo" and "price" again to submit — and, worse, "browse" now reads
+  // every prior visitor's own submissions as if they were catalogue items.
+  if (input.entityId === submissionEntityId) {
+    throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+      source: "body",
+      fields: {
+        catalogue:
+          "The catalogue must browse a different entity than the one this form submits to",
+      },
+    });
+  }
+
   const byKey = new Map(catalogueEntityFields.map((field) => [field.key, field]));
 
   const seen = new Set<string>();
@@ -819,7 +835,7 @@ export async function createForm(
     ? (await deps.getEntity(ctx, parsed.catalogue.entityId)).fields
     : [];
   const catalogue = parsed.catalogue
-    ? resolveCatalogue(parsed.catalogue, catalogueEntityFields, entity.fields)
+    ? resolveCatalogue(parsed.catalogue, catalogueEntityFields, entity.fields, parsed.entityId)
     : null;
   const booking = parsed.booking
     ? resolveBooking(parsed.booking, fields, catalogue, catalogueEntityFields)
@@ -913,6 +929,7 @@ export async function updateForm(
           parsed.catalogue,
           (await deps.getEntity(ctx, parsed.catalogue.entityId)).fields,
           (await deps.getEntity(ctx, existing.entityDefId.toHexString())).fields,
+          existing.entityDefId.toHexString(),
         )
       : null;
   }

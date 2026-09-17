@@ -478,6 +478,8 @@ describe("resolveCatalogue", () => {
     { key: "when", label: "When", type: "date", required: false },
   ];
 
+  const SUBMIT_ENTITY_ID = "000000000000000000000099";
+
   const input = (over: Record<string, unknown> = {}) => ({
     entityId: "000000000000000000000022",
     fields: ["name"],
@@ -488,7 +490,7 @@ describe("resolveCatalogue", () => {
   });
 
   it("stores the resolved config, with the entity id as an ObjectId", () => {
-    const config = resolveCatalogue(input(), browse, submit);
+    const config = resolveCatalogue(input(), browse, submit, SUBMIT_ENTITY_ID);
     expect(config.entityDefId.toHexString()).toBe("000000000000000000000022");
     expect(config.fields).toEqual(["name"]);
     expect(config.imageField).toBe("photo");
@@ -498,7 +500,7 @@ describe("resolveCatalogue", () => {
    * what the client renders beside the offending input. */
   const reasonFor = (over: Record<string, unknown>): string => {
     try {
-      resolveCatalogue(input(over), browse, submit);
+      resolveCatalogue(input(over), browse, submit, SUBMIT_ENTITY_ID);
     } catch (error) {
       const details = (error as AppError).details as
         { fields?: Record<string, string> } | undefined;
@@ -508,9 +510,9 @@ describe("resolveCatalogue", () => {
   };
 
   it("refuses a browse field that is not on the catalogue entity", () => {
-    expect(() => resolveCatalogue(input({ fields: ["nope"] }), browse, submit)).toThrow(
-      AppError,
-    );
+    expect(() =>
+      resolveCatalogue(input({ fields: ["nope"] }), browse, submit, SUBMIT_ENTITY_ID),
+    ).toThrow(AppError);
     expect(reasonFor({ fields: ["nope"] })).toMatch(
       /Unknown field "nope" on the catalogue entity/,
     );
@@ -530,7 +532,12 @@ describe("resolveCatalogue", () => {
       /Unknown field "name" on the form's own entity/,
     );
     expect(
-      resolveCatalogue(input({ selectionKey: "chosen_item" }), browse, submit).selectionKey,
+      resolveCatalogue(
+        input({ selectionKey: "chosen_item" }),
+        browse,
+        submit,
+        SUBMIT_ENTITY_ID,
+      ).selectionKey,
     ).toBe("chosen_item");
   });
 
@@ -543,8 +550,22 @@ describe("resolveCatalogue", () => {
       input({ fields: [], imageField: null, selectionKey: null }),
       browse,
       submit,
+      SUBMIT_ENTITY_ID,
     );
     expect(config).toMatchObject({ fields: [], imageField: null, selectionKey: null });
+  });
+
+  it("refuses a catalogue that browses the same entity the form submits to", () => {
+    // The exact "Hotel Rooms" bug report: pick one entity for both roles and
+    // every catalogue display field (with its picture) doubles as a field the
+    // customer must also fill in — and browsing would read other visitors'
+    // own submissions.
+    expect(() =>
+      resolveCatalogue(input({ entityId: SUBMIT_ENTITY_ID }), browse, submit, SUBMIT_ENTITY_ID),
+    ).toThrow(AppError);
+    expect(reasonFor({ entityId: SUBMIT_ENTITY_ID })).toMatch(
+      /must browse a different entity/,
+    );
   });
 });
 

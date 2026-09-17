@@ -56,12 +56,15 @@ export function CatalogueEditor({
   entities,
   /** The entity this form writes submissions to — where a selection lands. */
   submissionFields,
+  /** That entity's own id — excluded below, see `browsable`. */
+  submissionEntityId,
   busy,
   onSave,
 }: {
   catalogue: CatalogueView | null;
   entities: EntityOption[];
   submissionFields: FieldLike[];
+  submissionEntityId: string;
   busy: boolean;
   onSave: (next: CatalogueView | null) => void;
 }) {
@@ -82,7 +85,12 @@ export function CatalogueEditor({
     if (catalogue) setDraft(catalogue);
   }, [catalogue]);
 
-  const browsed = entities.find((entity) => entity.id === draft.entityId);
+  // Browsing and submitting have to be different entities (server-enforced in
+  // resolveCatalogue) — collapsing them would show every catalogue field
+  // twice, once as a read-only card and once as an input the customer has to
+  // fill in again, and would let browsing read other visitors' submissions.
+  const browsable = entities.filter((entity) => entity.id !== submissionEntityId);
+  const browsed = browsable.find((entity) => entity.id === draft.entityId);
   const imageFields = (browsed?.fields ?? []).filter(isImageField);
   // A record id is a string, so only a text field can hold one — the same
   // rule `resolveCatalogue` enforces server-side.
@@ -149,13 +157,20 @@ export function CatalogueEditor({
                   <SelectValue placeholder="Choose an entity…" />
                 </SelectTrigger>
                 <SelectContent>
-                  {entities.map((entity) => (
+                  {browsable.map((entity) => (
                     <SelectItem key={entity.id} value={entity.id}>
                       {entity.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {browsable.length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  A catalogue browses a different entity than the one this form submits to —
+                  create another entity first (e.g. the rooms themselves, separate from the
+                  booking enquiry).
+                </p>
+              ) : null}
             </div>
 
             {browsed ? (
