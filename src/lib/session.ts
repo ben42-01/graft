@@ -42,7 +42,7 @@ export type UseMeResult = {
   logOut: () => Promise<void>;
 };
 
-async function readMe(): Promise<MeResponse | null> {
+async function fetchMe(): Promise<MeResponse | null> {
   try {
     const response = await fetch("/api/v1/me", { credentials: "include" });
     if (!response.ok) return null;
@@ -50,6 +50,38 @@ async function readMe(): Promise<MeResponse | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * Rotates the session via the httpOnly refresh cookie. The access token lives
+ * 15 minutes (tokens.ts `ACCESS_TTL_SECONDS`) and nothing here can read that
+ * cookie to know when it's about to expire, so this is called both on a
+ * schedule and reactively — see `useMe` below.
+ */
+async function refreshSession(): Promise<boolean> {
+  try {
+    const response = await fetch("/api/v1/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+    });
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
+/** Well under the 15-minute access token TTL, so the proactive refresh below
+ * wins the race against expiry under normal use. */
+const REFRESH_INTERVAL_MS = 10 * 60 * 1000;
+
+async function readMe(): Promise<MeResponse | null> {
+  const result = await fetchMe();
+  if (result) return result;
+  // A 401 here is most often just the 15-minute access token having expired
+  // mid-session, not an actual logout — the refresh cookie can still mint a
+  // new one before this gives up and reports "unauthenticated".
+  if (!(await refreshSession())) return null;
+  return fetchMe();
 }
 
 export function useMe(): UseMeResult {
@@ -71,6 +103,14 @@ export function useMe(): UseMeResult {
       mountedRef.current = false;
     };
   }, [load]);
+
+  // Refreshes ahead of the access token's own expiry so an active user is
+  // never the one who has to notice it lapsed.
+  useEffect(() => {
+    if (status !== "authenticated") return;
+    const interval = setInterval(() => void refreshSession(), REFRESH_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [status]);
 
   const switchTenant = useCallback(
     async (tenantId: string) => {
