@@ -35,6 +35,7 @@
     "verify:full": "npm run verify && npm run qa:db && npm run qa:seed && npm run qa:build && dotenv -e .env.qa -- tsx scripts/with-qa-app.ts npm run test:api && npm run qa:db:down",
     "db:indexes": "tsx scripts/create-indexes.ts",
     "storage:bucket": "tsx scripts/ensure-bucket.ts",
+    "admin:grant": "tsx scripts/grant-platform-admin.ts",
     "db:migrate": "tsx scripts/migrate.ts up",
     "db:migrate:status": "tsx scripts/migrate.ts status",
     "build": "next build",

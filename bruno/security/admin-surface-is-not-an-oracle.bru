@@ -1,0 +1,97 @@
+meta {
+  name: The admin surface does not confirm which of its paths exist
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/session
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{oracleProbeToken}}
+}
+
+script:pre-request {
+  // One non-admin caller, two paths: one that is a real route
+  // (/api/v1/admin/session, answered by the gate) and one that is not
+  // (/api/v1/admin/no-such-thing, answered by the /api/v1 catch-all). If the
+  // two replies differ in any observable way, the difference IS the oracle —
+  // a probe that maps the admin surface without being allowed to use it.
+  //
+  // The non-existent path is fetched here; the real one is the request itself,
+  // so both responses are available to the synchronous assertions below.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-platform.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("oracleProbeToken", token);
+
+  const missing = await axios.get(`${baseUrl}/api/v1/admin/no-such-thing`, {
+    headers: { Authorization: `Bearer ${token}` },
+    validateStatus: () => true,
+  });
+  bru.setVar("oracleMissingStatus", missing.status);
+  bru.setVar("oracleMissingBody", JSON.stringify(missing.data));
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC2 — an existing and a non-existent admin path answer with the same status", function () {
+    expect(Number(bru.getVar("oracleMissingStatus"))).to.equal(404);
+    expect(res.getStatus()).to.equal(404);
+  });
+
+  test("AC2 — and with the same error code and envelope shape", function () {
+    const missing = JSON.parse(bru.getVar("oracleMissingBody"));
+    const real = res.getBody();
+
+    expect(missing.error.code).to.equal("NOT_FOUND");
+    expect(real.error.code).to.equal("NOT_FOUND");
+    expect(Object.keys(missing.error).sort()).to.eql(Object.keys(real.error).sort());
+    expect(missing.data).to.equal(undefined);
+  });
+
+  test("AC2 — and with the same message, differing only in the path each names", function () {
+    const missing = JSON.parse(bru.getVar("oracleMissingBody"));
+    const real = res.getBody();
+
+    expect(real.error.message).to.equal("No API route matches GET /api/v1/admin/session");
+    expect(missing.error.message).to.equal(
+      "No API route matches GET /api/v1/admin/no-such-thing",
+    );
+    // Same template, so the message carries no signal beyond the path the
+    // caller already knew it was asking for.
+    const template = (m) => m.replace(/\/api\/v1\/admin\/[\w-]+/, "{path}");
+    expect(template(real.error.message)).to.equal(template(missing.error.message));
+  });
+
+  test("AC2 — neither reply leaks that a gate was involved", function () {
+    const both = res.getBody().error.message + bru.getVar("oracleMissingBody");
+    expect(both.toLowerCase()).to.not.contain("platform");
+    expect(both.toLowerCase()).to.not.contain("admin_audit");
+    expect(both.toLowerCase()).to.not.contain("forbidden");
+  });
+}
+
+docs {
+  GRAFT-27.1 AC2, the "not an oracle" half.
+
+  Returning 404 instead of 403 is only worth anything if the 404 is the *same*
+  404 an unrouted path produces. src/server/auth/platform-admin.ts therefore
+  builds its refusal from the same message template as
+  src/app/api/v1/[...path]/route.ts, and src/server/auth/platform-admin.test.ts
+  pins the two against each other directly. This request is the end-to-end
+  version of that claim, over the wire, as a real non-admin caller sees it.
+}

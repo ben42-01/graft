@@ -321,8 +321,25 @@ async function main() {
       );
     }
 
+    /**
+     * GRAFT-27.1 — one platform admin, so `/api/v1/admin/*` can be exercised
+     * locally without anyone having to run the grant script by hand first.
+     *
+     * The flag is set on an account that already exists rather than on a new
+     * one: a platform admin is an ordinary user who has been given a
+     * privilege, and a dev fixture that made it look like a separate species
+     * of account would teach the wrong model. `updateOne` by email, exactly as
+     * scripts/grant-platform-admin.ts does it — this is the same write, just
+     * pre-applied.
+     */
+    const adminEmail = `owner@${TENANTS[0]!.slug}.test`;
+    await db
+      .collection("users")
+      .updateOne({ email: adminEmail }, { $set: { isPlatformAdmin: true } });
+
     console.log(`\n[graft] dev seed complete on '${db.databaseName}'`);
     console.log(`        sign in as owner@<tenant-slug>.test — password: ${DEV_PASSWORD}`);
+    console.log(`        platform admin: ${adminEmail} (npm run admin:grant -- <email>)`);
     console.log(
       `        e.g. owner@bellas-barbershop.test (free tier, 85% of submission quota)\n`,
     );

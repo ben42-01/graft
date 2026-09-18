@@ -128,6 +128,13 @@ const INDEXES: IndexDef[] = [
   // Audit log: 90-day retention on Premium (docs/TIERS.md §2.4)
   { collection: "audit_log", keys: { tenantId: 1, createdAt: -1 } },
 
+  // Platform-admin audit log (GRAFT-27.1 AC6). Deliberately NOT prefixed by
+  // tenantId — this collection is global, records who did what across the whole
+  // platform, and `targetTenantId` is a recorded fact rather than a filter. The
+  // only query it has is "what happened, most recent first", and there is no
+  // TTL: an append-only record that expires is not an audit trail.
+  { collection: "admin_audit_log", keys: { at: -1 } },
+
   // Refresh tokens (docs/BACKEND.md §3.1). The lookup is (tenantId, tokenHash)
   // and it is unique: one stored hash can never resolve to two families.
   {

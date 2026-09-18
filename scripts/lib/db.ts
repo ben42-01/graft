@@ -41,6 +41,11 @@ export const COLLECTIONS = [
   "dashboards",
   "usage_meters",
   "audit_log",
+  // Platform-admin actions (GRAFT-27.1). Global, not tenant-scoped, and
+  // append-only. Listed here so the QA stack's emptiness check covers it and a
+  // reset clears it — a run that inherited yesterday's admin rows would make
+  // "exactly one row was appended" untestable.
+  "admin_audit_log",
   // Server-side refresh token families (docs/BACKEND.md §3.1). Stores hashes,
   // never token values.
   "refresh_tokens",

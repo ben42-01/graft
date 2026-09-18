@@ -62,6 +62,43 @@
 - Entitlements (tier gating) checked alongside permissions: `can(ctx, "csv_import")`.
 - Public form endpoints (`POST /api/v1/public/forms/:slug/submissions`) are the **only** unauthenticated write surface — see §5.
 
+#### Platform admin — a second boundary, not a role (GRAFT-27.1)
+
+`/api/v1/admin/*` is authorised by `assertPlatformAdmin(ctx, …)`
+(`src/server/auth/platform-admin.ts`), which is **not** part of tenant RBAC and
+must not be confused with the tenant role also called `admin`. The two are
+independent: the most privileged tenant role grants nothing on this surface, and
+the platform flag grants nothing inside a tenant.
+
+- **Where it lives.** `isPlatformAdmin: true` on the `users` document. `Ctx` is
+  not extended and `ROLES` is not widened — the privilege belongs to a person,
+  not to a seat in a workspace, so no tenant-scoped code path changes meaning.
+- **Never on the token.** The flag is absent from `accessClaimsSchema` and is
+  re-read from the database on **every** admin request. A privilege carried on a
+  15-minute access token is one you cannot revoke for 15 minutes. Same argument
+  as re-reading roles on refresh (§3.1) and never trusting `ctx.tier` for a
+  grant.
+- **Compared with `=== true`.** `"true"`, `1`, `{}` and `"false"` are all truthy
+  in JavaScript and none of them is a grant. The raw value is normalised once,
+  in `toUser` (`src/server/auth/accounts-store.ts`).
+- **Refusals are `404 NOT_FOUND`, never `403 FORBIDDEN`.** A deliberate
+  divergence from the cross-tenant refusals in §2: a 403 would confirm to an
+  ordinary tenant user that the admin surface exists and which of its paths are
+  real. The refusal reuses the /api/v1 catch-all's exact message, so it is
+  indistinguishable from an unrouted path.
+- **Not tenant-scoped, and not tier-gated.** An admin request still carries a
+  `ctx` (there is no tenant-less login), but it is used for identity, logging
+  and rate-limit accounting only. `ctx.tenantId` is never a filter on this
+  surface, `createRepository` is never called, and `can()` / `checkQuota()` are
+  never consulted.
+- **`admin_audit_log`** is append-only and global (not tenant-scoped). One row
+  per **successful** gate pass, holding `actorUserId`, `action`,
+  `targetTenantId | null`, `requestId`, `at` — and no PII (§8). Denials are a
+  plain `admin.denied` log line instead: an audit log that records attempts is
+  one any caller can grow.
+- **Granting** is `npm run admin:grant -- <email>` (`--revoke` to clear). There
+  is no self-service path and no HTTP endpoint, by design.
+
 ## 4. Rate Limiting & Abuse Protection
 
 Layered, Redis-backed (sliding window or token bucket via `rate-limiter-flexible`):
@@ -137,12 +174,16 @@ Bruno collections live in-repo at `/bruno` (git-native, reviewable in PRs):
   /records        crud.bru, pagination.bru, filter-whitelist.bru
   /forms          publish.bru, public-submit.bru, quota-hard-stop.bru
   /connectors     create.bru, sync-idempotency.bru
-  /security       rate-limit-429.bru, forbidden-cross-tenant.bru, invalid-jwt.bru
+  /security       rate-limit-429.bru, forbidden-cross-tenant.bru, invalid-jwt.bru,
+                  admin-surface-is-not-an-oracle.bru
+  /admin          session.bru, session-not-admin.bru, session-no-token.bru
   environments/   local.bru, ci.bru, staging.bru
 ```
 
 Rules:
 - Every endpoint has at least: happy path, validation failure, authz failure, **cross-tenant access attempt (must 404/403)**.
+- `/bruno/admin` (GRAFT-27.1) inverts the isolation rule rather than skipping it: those endpoints are deliberately not tenant-scoped, so the required test is that a caller *without* the platform flag — including a tenant `owner`/`admin` — is refused.
+- Assertions go in `assert {}` or a **synchronous** `test()` body. An `async` test body does not fail the Bruno gate, so an assertion inside one is not a test.
 - Assertions on status, error `code`, envelope shape, and rate-limit headers.
 - `bru run` executes in CI (GitHub Actions) against docker-compose (app + Mongo + Redis); a failed contract test blocks merge.
 - Bruno tests double as the **API contract** referenced by agent issues (see AGENTS.md): an issue is "done" when its listed Bruno tests pass.
