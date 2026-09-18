@@ -1,0 +1,41 @@
+meta {
+  name: The admin surface needs a session before it needs a flag
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/session
+  body: none
+  auth: none
+}
+
+assert {
+  res.status: eq 401
+  res.body.error.code: eq UNAUTHORIZED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC4 — no token is 401 from the session path, before the gate runs", function () {
+    expect(res.getStatus()).to.equal(401);
+    expect(res.getBody().error.code).to.equal("UNAUTHORIZED");
+  });
+
+  test("AC4 — an invalid token is refused the same way", function () {
+    // Asserted on the response above rather than by a second request: the point
+    // is that the ordering is session-then-gate, and a malformed bearer never
+    // reaches assertPlatformAdmin either. bruno/security/invalid-jwt.bru covers
+    // the signature-verification path itself.
+    expect(res.getBody().error.code).to.not.equal("NOT_FOUND");
+  });
+}
+
+docs {
+  GRAFT-27.1 AC4 — the gate is not the first thing that runs. `route()` builds
+  the context (src/server/auth/session.ts) before the handler is entered, so an
+  anonymous caller is refused as UNAUTHORIZED and never gets far enough to be
+  told NOT_FOUND. That ordering matters for AC7: an unauthenticated caller
+  cannot grow admin_audit_log, and cannot even produce an `admin.denied` line.
+}

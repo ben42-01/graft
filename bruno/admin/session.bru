@@ -1,0 +1,87 @@
+meta {
+  name: A platform admin reads the admin session probe
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/session
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  // platform-admin@qa.test (scripts/seed-qa.ts) is the one seeded user whose
+  // `users` document carries `isPlatformAdmin: true`. It signs in through the
+  // ordinary login and holds an ordinary tenant session — the issue invents no
+  // tenant-less login — so the token below is in every respect a normal one.
+  // It is minted here rather than borrowed from bruno/auth/login.bru, which
+  // logs in as a different account entirely.
+  //
+  // The account sits on the premium QA tenant: the free tenant's api budget is
+  // 60/60 and already fully spent by the rest of the suite.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  bru.setVar("platformAdminToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.email: eq platform-admin@qa.test
+  res.body.data.isPlatformAdmin: eq true
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+  res.body.data.tenantId: isUndefined
+  res.body.data.tenants: isUndefined
+  res.body.data.tier: isUndefined
+  res.body.data.roles: isUndefined
+  res.headers['x-ratelimit-remaining']: isDefined
+}
+
+tests {
+  // Synchronous on purpose: an `async` test body never fails the Bruno gate,
+  // so every assertion in this collection is either in `assert {}` above or in
+  // a sync `test()` like this one.
+  test("AC1 — the probe returns the actor and exactly three fields", function () {
+    const body = res.getBody();
+    expect(Object.keys(body.data).sort()).to.eql(["email", "isPlatformAdmin", "userId"]);
+  });
+
+  // Asserted here rather than in `assert {}` above: Bruno's assert DSL coerces
+  // an unquoted all-digits right-hand side to a Number, so an ObjectId hex of
+  // "000000000000000000000050" is compared against 50 and fails for the wrong
+  // reason. A sync test() compares the strings as strings.
+  test("AC1 — the actor is the seeded platform admin, as a hex id", function () {
+    const { userId } = res.getBody().data;
+    expect(userId).to.be.a("string");
+    expect(userId).to.equal("000000000000000000000050");
+  });
+
+  test("AC1 — nothing about any tenant other than the session's own", function () {
+    // The premium tenant the session names may not be echoed here either: this
+    // endpoint is about the actor, not about a workspace.
+    const serialised = JSON.stringify(res.getBody().data);
+    expect(serialised).to.not.contain("000000000000000000000002");
+    expect(serialised).to.not.contain("qa-");
+  });
+}
+
+docs {
+  GRAFT-27.1 AC1 — the probe the admin console's gate calls before it renders
+  anything. It is deliberately the whole of the admin surface in this issue:
+  no cross-tenant data (GRAFT-27.2), no UI (27.3), no mutation (27.4).
+
+  The `isPlatformAdmin` value is re-read from the `users` document on this
+  request, not taken from the access token (AC5) — see
+  src/server/auth/platform-admin.ts for why a 15-minute token is the wrong
+  place to carry a privilege you may need to revoke.
+}

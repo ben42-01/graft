@@ -51,7 +51,10 @@ function fakeStore() {
         throw new DuplicateKeyError("email");
       }
       const id = new ObjectId().toHexString();
-      users.set(id, { id, ...user, emailVerifiedAt: null });
+      // GRAFT-27.1 — signup never grants the platform flag; there is no
+      // self-service path to it at all (scripts/grant-platform-admin.ts is the
+      // only writer), so a freshly inserted account is always `false` here.
+      users.set(id, { id, ...user, emailVerifiedAt: null, isPlatformAdmin: false });
       return id;
     },
     async deleteUser(id) {

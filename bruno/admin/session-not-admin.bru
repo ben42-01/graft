@@ -1,0 +1,71 @@
+meta {
+  name: A tenant owner/admin is not a platform admin — 404, never 403
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/session
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformTenantOwnerToken}}
+}
+
+script:pre-request {
+  // owner@qa-platform.test holds BOTH tenant roles — `owner` and `admin` — on
+  // its tenant, and carries no `isPlatformAdmin` field at all. It is the exact
+  // negative case AC3 names: the word "admin" appears twice in this system and
+  // only one of them is a platform privilege.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-platform.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  bru.setVar("platformTenantOwnerToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC2 — the refusal is NOT_FOUND and is not a 403 in disguise", function () {
+    expect(res.getStatus()).to.equal(404);
+    expect(res.getStatus()).to.not.equal(403);
+    expect(res.getBody().error.code).to.not.equal("FORBIDDEN");
+  });
+
+  test("AC2 — the refusal says nothing about the admin surface", function () {
+    const message = res.getBody().error.message;
+    expect(message.toLowerCase()).to.not.contain("permission");
+    expect(message.toLowerCase()).to.not.contain("forbidden");
+    expect(message.toLowerCase()).to.not.contain("platform");
+  });
+
+  test("AC3 — this account really does hold the tenant roles that grant nothing", function () {
+    const token = bru.getVar("platformTenantOwnerToken");
+    const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    expect(claims.roles).to.include("owner");
+    expect(claims.roles).to.include("admin");
+  });
+}
+
+docs {
+  GRAFT-27.1 AC2 + AC3, and the inverted cross-tenant isolation test the
+  contract asks for: these endpoints are deliberately not tenant-scoped, so the
+  isolation claim is not "another tenant's data is refused" but "anyone without
+  the platform flag is refused — including the most privileged tenant role
+  there is".
+
+  404 rather than 403 is a deliberate divergence from the cross-tenant refusals
+  in bruno/security/forbidden-cross-tenant.bru. A 403 would confirm that
+  /api/v1/admin/* is a real surface worth attacking; a 404 does not.
+}

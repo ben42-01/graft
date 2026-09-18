@@ -31,6 +31,19 @@ export type UserRecord = {
   passwordHash: string | null;
   emailVerifiedAt: Date | null;
   memberships: Membership[];
+  /**
+   * The platform-admin flag (GRAFT-27.1). Normalised to a real boolean here, at
+   * the boundary, because the stored value is the one thing in this document
+   * that is not written by the application: `scripts/grant-platform-admin.ts`
+   * sets it, and an operator may have hand-edited it. `"true"`, `1` and `{}`
+   * are all truthy in JavaScript and none of them is a grant, so the raw value
+   * is compared against `true` exactly once — in `toUser` — and every caller
+   * downstream gets a boolean it can trust (AC2).
+   *
+   * Not a membership and not a role: it belongs to the person, not to their
+   * seat in any tenant. See src/server/auth/platform-admin.ts.
+   */
+  isPlatformAdmin: boolean;
 };
 
 /**
@@ -110,6 +123,8 @@ type UserDoc = {
   passwordHash?: string | null;
   emailVerifiedAt?: Date | null;
   memberships?: { tenantId: ObjectId; roles: string[] }[];
+  /** Deliberately `unknown`: whatever is in the document, judged in `toUser`. */
+  isPlatformAdmin?: unknown;
 };
 
 type TenantDoc = {
@@ -143,6 +158,9 @@ const toUser = (doc: UserDoc): UserRecord => ({
     tenantId: m.tenantId.toHexString(),
     roles: toRoles(m.roles),
   })),
+  // The one place the raw stored value is judged (GRAFT-27.1 AC2). Strict
+  // equality, so nothing merely truthy is ever promoted to a grant.
+  isPlatformAdmin: doc.isPlatformAdmin === true,
 });
 
 /** A tenant on a tier we do not recognise is not usable — treat it as missing. */

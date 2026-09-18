@@ -64,6 +64,13 @@ const IDS = {
   // flag on qa-premium: every existing assertion that qa-premium is a plain
   // paying Premium tenant has to keep holding exactly as it did.
   tenantTrialling: oid(7),
+  // GRAFT-27.1 — the platform-admin fixtures get their own tenant rather than
+  // joining qa-premium: every existing assertion about qa-premium's membership
+  // has to keep holding exactly as it did, and an admin surface test that
+  // changed another suite's fixture would be the wrong kind of coupling.
+  // Premium tier on purpose — the free tenant's api rate-limit budget (60/min)
+  // is already fully spent by the rest of the Bruno suite.
+  tenantPlatform: oid(8),
   userFreeOwner: oid(11),
   userPremiumOwner: oid(12),
   userPremiumMember: oid(13),
@@ -76,6 +83,11 @@ const IDS = {
   userBillingOwner: oid(18),
   userBillingDowngradeOwner: oid(19),
   userTrialling: oid(20),
+  // GRAFT-27.1 AC1 — the only seeded user with `isPlatformAdmin: true`.
+  userPlatformAdmin: oid(80),
+  // GRAFT-27.1 AC3 — holds BOTH tenant roles and no platform flag: the exact
+  // collision the contract names, since "admin" means two different things.
+  userPlatformTenantOwner: oid(81),
   entityBillingDowngrade: oid(25),
   entityFreeCustomers: oid(21),
   entityPremiumCustomers: oid(22),
@@ -257,6 +269,20 @@ async function main() {
         settings: { currency: "EUR", timezone: "UTC", locale: "en" },
         ...base,
       },
+      {
+        // GRAFT-27.1 — the tenant a platform admin happens to belong to. It is
+        // an ordinary tenant in every respect: the admin surface never reads it
+        // and never scopes by it (AC10). It exists only because there is no
+        // tenant-less login, and this issue does not invent one.
+        _id: IDS.tenantPlatform,
+        name: "QA Platform Tenant",
+        slug: "qa-platform",
+        tier: "premium",
+        limits: TIER_LIMITS.premium,
+        billingAnchorDay: BILLING_ANCHOR_DAY,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
     ]);
 
     // One hash for all five: argon2id is deliberately slow, and five identical
@@ -360,6 +386,35 @@ async function main() {
         emailVerifiedAt: FIXED_DATE,
         passwordHash,
         memberships: [{ tenantId: IDS.tenantTrialling, roles: ["owner"] }],
+        ...base,
+      },
+      {
+        // GRAFT-27.1 AC1 — the only account in the whole fixture set with the
+        // platform flag. It is otherwise an entirely ordinary user: it signs in
+        // through the same login, holds the same kind of tenant session, and
+        // carries nothing special on its access token. The flag lives here, in
+        // the document, and is re-read on every admin request (AC5).
+        _id: IDS.userPlatformAdmin,
+        email: "platform-admin@qa.test",
+        name: "QA Platform Admin",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantPlatform, roles: ["owner"] }],
+        isPlatformAdmin: true,
+        ...base,
+      },
+      {
+        // GRAFT-27.1 AC3 — the negative case, and the reason it is worth a
+        // fixture of its own: this account holds BOTH tenant roles, `owner` and
+        // `admin`, and still gets a 404 from /api/v1/admin/*. The tenant role
+        // named "admin" is not the platform flag and must never become it.
+        // No `isPlatformAdmin` field at all, which is also AC2's "absent" case.
+        _id: IDS.userPlatformTenantOwner,
+        email: "owner@qa-platform.test",
+        name: "QA Platform Tenant Owner",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantPlatform, roles: ["owner", "admin"] }],
         ...base,
       },
     ]);

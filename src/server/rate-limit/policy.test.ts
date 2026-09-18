@@ -30,6 +30,26 @@ describe("policyForPath", () => {
   });
 
   /**
+   * GRAFT-27.1 AC9 — the platform-admin surface is rate limited by the same
+   * `^/api/v1/` row as everything else authenticated, and deliberately has no
+   * row of its own. Pinned here so the surface cannot become unlimited by
+   * someone later adding a more specific pattern above it and forgetting the
+   * scopes: this test fails the moment `/api/v1/admin/*` stops matching
+   * `["global-ip", "api", "user"]`.
+   */
+  it("rate limits the platform-admin surface exactly like any other v1 route", () => {
+    expect(policyForPath("/api/v1/admin/session").scopes).toEqual(["global-ip", "api", "user"]);
+    expect(policyForPath("/api/v1/admin/tenants").scopes).toEqual(["global-ip", "api", "user"]);
+    // Including a path no route claims — the catch-all answers it, and it is
+    // charged for the attempt just the same.
+    expect(policyForPath("/api/v1/admin/does-not-exist").scopes).toEqual([
+      "global-ip",
+      "api",
+      "user",
+    ]);
+  });
+
+  /**
    * Session rotation is not a credential-guessing surface — the refresh cookie
    * either verifies or it does not — and a shared 5-per-15-minutes budget would
    * lock out a browser doing nothing wrong.
