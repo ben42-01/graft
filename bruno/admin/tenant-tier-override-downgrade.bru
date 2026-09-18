@@ -1,0 +1,183 @@
+meta {
+  name: An override down to Free freezes over-limit meters and deletes nothing
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/v1/admin/tenants/000000000000000000000009/tier
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "tier": "free",
+    "reason": "refund issued — dropping to free"
+  }
+}
+
+script:pre-request {
+  // AC2. 000000000000000000000009 is IDS.tenantOverride: Premium, seeded over
+  // Free's entities (3) and records (2,000) caps, with three public published
+  // forms against Free's activeForms cap of 2. Fixed seed ids throughout.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+
+  const loginAs = async (email) => {
+    const res = await axios.post(
+      `${baseUrl}/api/v1/auth/login`,
+      { email, password: bru.getEnvVar("qaPassword") },
+      { headers: { "content-type": "application/json" } },
+    );
+    return res.data.data.accessToken;
+  };
+
+  const adminToken = await loginAs("platform-admin@qa.test");
+  bru.setVar("platformAdminToken", adminToken);
+  const adminAuth = {
+    headers: { Authorization: `Bearer ${adminToken}`, "content-type": "application/json" },
+  };
+
+  // Setup, not assertion: guarantee the tenant is on Premium so this file
+  // proves the downgrade regardless of the order the folder runs in.
+  await axios.post(
+    `${baseUrl}/api/v1/admin/tenants/000000000000000000000009/tier`,
+    { tier: "premium", reason: "override downgrade suite setup" },
+    adminAuth,
+  );
+
+  // The tenant's OWN owner is who can count the tenant's records and forms —
+  // the admin surface is read-only over tier/billing and exposes neither.
+  const ownerToken = await loginAs("owner@qa-override.test");
+  bru.setVar("overrideOwnerToken", ownerToken);
+  const ownerAuth = { headers: { Authorization: `Bearer ${ownerToken}` } };
+
+  // 00000000000000000000001b is IDS.entityOverrideCustomers.
+  const recordsUrl = `${baseUrl}/api/v1/entities/00000000000000000000001b/records`;
+  const formsUrl = `${baseUrl}/api/v1/forms`;
+
+  const recordsBefore = await axios.get(recordsUrl, ownerAuth);
+  const formsBefore = await axios.get(formsUrl, ownerAuth);
+  bru.setVar("recordCountBefore", String(recordsBefore.data.data.length));
+  bru.setVar("formCountBefore", String(formsBefore.data.data.length));
+  bru.setVar(
+    "publishedBefore",
+    String(formsBefore.data.data.filter((form) => form.published).length),
+  );
+}
+
+script:post-response {
+  // The same two counts, taken after the transition. This is AC2's "asserted
+  // by counting records and form definitions before and after".
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const ownerAuth = { headers: { Authorization: `Bearer ${bru.getVar("overrideOwnerToken")}` } };
+
+  const recordsAfter = await axios.get(
+    `${baseUrl}/api/v1/entities/00000000000000000000001b/records`,
+    ownerAuth,
+  );
+  const formsAfter = await axios.get(`${baseUrl}/api/v1/forms`, ownerAuth);
+  bru.setVar("recordCountAfter", String(recordsAfter.data.data.length));
+  bru.setVar("formCountAfter", String(formsAfter.data.data.length));
+  bru.setVar("formsAfter", JSON.stringify(formsAfter.data.data));
+
+  const adminAuth = { headers: { Authorization: `Bearer ${bru.getVar("platformAdminToken")}` } };
+  const detail = await axios.get(
+    `${baseUrl}/api/v1/admin/tenants/000000000000000000000009`,
+    adminAuth,
+  );
+  bru.setVar("detailAfter", JSON.stringify(detail.data.data));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.fromTier: eq premium
+  res.body.data.toTier: eq free
+  res.body.data.changed: eq true
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC2 — readOnly is non-empty: the over-limit meters were frozen", function () {
+    const readOnly = res.getBody().data.readOnly;
+    expect(readOnly).to.be.an("array");
+    expect(readOnly).to.not.have.lengthOf(0);
+    expect(readOnly).to.include("entities");
+    expect(readOnly).to.include("records");
+  });
+
+  test("AC2 — the record count is unchanged: nothing was deleted", function () {
+    const before = Number(bru.getVar("recordCountBefore"));
+    const after = Number(bru.getVar("recordCountAfter"));
+    // Guard against the vacuous pass: a suite that counted zero both times
+    // would "prove" nothing at all.
+    expect(before).to.be.greaterThan(0);
+    expect(after).to.equal(before);
+  });
+
+  test("AC2 — the form definitions are all still there, unpublished but not removed", function () {
+    const before = Number(bru.getVar("formCountBefore"));
+    const after = Number(bru.getVar("formCountAfter"));
+    expect(before).to.be.greaterThan(0);
+    expect(after).to.equal(before);
+  });
+
+  test("AC2 — exactly the overflow forms were unpublished, oldest kept", function () {
+    // Free's activeForms cap is 2 and qa-override holds three public published
+    // forms, so the newest is unpublished and the two older ones stay live.
+    const publishedBefore = Number(bru.getVar("publishedBefore"));
+    const forms = JSON.parse(bru.getVar("formsAfter"));
+    const published = forms.filter((form) => form.published);
+    expect(publishedBefore).to.equal(3);
+    expect(published).to.have.lengthOf(2);
+    const names = published.map((form) => form.name).sort();
+    expect(names).to.eql(["QA Override Middle", "QA Override Oldest"]);
+  });
+
+  test("AC2 — downgradedAt is set and the stored tier really is free", function () {
+    const after = JSON.parse(bru.getVar("detailAfter"));
+    expect(after.tier).to.equal("free");
+    expect(after.downgradedAt).to.be.a("string");
+    expect(Number.isNaN(Date.parse(after.downgradedAt))).to.equal(false);
+    expect(after.readOnly).to.include("entities");
+    expect(after.readOnly).to.include("records");
+    // Free's materialised caps, not Premium's — applyDowngradePolicy rewrote them.
+    expect(after.limits.limits.seats).to.equal(1);
+    expect(after.limits.limits.entities).to.equal(3);
+  });
+
+  test("AC2 — Stripe is untouched: the subscription survives the downgrade", function () {
+    // A tenant with a live subscription can be put on free here and Stripe
+    // keeps billing them. That is v1 behaviour, stated in the confirm dialog.
+    const after = JSON.parse(bru.getVar("detailAfter"));
+    expect(after.billing.hasSubscription).to.equal(true);
+    expect(after.billing.hasCustomer).to.equal(true);
+  });
+}
+
+docs {
+  GRAFT-27.4 AC2 — the downgrade half, and the contract's most important
+  assertion: **no document is deleted.**
+
+  "Nothing is deleted" is counted, not inferred. The record count and the form
+  count are read through the tenant's own API before and after the override
+  (the admin surface exposes neither), and both are asserted to be identical
+  and non-zero — a count of zero on both sides would pass vacuously. The
+  unpublish is asserted separately, by name, so "unpublished" is never
+  confused with "gone": all three form definitions survive and exactly the
+  newest one loses `published`.
+
+  This is the same `applyDowngradePolicy` the Stripe webhook runs
+  (src/server/services/billing.ts); the override endpoint calls it rather than
+  reimplementing the freeze, which is what
+  src/server/services/admin-tier.test.ts asserts by reference and
+  src/server/services/admin-tier.integration.test.ts asserts over a real Mongo.
+}

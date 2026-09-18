@@ -109,6 +109,34 @@ Regional pricing and VAT handling via Stripe Tax. 14-day Premium trial on sign-u
 - **Stripe webhooks** (`checkout.session.completed`, `customer.subscription.updated/deleted`) update tier; grace period of 7 days on failed payment before downgrade.
 - **Downgrade policy:** nothing is deleted. Over-limit forms are unpublished (owner picks which stay active), over-limit entities/records become read-only, connectors pause.
 - **Trial:** the 14-day Premium trial (§3) is granted at sign-up (`accounts.ts`, no card, no Stripe). A lapsed trial expires by the identical path as a cancellation — `expireTrial()` → `applyDowngradePolicy()` — so trial-end and cancellation share one downgrade mechanism.
+- **Manual override — the second write path to `tenants.tier`** (GRAFT-27.4).
+  Stripe webhooks are no longer the only thing that moves a tenant's tier. A
+  platform admin can flip it directly through
+  `POST /api/v1/admin/tenants/:tenantId/tier`, for the cases where Stripe and
+  Graft have disagreed: a webhook that never landed, a refund, a comped
+  account, a failed trial conversion. What matters about it:
+  - **It is not a `tenants.tier` write.** The endpoint is a thin, audited
+    caller of the same two functions the webhooks use —
+    `applyUpgrade()` on the way up, `applyDowngradePolicy()` on the way down —
+    so an override produces exactly the state a Stripe event would, freeze and
+    unpublish included. A hand-written tier edit (what a Mongo shell does)
+    skips all of that and leaves the tenant in a state no code path produces.
+    `src/server/services/admin-tier.ts` contains no transition policy of its
+    own and must not gain any.
+  - **It does not touch Stripe.** No subscription is created, cancelled or
+    refunded. A tenant with a live subscription can be put on `free` here and
+    Stripe will keep billing them until someone changes it in Stripe. This is
+    accepted v1 behaviour, and the confirm dialog says so before the operator
+    commits.
+  - **Every call is audited.** A free-text `reason` (1–500 chars) is required —
+    an unaudited tier flip is not a supported operation — and exactly one
+    `admin_audit_log` row is written per accepted call, carrying
+    `fromTier`, `toTier`, `reason`, `changed` and `ok`. A failed transition is
+    recorded with `ok: false`; a no-op with `changed: false`.
+  - **There is no self-serve tier change.** A tenant `owner` gets `404` from
+    this endpoint even for their own tenant; upgrades remain Stripe checkout
+    only (`createCheckoutSession`). A wrong flip is fixed by flipping back, and
+    both rows stay in the audit log — there is no undo and no expiry.
 
 ---
 

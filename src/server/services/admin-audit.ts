@@ -40,6 +40,42 @@ export const ADMIN_AUDIT_FIELDS = [
   "at",
 ] as const;
 
+/**
+ * The *outcome* fields an action may add to its own row (GRAFT-27.4 AC7, AC8).
+ *
+ * A read needs nothing beyond `ADMIN_AUDIT_FIELDS` — it happened, and that is
+ * the whole story. A write does not: "the tier was changed" is worth little
+ * without what it was changed from, to, why, and whether it worked. So this is
+ * a second explicit allow-list, with exactly the same property as the first:
+ * it is a fixed set of named keys, never a spread of whatever a caller passed,
+ * so a future caller cannot widen the row by accident.
+ *
+ * `reason` is the one free-text field in the collection, and it is here rather
+ * than in a log line on purpose. AC7 requires the reason to be *on the record*
+ * — an unaudited tier flip is not a supported operation — and requires the
+ * `admin.tenant.tier` log line to carry no reason text, no tenant name and no
+ * email. Operators are told, in the confirm dialog, that the reason is stored.
+ */
+export const ADMIN_AUDIT_DETAIL_FIELDS = [
+  "fromTier",
+  "toTier",
+  "reason",
+  "changed",
+  "ok",
+] as const;
+
+/** Outcome fields; every one optional, and nothing outside this type is stored. */
+export type AdminAuditDetails = {
+  fromTier?: string;
+  toTier?: string;
+  /** Free text supplied by the acting admin. Never a name, never an address. */
+  reason?: string;
+  /** Whether the action actually moved anything (AC5's no-op writes `false`). */
+  changed?: boolean;
+  /** Whether the action succeeded. A failure is still an action (AC8). */
+  ok?: boolean;
+};
+
 export type AdminAuditEntry = {
   /** The platform admin who acted. An id, never a name or an address. */
   actorUserId: string;
@@ -49,7 +85,7 @@ export type AdminAuditEntry = {
   targetTenantId: string | null;
   requestId: string;
   at: Date;
-};
+} & AdminAuditDetails;
 
 /** What a caller supplies; `at` is stamped by the writer, not by the caller. */
 export type AdminAuditInput = {
@@ -57,7 +93,23 @@ export type AdminAuditInput = {
   action: string;
   targetTenantId?: string | null;
   requestId: string;
+  /** Outcome fields, filtered through `ADMIN_AUDIT_DETAIL_FIELDS`. */
+  details?: AdminAuditDetails;
 };
+
+/**
+ * Pick exactly the detail keys that were supplied, and nothing else. Absent
+ * keys stay absent rather than becoming `undefined`, so a read row carries no
+ * empty tier fields and `Object.keys(row)` is an honest description of it.
+ */
+function pickDetails(details: AdminAuditDetails | undefined): AdminAuditDetails {
+  if (!details) return {};
+  const picked: Record<string, unknown> = {};
+  for (const field of ADMIN_AUDIT_DETAIL_FIELDS) {
+    if (details[field] !== undefined) picked[field] = details[field];
+  }
+  return picked as AdminAuditDetails;
+}
 
 export type AdminAuditStore = {
   append(entry: AdminAuditEntry): Promise<void>;
@@ -86,6 +138,11 @@ export function mongoAdminAuditStore(): AdminAuditStore {
         targetTenantId: entry.targetTenantId ? new ObjectId(entry.targetTenantId) : null,
         requestId: entry.requestId,
         at: entry.at,
+        // Flattened onto the row rather than nested under `details`, because
+        // AC7 names them as top-level fields and because an audit query
+        // ("every tier change off premium last month") should not have to
+        // reach through a sub-document. Still an allow-list, never a spread.
+        ...pickDetails(entry),
       });
     },
   };
@@ -111,6 +168,7 @@ export async function recordAdminAction(
     targetTenantId: input.targetTenantId ?? null,
     requestId: input.requestId,
     at: (deps.now ?? (() => new Date()))(),
+    ...pickDetails(input.details),
   };
   await (deps.audit ?? store()).append(entry);
   return entry;

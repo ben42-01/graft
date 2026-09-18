@@ -147,6 +147,12 @@ export type BillingStore = {
     limits: TierLimits,
     readOnly: readonly string[],
     now: Date,
+    /** The tier being dropped *to*. Defaults to `"free"` — every Stripe-driven
+     * downgrade lands on Free, and that is what this port meant before
+     * GRAFT-27.4 added a manual override that can also step
+     * enterprise → premium. Optional so every existing caller and test double
+     * is unchanged, in behaviour as well as in signature. */
+    tier?: Tier,
   ): Promise<void>;
   setGraceExpiry(tenantId: string, graceExpiresAt: Date | null): Promise<void>;
   listTenantsWithExpiredGrace(now: Date): Promise<{ id: string }[]>;
@@ -254,13 +260,13 @@ export function mongoBillingStore(): BillingStore {
     },
 
     /** AC4 — never a delete, only a tier/limits/readOnly rewrite. */
-    async applyDowngrade(tenantId, limits, readOnly, now) {
+    async applyDowngrade(tenantId, limits, readOnly, now, tier = "free") {
       const col = await tenants();
       await col.updateOne(
         { _id: new ObjectId(tenantId) },
         {
           $set: {
-            tier: "free",
+            tier,
             limits,
             readOnly: [...readOnly],
             downgradedAt: now,
@@ -423,11 +429,26 @@ async function meterUsed(
 export async function applyDowngradePolicy(
   tenantId: string,
   overrides: Partial<BillingDeps> = {},
+  /**
+   * The tier to drop to. Defaults to `"free"`, which is what every
+   * Stripe-driven caller means and the only thing this function could express
+   * before GRAFT-27.4: `customer.subscription.deleted`, grace expiry and trial
+   * expiry all land on Free and all still call this with two arguments, so
+   * their behaviour is bit-for-bit what it was.
+   *
+   * The manual override (src/server/services/admin-tier.ts) needs one more
+   * case: enterprise → premium is a step *down* the ladder that does not end on
+   * Free. Routing it through `applyUpgrade` would set the new limits but skip
+   * the freeze, leaving an over-limit tenant unfrozen — a state no code path
+   * produces, which is precisely what that endpoint exists to avoid. So the
+   * policy is parameterised by its target rather than duplicated for it.
+   */
+  toTier: Tier = "free",
 ): Promise<void> {
   const deps = resolveDeps(overrides);
   const now = deps.now();
-  const newLimits = TIER_LIMITS.free;
-  const ctx = systemCtx(tenantId, "free");
+  const newLimits = TIER_LIMITS[toTier];
+  const ctx = systemCtx(tenantId, toTier);
 
   const readOnly: string[] = [];
   const usedEntities = await meterUsed(deps, ctx, "entities");
@@ -448,7 +469,7 @@ export async function applyDowngradePolicy(
     }
   }
 
-  await deps.store.applyDowngrade(tenantId, newLimits, readOnly, now);
+  await deps.store.applyDowngrade(tenantId, newLimits, readOnly, now, toTier);
 }
 
 /** AC1, AC6, AC8's shared re-subscribe path — raises the tenant and clears

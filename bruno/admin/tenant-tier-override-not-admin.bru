@@ -1,0 +1,164 @@
+meta {
+  name: A tenant owner cannot change their own tenant's tier — 404, not 403
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/v1/admin/tenants/000000000000000000000009/tier
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{overrideOwnerToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "tier": "premium",
+    "reason": "I would like to be on premium please"
+  }
+}
+
+script:pre-request {
+  // AC6, and the inverted cross-tenant isolation test this contract requires.
+  // owner@qa-override.test holds BOTH tenant roles — `owner` and `admin` — on
+  // 000000000000000000000009 (IDS.tenantOverride), which is the very tenant the
+  // request below names. There is no self-serve tier change: upgrades are
+  // Stripe checkout only.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-override.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("overrideOwnerToken", token);
+
+  const auth = {
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    validateStatus: () => true,
+  };
+  const post = async (id, body) => {
+    const res = await axios.post(`${baseUrl}/api/v1/admin/tenants/${id}/tier`, body, auth);
+    return { status: res.status, body: res.data };
+  };
+
+  // Another tenant's id, and a malformed one, refused identically — so the
+  // status code never tells a non-admin that this surface is real.
+  bru.setVar(
+    "resOtherTenant",
+    JSON.stringify(await post("000000000000000000000001", { tier: "free", reason: "meddling" })),
+  );
+  bru.setVar(
+    "resBadId",
+    JSON.stringify(await post("nope", { tier: "free", reason: "meddling" })),
+  );
+  // An invalid body against their own tenant must ALSO be 404, not the 400 a
+  // real admin would get: the gate runs before the body is judged.
+  bru.setVar(
+    "resInvalidBody",
+    JSON.stringify(await post("000000000000000000000009", { tier: "gold" })),
+  );
+
+  // What the tier actually is, read by an account that is allowed to read it.
+  const adminLogin = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const adminAuth = { headers: { Authorization: `Bearer ${adminLogin.data.data.accessToken}` } };
+  bru.setVar("adminToken", adminLogin.data.data.accessToken);
+  const before = await axios.get(
+    `${baseUrl}/api/v1/admin/tenants/000000000000000000000009`,
+    adminAuth,
+  );
+  bru.setVar("tierBefore", before.data.data.tier);
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const adminAuth = { headers: { Authorization: `Bearer ${bru.getVar("adminToken")}` } };
+  const after = await axios.get(
+    `${baseUrl}/api/v1/admin/tenants/000000000000000000000009`,
+    adminAuth,
+  );
+  bru.setVar("tierAfter", after.data.data.tier);
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC6 — the refusal is NOT_FOUND and is not a 403 in disguise", function () {
+    expect(res.getStatus()).to.equal(404);
+    expect(res.getStatus()).to.not.equal(403);
+    expect(res.getBody().error.code).to.not.equal("FORBIDDEN");
+  });
+
+  test("AC6 — this account really does hold owner and admin on the tenant it named", function () {
+    const token = bru.getVar("overrideOwnerToken");
+    const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    expect(claims.roles).to.include("owner");
+    expect(claims.roles).to.include("admin");
+    // `tid`, not `tenantId` — see accessClaimsSchema in
+    // src/server/services/tokens.ts. This is the assertion that makes the
+    // whole file mean something: the caller is signed in to the very tenant
+    // the request below names, and is still refused.
+    expect(claims.tid).to.equal("000000000000000000000009");
+    expect(claims.tier).to.be.a("string");
+  });
+
+  test("AC6 — the tier is unchanged: no self-serve tier change happened", function () {
+    expect(bru.getVar("tierAfter")).to.equal(bru.getVar("tierBefore"));
+  });
+
+  test("AC6 — no tenant data of any kind appears in the refusal", function () {
+    const serialised = JSON.stringify(res.getBody());
+    for (const fragment of ["qa-override", "QA Override", "premium", "fromTier", "readOnly"]) {
+      expect(serialised, fragment).to.not.contain(fragment);
+    }
+  });
+
+  test("AC6 — another tenant's id and a malformed id are refused identically", function () {
+    for (const name of ["resOtherTenant", "resBadId"]) {
+      const result = JSON.parse(bru.getVar(name));
+      expect(result.status, name).to.equal(404);
+      expect(result.body.error.code, name).to.equal("NOT_FOUND");
+      expect(result.body.data, name).to.equal(undefined);
+    }
+  });
+
+  test("AC6 — an invalid body from a non-admin is 404, never the admin's 400", function () {
+    // A 400 here would confirm the path exists and parses its body — exactly
+    // the oracle the 404-not-403 decision closes.
+    const result = JSON.parse(bru.getVar("resInvalidBody"));
+    expect(result.status).to.equal(404);
+    expect(result.body.error.code).to.equal("NOT_FOUND");
+    expect(result.body.error.code).to.not.equal("VALIDATION_FAILED");
+  });
+}
+
+docs {
+  GRAFT-27.4 AC6 — the inverted cross-tenant isolation test.
+
+  This endpoint is not tenant-scoped, so the isolation claim is not "another
+  tenant's data is refused" but "everyone without the platform flag is refused,
+  including the most privileged tenant role there is, acting on their own
+  workspace". A tenant `owner` who could flip their own tier would be a
+  self-serve upgrade path, and there isn't one: upgrades go through Stripe
+  checkout (`createCheckoutSession`, src/server/services/billing.ts).
+
+  404 rather than 403 throughout, matching src/server/auth/platform-admin.ts —
+  and the invalid-body case is the one that proves the ordering: the gate runs
+  before the body is judged, so a non-admin cannot learn from a 400 that this
+  path is real and validates its input.
+}

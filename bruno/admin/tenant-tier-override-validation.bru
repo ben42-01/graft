@@ -1,0 +1,171 @@
+meta {
+  name: A tier override without a good reason, or onto an unknown tier, is refused
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{baseUrl}}/api/v1/admin/tenants/000000000000000000000009/tier
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "tier": "premium"
+  }
+}
+
+script:pre-request {
+  // AC3, AC4. The main request above omits `reason` entirely; the table here
+  // covers the rest of the refusals in one pass, plus the proof that the tenant
+  // was not moved by any of them. 000000000000000000000009 is IDS.tenantOverride.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+
+  const auth = {
+    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+    validateStatus: () => true,
+  };
+  const tierUrl = `${baseUrl}/api/v1/admin/tenants/000000000000000000000009/tier`;
+  const detailUrl = `${baseUrl}/api/v1/admin/tenants/000000000000000000000009`;
+
+  const tierBefore = await axios.get(detailUrl, auth);
+  bru.setVar("tierBefore", tierBefore.data.data.tier);
+
+  const post = async (body) => {
+    const res = await axios.post(tierUrl, body, auth);
+    return { status: res.status, body: res.data };
+  };
+
+  // AC3 — a blank reason, a whitespace-only reason, and one character over 500.
+  bru.setVar("resBlankReason", JSON.stringify(await post({ tier: "premium", reason: "" })));
+  bru.setVar("resSpaceReason", JSON.stringify(await post({ tier: "premium", reason: "    " })));
+  bru.setVar(
+    "resLongReason",
+    JSON.stringify(await post({ tier: "premium", reason: "x".repeat(501) })),
+  );
+  // …and the boundary itself is accepted, so the rule is a limit and not a ban.
+  bru.setVar(
+    "resMaxReason",
+    JSON.stringify(await post({ tier: bru.getVar("tierBefore"), reason: "x".repeat(500) })),
+  );
+
+  // AC4 — the tier enum comes from the TIERS constant.
+  bru.setVar("resUnknownTier", JSON.stringify(await post({ tier: "gold", reason: "why not" })));
+  bru.setVar("resCasedTier", JSON.stringify(await post({ tier: "PREMIUM", reason: "why not" })));
+  bru.setVar("resMissingTier", JSON.stringify(await post({ reason: "no tier at all" })));
+
+  // AC9 — a non-hex id is a 400 for a real admin (a non-admin gets 404 for it;
+  // see tenant-tier-override-not-admin.bru), a well-formed unknown id a 404.
+  const postTo = async (id, body) => {
+    const res = await axios.post(`${baseUrl}/api/v1/admin/tenants/${id}/tier`, body, auth);
+    return { status: res.status, body: res.data };
+  };
+  bru.setVar(
+    "resBadId",
+    JSON.stringify(await postTo("nope", { tier: "premium", reason: "bad id" })),
+  );
+  bru.setVar(
+    "resUnknownId",
+    JSON.stringify(
+      await postTo("0000000000000000000000ff", { tier: "premium", reason: "nobody home" }),
+    ),
+  );
+
+  const tierAfter = await axios.get(detailUrl, auth);
+  bru.setVar("tierAfter", tierAfter.data.data.tier);
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC3 — an omitted reason is VALIDATION_FAILED and names the field", function () {
+    expect(res.getStatus()).to.equal(400);
+    expect(res.getBody().error.code).to.equal("VALIDATION_FAILED");
+    expect(JSON.stringify(res.getBody().error.details ?? {})).to.contain("reason");
+  });
+
+  test("AC3 — a blank reason and a whitespace-only reason are both refused", function () {
+    for (const name of ["resBlankReason", "resSpaceReason"]) {
+      const result = JSON.parse(bru.getVar(name));
+      expect(result.status, name).to.equal(400);
+      expect(result.body.error.code, name).to.equal("VALIDATION_FAILED");
+      expect(result.body.data, name).to.equal(undefined);
+    }
+  });
+
+  test("AC3 — 501 characters is refused and 500 is accepted", function () {
+    const tooLong = JSON.parse(bru.getVar("resLongReason"));
+    expect(tooLong.status).to.equal(400);
+    expect(tooLong.body.error.code).to.equal("VALIDATION_FAILED");
+
+    const atLimit = JSON.parse(bru.getVar("resMaxReason"));
+    expect(atLimit.status).to.equal(200);
+    // Sent at the tenant's current tier, so the accepted call is a no-op that
+    // leaves this suite's fixture exactly where it found it (AC5).
+    expect(atLimit.body.data.changed).to.equal(false);
+  });
+
+  test("AC4 — an unknown tier, a wrongly-cased one and a missing one are all 400", function () {
+    for (const name of ["resUnknownTier", "resCasedTier", "resMissingTier"]) {
+      const result = JSON.parse(bru.getVar(name));
+      expect(result.status, name).to.equal(400);
+      expect(result.body.error.code, name).to.equal("VALIDATION_FAILED");
+    }
+    // "PREMIUM" proves the enum is the TIERS constant compared exactly, not a
+    // case-insensitive match against a hand-written list.
+    expect(JSON.parse(bru.getVar("resCasedTier")).body.error.code).to.equal("VALIDATION_FAILED");
+  });
+
+  test("AC9 — a non-hex id is 400 and a well-formed unknown id is 404", function () {
+    const bad = JSON.parse(bru.getVar("resBadId"));
+    expect(bad.status).to.equal(400);
+    expect(bad.body.error.code).to.equal("VALIDATION_FAILED");
+
+    const unknown = JSON.parse(bru.getVar("resUnknownId"));
+    expect(unknown.status).to.equal(404);
+    expect(unknown.body.error.code).to.equal("NOT_FOUND");
+    expect(unknown.body.data).to.equal(undefined);
+  });
+
+  test("AC3 — the tenant's tier is unchanged by every refusal above", function () {
+    // The point of the whole AC: a refused override is not a half-applied one.
+    expect(bru.getVar("tierAfter")).to.equal(bru.getVar("tierBefore"));
+  });
+}
+
+docs {
+  GRAFT-27.4 AC3 and AC4, with AC9's id cases folded in because they are the
+  same boundary.
+
+  "An unaudited tier flip is not a supported operation" is why `reason` is
+  required rather than optional-with-a-default: a default would produce audit
+  rows that are technically complete and practically worthless. Blank and
+  whitespace-only are refused for the same reason — `"   "` is not a reason,
+  and Zod's `.trim().min(1)` is what makes that true.
+
+  The 500-character boundary is asserted from both sides, and the accepted side
+  is deliberately sent at the tenant's *current* tier so that proving the limit
+  does not move this suite's fixture (it lands on AC5's no-op path instead).
+
+  `"PREMIUM"` is the interesting AC4 case: it is refused, which is what
+  `z.enum(TIERS)` does and what a hand-rolled case-insensitive check would not.
+}
