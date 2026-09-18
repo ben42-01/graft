@@ -76,6 +76,14 @@ describe("SetupChecklist", () => {
     expect(links[0]).toHaveAttribute("href", "/entities");
   });
 
+  it("offers a business template beside the guided walk-through on an empty workspace", () => {
+    render(<SetupChecklist steps={buildSetupSteps(empty)} />);
+
+    const links = screen.getAllByRole("link");
+    expect(links.map((link) => link.getAttribute("href"))).toEqual(["/setup", "/templates"]);
+    expect(links[1]).toHaveAccessibleName("Use a business template");
+  });
+
   it("announces done-ness to a screen reader, not only with a line-through", () => {
     render(<SetupChecklist steps={buildSetupSteps({ ...empty, entityCount: 1 })} />);
 

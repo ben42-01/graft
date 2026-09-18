@@ -11,7 +11,13 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { DatabaseIcon, PlusIcon, SparklesIcon, WandSparklesIcon } from "lucide-react";
+import {
+  DatabaseIcon,
+  PlusIcon,
+  SparklesIcon,
+  StoreIcon,
+  WandSparklesIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/shell/empty-state";
 import { ErrorState } from "@/components/shell/error-state";
@@ -88,12 +94,19 @@ export default function EntitiesPage() {
               title="No entities yet"
               description="An entity is a kind of record — customers, jobs, bookings. Create one and you can start adding records to it."
             />
-            {/* The guided run leads here on an empty workspace: someone with
-             * no entities at all is rarely missing a *shape*, they are missing
-             * the order the pieces go together in. Templates and the blank
-             * builder stay one click away for people who know what they want. */}
+            {/* A business template leads here on an empty workspace, then the
+             * guided run: someone with no entities at all is rarely missing a
+             * *shape*, they are missing the whole arrangement — or at least
+             * the order the pieces go together in. Single-list templates and
+             * the blank builder stay one click away for people who know what
+             * they want. */}
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <Button asChild>
+                <Link href="/templates">
+                  <StoreIcon /> Set up my business
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
                 <Link href="/setup">
                   <WandSparklesIcon /> Walk me through it
                 </Link>

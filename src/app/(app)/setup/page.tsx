@@ -197,6 +197,16 @@ export default function SetupPage() {
             <Link href="/entities">Skip — I&apos;ll do it myself</Link>
           </Button>
         </div>
+        <p className="text-sm text-muted-foreground">
+          Run a hotel, salon, rental or similar?{" "}
+          <Link
+            href="/templates"
+            className="underline underline-offset-4 hover:text-foreground"
+          >
+            Set the whole business up from a template
+          </Link>{" "}
+          instead.
+        </p>
       </div>
     );
   }
