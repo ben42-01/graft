@@ -345,7 +345,11 @@ describe("resolveTemplate", () => {
       required: false,
     });
     expect(form.content.map((block) => block.id)).toEqual(["n1", "policy", "terms"]);
-    expect(form.content.at(-1)).toMatchObject({ kind: "link", requireAgreement: true });
+    expect(form.content.at(-1)).toMatchObject({
+      kind: "link",
+      label: "the house rules",
+      requireAgreement: true,
+    });
   });
 
   it("adds a module's entities and forms only when chosen", () => {

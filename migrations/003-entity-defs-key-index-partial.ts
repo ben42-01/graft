@@ -22,7 +22,9 @@ export async function up(db: Db): Promise<void> {
   );
 
   if (!stale) {
-    console.log("    entity_defs.tenantId_1_key_1 already partial (or absent) — nothing to drop");
+    console.log(
+      "    entity_defs.tenantId_1_key_1 already partial (or absent) — nothing to drop",
+    );
     return;
   }
 

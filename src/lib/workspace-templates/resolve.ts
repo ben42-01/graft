@@ -396,7 +396,9 @@ export function resolveTemplate(
         content.push({
           id: "terms",
           kind: "link",
-          label: "I have read and agree to the terms",
+          // The public form reads "I agree to <label>", and a refusal "Please
+          // agree to <label> before sending" — so a noun, not a sentence.
+          label: `the ${lower(fill(template.policy.title))}`,
           url: termsUrl,
           requireAgreement: true,
           after: last,
