@@ -1,0 +1,95 @@
+meta {
+  name: A bad tenant id is a 400 and a missing one a 404 — never a 500
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/tenants/00000000000000000000ffff
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  // 00000000000000000000ffff is well-formed 24-hex and belongs to no seeded
+  // tenant — the 404 case. The 400 cases need a second request each, so they
+  // are fetched here and asserted synchronously below.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const get = async (id) => {
+    const response = await axios.get(`${baseUrl}/api/v1/admin/tenants/${id}`, auth);
+    return { status: response.status, body: response.data };
+  };
+
+  // Too short, non-hex, and a Mongo operator — the three shapes that previously
+  // reached `new ObjectId(...)` and surfaced as a BSONError 500 elsewhere in the
+  // API (the GRAFT-02.1 cursor bug, docs/BACKEND.md §2).
+  bru.setVar("resShort", JSON.stringify(await get("abc")));
+  bru.setVar("resNotHex", JSON.stringify(await get("zzzzzzzzzzzzzzzzzzzzzzzz")));
+  bru.setVar("resOperator", JSON.stringify(await get("%24ne")));
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC6 — well-formed hex naming no tenant is a 404", function () {
+    expect(res.getStatus()).to.equal(404);
+    expect(res.getBody().error.code).to.equal("NOT_FOUND");
+  });
+
+  test("AC6 — an id that is not 24-hex is a 400 VALIDATION_FAILED", function () {
+    for (const name of ["resShort", "resNotHex", "resOperator"]) {
+      const result = JSON.parse(bru.getVar(name));
+      expect(result.status, name).to.equal(400);
+      expect(result.body.error.code, name).to.equal("VALIDATION_FAILED");
+      expect(result.body.error.details.fields, name).to.have.property("tenantId");
+    }
+  });
+
+  test("AC6 — nothing here is ever a 500 or a leaked driver error", function () {
+    const bodies = [res.getBody()].concat(
+      ["resShort", "resNotHex", "resOperator"].map((n) => JSON.parse(bru.getVar(n)).body),
+    );
+    const statuses = [res.getStatus()].concat(
+      ["resShort", "resNotHex", "resOperator"].map((n) => JSON.parse(bru.getVar(n)).status),
+    );
+    for (const status of statuses) expect(status).to.be.below(500);
+    for (const body of bodies) {
+      const message = body.error.message;
+      expect(message).to.not.contain("BSON");
+      expect(message).to.not.contain("ObjectId");
+      expect(message).to.not.contain("Mongo");
+    }
+  });
+}
+
+docs {
+  GRAFT-27.2 AC6. The split matters: a malformed id is the caller's mistake
+  (400) and a well-formed id for a tenant that does not exist is an honest
+  absence (404). Neither is allowed to become a 500 — a client-supplied value
+  that reaches `new ObjectId(...)` unvalidated throws a raw BSONError, which is
+  exactly the regression GRAFT-02.1 AC3 fixed for cursors and this contract
+  refuses to reintroduce for path params.
+
+  Note that these 400s are only visible to a platform admin: a non-admin gets
+  404 for every id, valid or not, so the surface never confirms that it parses
+  its input (see bruno/admin/tenants-list-not-admin.bru).
+}

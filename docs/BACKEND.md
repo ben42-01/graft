@@ -99,6 +99,28 @@ the platform flag grants nothing inside a tenant.
 - **Granting** is `npm run admin:grant -- <email>` (`--revoke` to clear). There
   is no self-service path and no HTTP endpoint, by design.
 
+##### Endpoints on this surface
+
+| Endpoint | Audit action | Notes |
+| --- | --- | --- |
+| `GET /api/v1/admin/session` | `admin.session.read` | The console's gate probe (GRAFT-27.1). Exposes no tenant data. |
+| `GET /api/v1/admin/tenants?q=&tier=&limit=&cursor=` | `admin.tenants.list` | Every tenant in the database, cursor-paginated (`DEFAULT_LIMIT` 25 / `MAX_LIMIT` 100). `q` matches `name`/`slug` case-insensitively and is regex-escaped before it reaches Mongo; an unknown `tier` is a `400 VALIDATION_FAILED`, never an empty list (GRAFT-27.2). |
+| `GET /api/v1/admin/tenants/:tenantId` | `admin.tenants.read` | One tenant's tier, resolved entitlements, override bag, `readOnly`, `downgradedAt`, `billingAnchorDay`. Non-24-hex is `400`; unknown id is `404` (GRAFT-27.2). |
+
+Both tenant reads go through an allow-list serialiser in
+`src/server/services/admin-tenants.ts` — every emitted field is named, there is
+no `...tenant` spread anywhere in the module, and billing is reported as the
+booleans `hasCustomer` / `hasSubscription`. **No Stripe identifier, secret or
+email address is ever in a response body on this surface**, and that is asserted
+directly (`bruno/security/admin-no-stripe-ids-leaked.bru`, plus a unit test over
+the serialiser) rather than left to review.
+
+`tenants` is a global collection keyed by `_id` and is read directly here, as it
+already is by `entitlements.ts`, `billing.ts` and `auth/accounts-store.ts`: the
+repository layer scopes *by* `tenantId` and therefore cannot fetch a tenant at
+all. The consequence is that the repository is not protecting these reads —
+`assertPlatformAdmin` is the only thing that is.
+
 ## 4. Rate Limiting & Abuse Protection
 
 Layered, Redis-backed (sliding window or token bucket via `rate-limiter-flexible`):

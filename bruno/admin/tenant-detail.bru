@@ -1,0 +1,107 @@
+meta {
+  name: A platform admin reads one tenant's tier, entitlements and billing state
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/tenants/000000000000000000000004
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  // 000000000000000000000004 is IDS.tenantDowngraded (scripts/seed-qa.ts): the
+  // one seeded tenant with a non-empty `readOnly` set and a `downgradedAt`, so
+  // AC5's fields are proven with real values rather than with empty defaults.
+  // A fixed seed id, never a value this suite generated.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  bru.setVar("platformAdminToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.slug: eq qa-downgraded
+  res.body.data.tier: eq free
+  res.body.data.readOnlyCount: eq 2
+  res.body.data.downgradedAt: isDefined
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC5 — the detail carries exactly the contracted fields", function () {
+    expect(Object.keys(res.getBody().data).sort()).to.eql([
+      "billing",
+      "billingAnchorDay",
+      "createdAt",
+      "downgradedAt",
+      "hasLimitOverrides",
+      "id",
+      "limitOverrides",
+      "limits",
+      "name",
+      "readOnly",
+      "readOnlyCount",
+      "slug",
+      "tier",
+    ]);
+  });
+
+  test("AC5 — readOnly is a non-empty list and downgradedAt is a real date", function () {
+    const data = res.getBody().data;
+    expect(data.readOnly).to.be.an("array");
+    expect(data.readOnly).to.include("records");
+    expect(data.readOnly).to.include("entities");
+    expect(data.downgradedAt).to.be.a("string");
+    expect(Number.isNaN(Date.parse(data.downgradedAt))).to.equal(false);
+    expect(data.billingAnchorDay).to.be.a("number");
+  });
+
+  test("AC5 — limits is the resolved entitlement object, not the tier constant", function () {
+    const { limits, limitOverrides } = res.getBody().data;
+    // Resolved: every limit key and every feature key is present, so the console
+    // never has to distinguish "absent" from "false".
+    expect(limits).to.have.property("limits");
+    expect(limits).to.have.property("features");
+    expect(limits.tier).to.equal("free");
+    expect(limits.limits).to.have.property("seats");
+    expect(limits.features).to.have.property("csv_import");
+    // …and the raw override bag rides alongside, unresolved.
+    expect(limitOverrides).to.be.an("object");
+  });
+
+  test("AC5 — the id echoed back is the tenant asked for", function () {
+    expect(res.getBody().data.id).to.equal("000000000000000000000004");
+  });
+
+  test("AC8 — no Stripe id and no email address in the detail body", function () {
+    const serialised = JSON.stringify(res.getBody());
+    expect(serialised).to.not.contain("cus_");
+    expect(serialised).to.not.contain("sub_");
+    expect(serialised).to.not.contain("@");
+    expect(res.getBody().data.billing.hasCustomer).to.be.a("boolean");
+    expect(res.getBody().data.billing.hasSubscription).to.be.a("boolean");
+  });
+}
+
+docs {
+  GRAFT-27.2 AC5, read against the seeded downgraded tenant so that `readOnly`
+  and `downgradedAt` are non-empty — an assertion that those fields exist is
+  worth little against a tenant where both are empty by default.
+
+  `limits` is the object `resolveEntitlements` produces (what the tenant is
+  actually entitled to, overrides applied), while `limitOverrides` is the raw
+  per-tenant bag as stored. Both are in the contract: the console shows the
+  first and an operator diagnoses with the second.
+}

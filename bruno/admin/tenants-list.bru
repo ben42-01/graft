@@ -1,0 +1,122 @@
+meta {
+  name: A platform admin lists every tenant, across memberships
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/tenants
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  // Same account as bruno/admin/session.bru: platform-admin@qa.test is the one
+  // seeded user whose `users` document carries `isPlatformAdmin: true`. It holds
+  // an ordinary tenant session on qa-platform — the premium tenant, because the
+  // free tenant's api budget is 60/60 and already spent by the rest of the suite.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  bru.setVar("platformAdminToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 200
+  res.body.meta.requestId: isDefined
+  res.body.meta.limit: eq 25
+  res.body.meta.hasMore: eq false
+  res.body.meta.cursor: isNull
+  res.body.error: isUndefined
+  res.headers['x-ratelimit-remaining']: isDefined
+}
+
+tests {
+  // Synchronous on purpose: an `async` test body never fails the Bruno gate, so
+  // every assertion in this collection is either in `assert {}` above or here.
+  test("AC1 — every seeded tenant is present from a single session", function () {
+    const slugs = res.getBody().data.map((t) => t.slug);
+    // The admin is a member of qa-platform and of nothing else. Each of these
+    // belongs to a tenant it holds no membership in, which is the whole claim.
+    for (const slug of [
+      "qa-free",
+      "qa-premium",
+      "qa-at-quota",
+      "qa-downgraded",
+      "qa-trialling",
+    ]) {
+      expect(slugs).to.include(slug);
+    }
+  });
+
+  test("AC1 — each entry carries exactly the summary fields and no others", function () {
+    for (const tenant of res.getBody().data) {
+      expect(Object.keys(tenant).sort()).to.eql([
+        "billing",
+        "createdAt",
+        "hasLimitOverrides",
+        "id",
+        "name",
+        "readOnlyCount",
+        "slug",
+        "tier",
+      ]);
+      expect(Object.keys(tenant.billing).sort()).to.eql([
+        "graceExpiresAt",
+        "hasCustomer",
+        "hasSubscription",
+        "trialEndsAt",
+      ]);
+    }
+  });
+
+  test("AC1 — tier and derived counts are real values, not placeholders", function () {
+    const bySlug = {};
+    for (const tenant of res.getBody().data) bySlug[tenant.slug] = tenant;
+
+    expect(bySlug["qa-free"].tier).to.equal("free");
+    expect(bySlug["qa-premium"].tier).to.equal("premium");
+    // The downgraded fixture froze `records` and `entities` (scripts/seed-qa.ts).
+    expect(bySlug["qa-downgraded"].readOnlyCount).to.equal(2);
+    expect(bySlug["qa-free"].readOnlyCount).to.equal(0);
+    expect(bySlug["qa-trialling"].billing.trialEndsAt).to.be.a("string");
+    expect(bySlug["qa-trialling"].billing.hasSubscription).to.equal(false);
+  });
+
+  test("AC8 — the list body carries no Stripe id and no email address", function () {
+    const serialised = JSON.stringify(res.getBody());
+    expect(serialised).to.not.contain("cus_");
+    expect(serialised).to.not.contain("sub_");
+    expect(serialised).to.not.contain("@qa-");
+    expect(serialised).to.not.contain("@qa.test");
+  });
+
+  test("AC10 — the caller's own tenant is not privileged in the results", function () {
+    const data = res.getBody().data;
+    const own = data.filter((t) => t.slug === "qa-platform");
+    expect(own).to.have.lengthOf(1);
+    // Not first, not flagged, not duplicated — just one row among the rest.
+    expect(data.length).to.be.greaterThan(1);
+    expect(own[0]).to.not.have.property("isCallerTenant");
+  });
+}
+
+docs {
+  GRAFT-27.2 AC1 — the cross-tenant list, proven from a single session against
+  the deterministic QA seed (scripts/seed-qa.ts). The seeded free, premium,
+  at-quota, downgraded and trialling tenants are all asserted present, so the
+  test fails if the read is ever narrowed to the caller's own membership.
+
+  The default page limit is 25 and the seed creates eight tenants, so this is
+  deliberately a single page; paging itself is proven in
+  src/server/services/admin-tenants.test.ts and its integration sibling, where a
+  page boundary can be forced without depending on how many fixtures exist.
+}
