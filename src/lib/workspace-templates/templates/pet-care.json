@@ -1,0 +1,260 @@
+{
+  "id": "pet_care",
+  "name": "Graft Pets",
+  "tagline": "Kennels, catteries, dog daycare and grooming",
+  "description": "Your kennels with how many of each you have, a public boarding page with drop-off and pick-up dates, and optional grooming appointments and pet records.",
+  "icon": "🐾",
+  "industry": "Pet care",
+  "highlights": [
+    "Kennels and suites with nightly prices",
+    "Boarding requests checked against free spaces",
+    "Optional grooming bookings and pet records",
+    "Vaccination policy with an agree tick"
+  ],
+  "nouns": [
+    {
+      "id": "kennel",
+      "singular": "Kennel",
+      "plural": "Kennels",
+      "question": "What do pets stay in? (Kennels, Suites, Pens…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Let owners book stays online",
+      "help": "On: each stay takes a space for its dates. Off: owners send a request and you confirm.",
+      "default": true
+    }
+  ],
+  "modules": [
+    {
+      "id": "grooming",
+      "name": "Grooming",
+      "description": "A public form for grooming appointments and a list to work from."
+    },
+    {
+      "id": "pets",
+      "name": "Pet records",
+      "description": "A record per pet with vet, feeding and medication notes."
+    }
+  ],
+  "policy": {
+    "title": "Vaccination policy",
+    "body": "All pets must be fully vaccinated, and dogs protected against kennel cough, before their stay. Please bring your pet's vaccination card at drop-off."
+  },
+  "entities": [
+    {
+      "ref": "kennels",
+      "key": "kennels",
+      "name": "Kennels",
+      "noun": "kennel",
+      "fields": [
+        { "key": "name", "label": "{Kennel}", "type": "text", "required": true },
+        { "key": "description", "label": "Description", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        {
+          "key": "suits",
+          "label": "Suits",
+          "type": "select",
+          "options": ["Dogs", "Cats", "Small animals"],
+          "optional": true
+        },
+        {
+          "key": "nightly_rate",
+          "label": "Price per night",
+          "type": "number",
+          "required": true
+        }
+      ]
+    },
+    {
+      "ref": "stays",
+      "key": "boarding_stays",
+      "name": "Boarding stays",
+      "fields": [
+        { "key": "owner_name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "required": true },
+        { "key": "pet_name", "label": "Pet's name", "type": "text", "required": true },
+        {
+          "key": "species",
+          "label": "Species",
+          "type": "select",
+          "required": true,
+          "options": ["Dog", "Cat", "Rabbit", "Other"]
+        },
+        { "key": "breed", "label": "Breed", "type": "text", "optional": true },
+        { "key": "drop_off", "label": "Drop-off", "type": "date", "required": true },
+        { "key": "pick_up", "label": "Pick-up", "type": "date", "required": true },
+        { "key": "selected_item", "label": "{Kennel}", "type": "text" },
+        {
+          "key": "care_notes",
+          "label": "Feeding and medication",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Requested", "Confirmed", "Checked in", "Collected", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "grooming",
+      "key": "grooming_appointments",
+      "name": "Grooming appointments",
+      "module": "grooming",
+      "fields": [
+        { "key": "owner_name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        { "key": "pet_name", "label": "Pet's name", "type": "text", "required": true },
+        {
+          "key": "service",
+          "label": "Service",
+          "type": "select",
+          "required": true,
+          "options": ["Bath & brush", "Full groom", "Nail trim", "De-shed"]
+        },
+        {
+          "key": "preferred_date",
+          "label": "Preferred date",
+          "type": "date",
+          "required": true
+        },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    },
+    {
+      "ref": "pets",
+      "key": "pets",
+      "name": "Pets",
+      "module": "pets",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        {
+          "key": "species",
+          "label": "Species",
+          "type": "select",
+          "options": ["Dog", "Cat", "Rabbit", "Other"]
+        },
+        { "key": "owner", "label": "Owner", "type": "text", "required": true },
+        { "key": "vet", "label": "Vet", "type": "text", "optional": true },
+        {
+          "key": "vaccinated_until",
+          "label": "Vaccinated until",
+          "type": "date",
+          "optional": true
+        },
+        { "key": "notes", "label": "Feeding, medication and behaviour", "type": "text" }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "kennels",
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Standard {kennel}",
+            "description": "Heated, with a covered run.",
+            "suits": "Dogs",
+            "nightly_rate": 32
+          },
+          "quantity": 10
+        },
+        {
+          "data": {
+            "name": "Large {kennel}",
+            "description": "Extra room for big dogs or two from one family.",
+            "suits": "Dogs",
+            "nightly_rate": 42
+          },
+          "quantity": 4
+        },
+        {
+          "data": {
+            "name": "Cat suite",
+            "description": "Quiet suite with shelves and a window.",
+            "suits": "Cats",
+            "nightly_rate": 18
+          },
+          "quantity": 6
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "boarding",
+      "entityRef": "stays",
+      "name": "Book a stay",
+      "slug": "book-a-stay",
+      "visibility": "public",
+      "fields": [
+        "owner_name",
+        "email",
+        "phone",
+        "pet_name",
+        "species",
+        "breed",
+        "drop_off",
+        "pick_up",
+        "selected_item",
+        "care_notes"
+      ],
+      "catalogue": {
+        "entityRef": "kennels",
+        "fields": ["name", "description", "suits", "nightly_rate"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "drop_off",
+        "endKey": "pick_up",
+        "rateBasis": "daily",
+        "rateKey": "nightly_rate",
+        "labelKey": "name",
+        "deposit": true
+      },
+      "payment": true,
+      "terms": true
+    },
+    {
+      "ref": "grooming_booking",
+      "entityRef": "grooming",
+      "module": "grooming",
+      "name": "Book a groom",
+      "slug": "book-a-groom",
+      "visibility": "public",
+      "fields": [
+        "owner_name",
+        "email",
+        "phone",
+        "pet_name",
+        "service",
+        "preferred_date",
+        "notes"
+      ],
+      "terms": true
+    },
+    {
+      "ref": "add_pet",
+      "entityRef": "pets",
+      "module": "pets",
+      "name": "Add a pet",
+      "slug": "add-a-pet",
+      "visibility": "internal",
+      "fields": ["name", "species", "owner", "vet", "vaccinated_until", "notes"]
+    }
+  ]
+}

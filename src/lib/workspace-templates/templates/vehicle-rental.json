@@ -1,0 +1,232 @@
+{
+  "id": "vehicle_rental",
+  "name": "Graft Rentals",
+  "tagline": "Car, van, bike, boat and camper rental",
+  "description": "Your fleet, a public page where customers choose a vehicle and pick-up and return times, and rentals that leave turnaround time between hires so nothing is double-booked.",
+  "icon": "🚗",
+  "industry": "Rental",
+  "highlights": [
+    "Your fleet with photos and prices",
+    "Pick-up and return times with turnaround between hires",
+    "Charge per day or per hour",
+    "Optional deposit, licence check and rental agreement"
+  ],
+  "nouns": [
+    {
+      "id": "vehicle",
+      "singular": "Vehicle",
+      "plural": "Vehicles",
+      "question": "What do you rent out? (Vehicles, Bikes, Boats, Campers…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "rate_basis",
+      "kind": "choice",
+      "label": "How do you charge?",
+      "options": [
+        { "value": "daily", "label": "Per day" },
+        { "value": "hourly", "label": "Per hour" }
+      ],
+      "default": "daily"
+    },
+    {
+      "id": "licence",
+      "kind": "boolean",
+      "label": "Ask for a driving licence",
+      "help": "Adds licence number and driver age to the rental form.",
+      "default": true
+    }
+  ],
+  "modules": [
+    {
+      "id": "customers",
+      "name": "Customers",
+      "description": "Your renters and their details, for repeat rentals."
+    },
+    {
+      "id": "service_log",
+      "name": "Service log",
+      "description": "Servicing, repairs and checks per vehicle, with a form for your team."
+    }
+  ],
+  "policy": {
+    "title": "Rental agreement",
+    "body": "Photo ID is needed at pick-up. Please return the {vehicle} clean and with the same fuel or charge. Late returns are charged at the hourly rate."
+  },
+  "entities": [
+    {
+      "ref": "fleet",
+      "key": "vehicles",
+      "name": "Vehicles",
+      "noun": "vehicle",
+      "fields": [
+        { "key": "name", "label": "{Vehicle}", "type": "text", "required": true },
+        { "key": "description", "label": "Description", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        { "key": "seats", "label": "Seats", "type": "number", "optional": true },
+        {
+          "key": "transmission",
+          "label": "Gearbox",
+          "type": "select",
+          "options": ["Manual", "Automatic", "Not applicable"],
+          "optional": true
+        },
+        { "key": "rate", "label": "Rental price", "type": "number", "required": true },
+        {
+          "key": "registration",
+          "label": "Registration / ID",
+          "type": "text",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "ref": "rentals",
+      "key": "rentals",
+      "name": "Rentals",
+      "fields": [
+        { "key": "name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "required": true },
+        { "key": "pickup_at", "label": "Pick-up", "type": "date", "required": true },
+        { "key": "return_at", "label": "Return", "type": "date", "required": true },
+        { "key": "selected_item", "label": "{Vehicle}", "type": "text" },
+        {
+          "key": "licence_number",
+          "label": "Driving licence number",
+          "type": "text",
+          "required": true,
+          "when": [{ "toggle": "licence", "equals": true }]
+        },
+        {
+          "key": "driver_age",
+          "label": "Driver age",
+          "type": "number",
+          "when": [{ "toggle": "licence", "equals": true }]
+        },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Requested", "Confirmed", "Out", "Returned", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "customers",
+      "key": "customers",
+      "name": "Customers",
+      "module": "customers",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email" },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        {
+          "key": "licence_number",
+          "label": "Licence number",
+          "type": "text",
+          "optional": true
+        },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    },
+    {
+      "ref": "service_log",
+      "key": "service_log",
+      "name": "Service log",
+      "module": "service_log",
+      "fields": [
+        { "key": "vehicle", "label": "{Vehicle}", "type": "text", "required": true },
+        { "key": "date", "label": "Date", "type": "date", "required": true },
+        {
+          "key": "type",
+          "label": "Type",
+          "type": "select",
+          "required": true,
+          "options": ["Service", "Repair", "Safety check", "Damage report"]
+        },
+        { "key": "details", "label": "Details", "type": "text" },
+        { "key": "cost", "label": "Cost", "type": "number", "optional": true }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "fleet",
+      "pool": { "strategy": "individual_asset", "bufferMinutes": 60 },
+      "records": [
+        {
+          "data": {
+            "name": "Compact hatchback",
+            "seats": 5,
+            "transmission": "Manual",
+            "rate": 45
+          }
+        },
+        {
+          "data": {
+            "name": "7-seat people carrier",
+            "seats": 7,
+            "transmission": "Automatic",
+            "rate": 75
+          }
+        },
+        {
+          "data": {
+            "name": "Electric bike",
+            "seats": 1,
+            "transmission": "Not applicable",
+            "rate": 30
+          }
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "rental",
+      "entityRef": "rentals",
+      "name": "Rent a {vehicle}",
+      "slug": "rent-a-{vehicle}",
+      "visibility": "public",
+      "fields": [
+        "name",
+        "email",
+        "phone",
+        "pickup_at",
+        "return_at",
+        "selected_item",
+        "licence_number",
+        "driver_age",
+        "notes"
+      ],
+      "catalogue": {
+        "entityRef": "fleet",
+        "fields": ["name", "description", "seats", "transmission", "rate"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "startKey": "pickup_at",
+        "endKey": "return_at",
+        "rateBasis": { "toggle": "rate_basis" },
+        "rateKey": "rate",
+        "labelKey": "name",
+        "deposit": true
+      },
+      "payment": true,
+      "terms": true
+    },
+    {
+      "ref": "service_entry",
+      "entityRef": "service_log",
+      "module": "service_log",
+      "name": "Log a service",
+      "slug": "log-a-service",
+      "visibility": "internal",
+      "fields": ["vehicle", "date", "type", "details", "cost"]
+    }
+  ]
+}

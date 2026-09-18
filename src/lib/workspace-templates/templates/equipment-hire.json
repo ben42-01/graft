@@ -1,0 +1,247 @@
+{
+  "id": "equipment_hire",
+  "name": "Graft Hire",
+  "tagline": "Party, event, tool and equipment hire",
+  "description": "Your hire stock with how many of each you own, a public page where customers choose items, quantities and dates, and hire requests that never promise more than you have.",
+  "icon": "🎪",
+  "industry": "Rental",
+  "highlights": [
+    "Hire stock with quantities and daily prices",
+    "Customers pick how many and for which dates",
+    "Stock levels checked on every request",
+    "Optional damage deposit, delivery and hire terms"
+  ],
+  "nouns": [
+    {
+      "id": "item",
+      "singular": "Item",
+      "plural": "Items",
+      "question": "What do you hire out? (Items, Equipment, Tools…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Check stock and book dates online",
+      "help": "On: each request reserves stock for its dates. Off: customers send a request and you check by hand.",
+      "default": true
+    },
+    {
+      "id": "delivery",
+      "kind": "boolean",
+      "label": "Do you deliver?",
+      "help": "Adds a delivery choice and address to the hire form.",
+      "default": false
+    }
+  ],
+  "modules": [
+    {
+      "id": "customers",
+      "name": "Customers",
+      "description": "Your customers and their contact details, for repeat hires."
+    },
+    {
+      "id": "maintenance",
+      "name": "Maintenance log",
+      "description": "Track repairs and checks per item, with a form for your team."
+    }
+  ],
+  "policy": {
+    "title": "Hire terms",
+    "body": "Items must be returned clean and in the condition they left in. Damage or loss is charged at repair or replacement cost."
+  },
+  "entities": [
+    {
+      "ref": "items",
+      "key": "items",
+      "name": "Items",
+      "noun": "item",
+      "fields": [
+        { "key": "name", "label": "{Item}", "type": "text", "required": true },
+        { "key": "description", "label": "Description", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": [
+            "Furniture",
+            "Tents & shelter",
+            "Audio & lighting",
+            "Catering",
+            "Tools",
+            "Other"
+          ],
+          "optional": true
+        },
+        { "key": "daily_rate", "label": "Price per day", "type": "number", "required": true },
+        {
+          "key": "replacement_value",
+          "label": "Replacement value",
+          "type": "number",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "ref": "hire_requests",
+      "key": "hire_requests",
+      "name": "Hire requests",
+      "fields": [
+        { "key": "name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "required": true },
+        { "key": "hire_from", "label": "Hire from", "type": "date", "required": true },
+        { "key": "hire_to", "label": "Return by", "type": "date", "required": true },
+        { "key": "quantity", "label": "How many?", "type": "number", "required": true },
+        { "key": "selected_item", "label": "{Item}", "type": "text" },
+        {
+          "key": "delivery_needed",
+          "label": "Delivery needed",
+          "type": "checkbox",
+          "when": [{ "toggle": "delivery", "equals": true }]
+        },
+        {
+          "key": "delivery_address",
+          "label": "Delivery address",
+          "type": "text",
+          "when": [{ "toggle": "delivery", "equals": true }]
+        },
+        { "key": "event_details", "label": "Event details", "type": "text", "optional": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Requested", "Confirmed", "Out", "Returned", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "customers",
+      "key": "customers",
+      "name": "Customers",
+      "module": "customers",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email" },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        { "key": "company", "label": "Company", "type": "text", "optional": true },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    },
+    {
+      "ref": "maintenance",
+      "key": "maintenance_log",
+      "name": "Maintenance log",
+      "module": "maintenance",
+      "fields": [
+        { "key": "item", "label": "{Item}", "type": "text", "required": true },
+        { "key": "date", "label": "Date", "type": "date", "required": true },
+        { "key": "issue", "label": "What was wrong / done", "type": "text", "required": true },
+        { "key": "cost", "label": "Cost", "type": "number", "optional": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Reported", "In repair", "Fixed", "Written off"]
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "items",
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Trestle table (6ft)",
+            "category": "Furniture",
+            "daily_rate": 8,
+            "replacement_value": 60
+          },
+          "quantity": 20
+        },
+        {
+          "data": {
+            "name": "Folding chair",
+            "category": "Furniture",
+            "daily_rate": 2,
+            "replacement_value": 15
+          },
+          "quantity": 150
+        },
+        {
+          "data": {
+            "name": "Gazebo (3m × 3m)",
+            "category": "Tents & shelter",
+            "daily_rate": 45,
+            "replacement_value": 250
+          },
+          "quantity": 4
+        },
+        {
+          "data": {
+            "name": "PA speaker",
+            "category": "Audio & lighting",
+            "daily_rate": 60,
+            "replacement_value": 500
+          },
+          "quantity": 2
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "hire_request",
+      "entityRef": "hire_requests",
+      "name": "Hire request",
+      "slug": "hire",
+      "visibility": "public",
+      "fields": [
+        "name",
+        "email",
+        "phone",
+        "hire_from",
+        "hire_to",
+        "quantity",
+        "selected_item",
+        "delivery_needed",
+        "delivery_address",
+        "event_details"
+      ],
+      "catalogue": {
+        "entityRef": "items",
+        "fields": ["name", "description", "category", "daily_rate"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "hire_from",
+        "endKey": "hire_to",
+        "quantityKey": "quantity",
+        "rateBasis": "daily",
+        "rateKey": "daily_rate",
+        "labelKey": "name",
+        "deposit": true
+      },
+      "payment": true,
+      "terms": true
+    },
+    {
+      "ref": "maintenance_entry",
+      "entityRef": "maintenance",
+      "module": "maintenance",
+      "name": "Log maintenance",
+      "slug": "log-maintenance",
+      "visibility": "internal",
+      "fields": ["item", "date", "issue", "cost", "status"]
+    }
+  ]
+}

@@ -1,0 +1,320 @@
+{
+  "id": "hotel",
+  "name": "Graft Hotel",
+  "tagline": "Hotels, B&Bs, guesthouses and holiday lets",
+  "description": "Your rooms, a public booking page where guests pick a room and dates, and a reservations list that checks availability for you so a room is never booked twice.",
+  "icon": "🏨",
+  "industry": "Hospitality",
+  "highlights": [
+    "Rooms list with photos and nightly prices",
+    "Public booking page with check-in and check-out dates",
+    "Availability checked on every booking — no double bookings",
+    "Optional deposit, payment link and house rules"
+  ],
+  "nouns": [
+    {
+      "id": "room",
+      "singular": "Room",
+      "plural": "Rooms",
+      "question": "What do you call the rooms guests book? (Rooms, Cabins, Suites…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Let guests book dates online",
+      "help": "On: guests pick dates and availability is checked for them. Off: guests send an enquiry and you confirm by hand.",
+      "default": true
+    },
+    {
+      "id": "unit_mode",
+      "kind": "choice",
+      "label": "How do you list your rooms?",
+      "help": "List every room separately, or list room types with how many of each you have.",
+      "options": [
+        { "value": "rooms", "label": "Each room on its own (Room 101, Room 102…)" },
+        { "value": "types", "label": "Room types with a count (6 × Double, 4 × Twin…)" }
+      ],
+      "default": "rooms"
+    }
+  ],
+  "modules": [
+    {
+      "id": "guests",
+      "name": "Guest book",
+      "description": "A list of your guests with contact details and notes, for returning visitors."
+    },
+    {
+      "id": "housekeeping",
+      "name": "Housekeeping",
+      "description": "Cleaning and maintenance tasks per room, with a form your staff fill in."
+    }
+  ],
+  "policy": {
+    "title": "House rules",
+    "body": "Check-in is from 3pm and check-out by 11am. Cancellations made within 48 hours of arrival lose their deposit. Please tell us about any late arrival."
+  },
+  "entities": [
+    {
+      "ref": "rooms",
+      "key": "rooms",
+      "name": "Rooms",
+      "noun": "room",
+      "fields": [
+        { "key": "name", "label": "{Room} name", "type": "text", "required": true },
+        { "key": "description", "label": "Description", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        { "key": "sleeps", "label": "Sleeps", "type": "number", "optional": true },
+        {
+          "key": "nightly_rate",
+          "label": "Price per night",
+          "type": "number",
+          "required": true
+        },
+        {
+          "key": "bed_type",
+          "label": "Beds",
+          "type": "select",
+          "options": ["Double", "Twin", "King", "Single", "Family"],
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Available", "Out of service"],
+          "optional": true
+        }
+      ]
+    },
+    {
+      "ref": "reservations",
+      "key": "reservations",
+      "name": "Reservations",
+      "fields": [
+        { "key": "guest_name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "optional": true },
+        { "key": "check_in", "label": "Check-in", "type": "date", "required": true },
+        { "key": "check_out", "label": "Check-out", "type": "date", "required": true },
+        { "key": "guests", "label": "Number of guests", "type": "number", "required": true },
+        {
+          "key": "rooms_needed",
+          "label": "{Room.plural} needed",
+          "type": "number",
+          "required": true,
+          "when": [{ "toggle": "unit_mode", "equals": "types" }]
+        },
+        { "key": "selected_item", "label": "{Room}", "type": "text" },
+        {
+          "key": "special_requests",
+          "label": "Special requests",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Requested", "Confirmed", "Checked in", "Checked out", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "guests",
+      "key": "guests",
+      "name": "Guests",
+      "module": "guests",
+      "fields": [
+        { "key": "full_name", "label": "Full name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email" },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        { "key": "address", "label": "Address", "type": "text", "optional": true },
+        {
+          "key": "returning",
+          "label": "Returning guest",
+          "type": "checkbox",
+          "optional": true
+        },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    },
+    {
+      "ref": "housekeeping",
+      "key": "housekeeping_tasks",
+      "name": "Housekeeping tasks",
+      "module": "housekeeping",
+      "fields": [
+        { "key": "room", "label": "{Room}", "type": "text", "required": true },
+        {
+          "key": "task",
+          "label": "Task",
+          "type": "select",
+          "required": true,
+          "options": ["Clean", "Turn down", "Deep clean", "Maintenance"]
+        },
+        { "key": "due", "label": "Due", "type": "date", "required": true },
+        { "key": "assigned_to", "label": "Assigned to", "type": "text", "optional": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["To do", "In progress", "Done"]
+        },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "rooms",
+      "when": [{ "toggle": "unit_mode", "equals": "rooms" }],
+      "pool": {
+        "strategy": "individual_asset",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "{Room} 101",
+            "description": "Quiet double overlooking the garden.",
+            "sleeps": 2,
+            "nightly_rate": 120,
+            "bed_type": "Double",
+            "status": "Available"
+          }
+        },
+        {
+          "data": {
+            "name": "{Room} 102",
+            "description": "Twin beds, ideal for friends travelling together.",
+            "sleeps": 2,
+            "nightly_rate": 110,
+            "bed_type": "Twin",
+            "status": "Available"
+          }
+        },
+        {
+          "data": {
+            "name": "{Room} 201",
+            "description": "Family suite with a sofa bed and a view.",
+            "sleeps": 4,
+            "nightly_rate": 190,
+            "bed_type": "Family",
+            "status": "Available"
+          }
+        }
+      ]
+    },
+    {
+      "entityRef": "rooms",
+      "when": [{ "toggle": "unit_mode", "equals": "types" }],
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Standard double",
+            "description": "A comfortable double with an en-suite.",
+            "sleeps": 2,
+            "nightly_rate": 120,
+            "bed_type": "Double",
+            "status": "Available"
+          },
+          "quantity": 6
+        },
+        {
+          "data": {
+            "name": "Twin",
+            "description": "Two single beds and an en-suite.",
+            "sleeps": 2,
+            "nightly_rate": 110,
+            "bed_type": "Twin",
+            "status": "Available"
+          },
+          "quantity": 4
+        },
+        {
+          "data": {
+            "name": "Family suite",
+            "description": "A double, a sofa bed and room to spread out.",
+            "sleeps": 4,
+            "nightly_rate": 190,
+            "bed_type": "Family",
+            "status": "Available"
+          },
+          "quantity": 2
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "reservation",
+      "entityRef": "reservations",
+      "name": "Book a {room}",
+      "slug": "book-a-{room}",
+      "visibility": "public",
+      "fields": [
+        "guest_name",
+        "email",
+        "phone",
+        "check_in",
+        "check_out",
+        "guests",
+        "rooms_needed",
+        "selected_item",
+        "special_requests"
+      ],
+      "catalogue": {
+        "entityRef": "rooms",
+        "fields": ["name", "description", "sleeps", "nightly_rate"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "check_in",
+        "endKey": "check_out",
+        "quantityKey": "rooms_needed",
+        "rateBasis": "daily",
+        "rateKey": "nightly_rate",
+        "labelKey": "name",
+        "deposit": true
+      },
+      "payment": true,
+      "terms": true,
+      "notices": [
+        {
+          "body": "Choose a {room}, pick your dates and we'll confirm your stay by email.",
+          "when": [{ "toggle": "bookable", "equals": true }]
+        },
+        {
+          "body": "Choose a {room} and tell us your dates — we'll reply to confirm availability.",
+          "when": [{ "toggle": "bookable", "equals": false }]
+        }
+      ]
+    },
+    {
+      "ref": "add_guest",
+      "entityRef": "guests",
+      "module": "guests",
+      "name": "Add a guest",
+      "slug": "add-a-guest",
+      "visibility": "internal",
+      "fields": ["full_name", "email", "phone", "address", "returning", "notes"]
+    },
+    {
+      "ref": "housekeeping_log",
+      "entityRef": "housekeeping",
+      "module": "housekeeping",
+      "name": "Log a housekeeping task",
+      "slug": "housekeeping-task",
+      "visibility": "internal",
+      "fields": ["room", "task", "due", "assigned_to", "status", "notes"]
+    }
+  ]
+}
