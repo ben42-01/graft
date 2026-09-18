@@ -1,0 +1,157 @@
+meta {
+  name: A platform admin overrides a tenant onto Premium, through applyUpgrade
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/v1/admin/tenants/00000000000000000000000a/tier
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "tier": "premium",
+    "reason": "comped for launch partner"
+  }
+}
+
+script:pre-request {
+  // 00000000000000000000000a is IDS.tenantOverrideUpgrade (scripts/seed-qa.ts):
+  // seeded on Free, holding no forms and no records, and mutated by this file
+  // alone. qa-premium, qa-free and qa-platform are asserted to stay exactly
+  // where they are by other suites, which is why this contract asked for
+  // dedicated tenants — and the downgrade half gets its own (qa-override) so
+  // the two directions cannot interfere. A fixed seed id, never a value this
+  // suite generated. Bruno needs a fresh seed per run.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+
+  const auth = { headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" } };
+  const tierUrl = `${baseUrl}/api/v1/admin/tenants/00000000000000000000000a/tier`;
+
+  // Put the tenant on Free first, so this file proves the *upgrade* whatever
+  // order the folder runs in — no dependency on the downgrade suite having run.
+  await axios.post(tierUrl, { tier: "free", reason: "override suite setup" }, auth);
+
+  const before = await axios.get(`${baseUrl}/api/v1/admin/tenants/00000000000000000000000a`, auth);
+  bru.setVar("tierBefore", before.data.data.tier);
+}
+
+script:post-response {
+  // Read the tenant back through the admin detail endpoint, so AC1's claims
+  // about limits/readOnly/graceExpiresAt are asserted against stored state
+  // rather than against the mutation's own echo.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const auth = { headers: { Authorization: `Bearer ${bru.getVar("platformAdminToken")}` } };
+  const after = await axios.get(`${baseUrl}/api/v1/admin/tenants/00000000000000000000000a`, auth);
+  bru.setVar("detailAfter", JSON.stringify(after.data.data));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.id: isString
+  res.body.data.fromTier: eq free
+  res.body.data.toTier: eq premium
+  res.body.data.changed: eq true
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC1 — the id echoed back is the tenant asked for", function () {
+    // Asserted here rather than in the `assert` block: Bruno's `eq` coerces,
+    // and a 24-character id of leading zeros compares as a number.
+    expect(res.getBody().data.id).to.equal("00000000000000000000000a");
+  });
+
+  test("AC1 — the response body is exactly the contracted shape", function () {
+    expect(Object.keys(res.getBody().data).sort()).to.eql([
+      "changed",
+      "fromTier",
+      "id",
+      "readOnly",
+      "toTier",
+    ]);
+    expect(res.getBody().data.readOnly).to.be.an("array");
+    expect(res.getBody().data.readOnly).to.have.lengthOf(0);
+  });
+
+  test("AC1 — the tenant really was on free before the override", function () {
+    expect(bru.getVar("tierBefore")).to.equal("free");
+  });
+
+  test("AC1 — the stored tier is premium and the Premium limits are materialised", function () {
+    const after = JSON.parse(bru.getVar("detailAfter"));
+    expect(after.tier).to.equal("premium");
+    // applyUpgrade writes TIER_LIMITS[tier] onto the document; the detail
+    // endpoint resolves those into `limits.limits`. Premium's seats cap is 15
+    // and Free's is 1, so this distinguishes the two tiers unambiguously.
+    expect(after.limits.tier).to.equal("premium");
+    expect(after.limits.limits.seats).to.equal(15);
+    expect(after.limits.limits.entities).to.equal(25);
+    expect(after.limits.limits.records).to.equal(100000);
+  });
+
+  test("AC1 — readOnly is empty and graceExpiresAt is null, i.e. the freeze is cleared", function () {
+    const after = JSON.parse(bru.getVar("detailAfter"));
+    expect(after.readOnly).to.eql([]);
+    expect(after.readOnlyCount).to.equal(0);
+    expect(after.downgradedAt).to.equal(null);
+    expect(after.billing.graceExpiresAt).to.equal(null);
+  });
+
+  test("AC1 — nothing in Stripe was touched: the subscription is still attached", function () {
+    // The contract's headline out-of-scope note. The override moved Graft's
+    // tier and left the Stripe wiring exactly as it found it.
+    const after = JSON.parse(bru.getVar("detailAfter"));
+    expect(after.billing.hasCustomer).to.equal(true);
+    expect(after.billing.hasSubscription).to.equal(true);
+  });
+
+  test("AC1 — no Stripe identifier leaks into the mutation's response", function () {
+    const serialised = JSON.stringify(res.getBody());
+    expect(serialised).to.not.contain("cus_");
+    expect(serialised).to.not.contain("sub_");
+    expect(serialised).to.not.contain("@");
+  });
+}
+
+docs {
+  GRAFT-27.4 AC1 — the upgrade half of the manual override, against
+  `qa-override-upgrade` (IDS.tenantOverrideUpgrade), one of the two dedicated
+  tenants this contract asked for rather than a fixture other suites pin.
+
+  The assertions deliberately read the tenant *back* through
+  GET /api/v1/admin/tenants/:id rather than trusting the mutation's own
+  response: "the result is exactly what applyUpgrade() produces" is a claim
+  about stored state — the materialised Premium limits, an empty `readOnly`, a
+  null `downgradedAt` and a null `graceExpiresAt` — and only a re-read can
+  make it.
+
+  The pre-request script puts the tenant on Free first. That is setup, not
+  assertion: it means this file proves the upgrade on its own, and can be
+  re-run against a warm stack without changing what it proves.
+
+  It runs against its own tenant rather than sharing `qa-override` with the
+  downgrade suite, for the same reason IDS.tenantBillingDowngrade sits beside
+  IDS.tenantBilling: the two suites move the same field in opposite
+  directions. Sharing one made them silently order-dependent — this file's
+  setup flip to Free unpublished qa-override's overflow form, and
+  `applyUpgrade` never republishes it (docs/TIERS.md §4), so the downgrade
+  suite found two published forms where it had seeded three.
+}

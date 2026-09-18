@@ -21,11 +21,12 @@
  * GRAFT-27.2 — `billing` carries presence booleans only), so there is nothing
  * to withhold here; the point is simply never to add one.
  */
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { EmptyState } from "@/components/shell/empty-state";
 import { ErrorState } from "@/components/shell/error-state";
 import { LoadingState } from "@/components/shell/loading-state";
+import { TierOverrideDialog } from "@/components/admin/tier-override-dialog";
 
 /** The tier's numeric caps as resolved for this tenant — `data.limits.limits`. */
 export type ResolvedLimits = Record<string, number | null>;
@@ -75,6 +76,15 @@ function formatDate(value: string | null): string {
 
 export function TenantDetail({ tenantId }: { tenantId: string }) {
   const [state, setState] = useState<State>({ status: "loading" });
+  /**
+   * Bumped by the tier-override control after a successful change, to re-run
+   * the read below. The screen never patches its own copy of the tenant:
+   * `readOnly` and the materialised limits are decided by
+   * applyDowngradePolicy (src/server/services/billing.ts), so the only honest
+   * way to show them is to ask the server again (GRAFT-27.4).
+   */
+  const [reloads, setReloads] = useState(0);
+  const reload = useCallback(() => setReloads((n) => n + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -102,7 +112,7 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [tenantId]);
+  }, [tenantId, reloads]);
 
   if (state.status === "loading") {
     return <LoadingState label="Loading tenant…" />;
@@ -149,9 +159,22 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
             {tenant.slug} · <span className="capitalize">{tenant.tier}</span>
           </p>
         </div>
-        <Link href="/admin/tenants" className="text-sm underline underline-offset-2">
-          Back to tenants
-        </Link>
+        <div className="flex flex-col items-end gap-2">
+          <Link href="/admin/tenants" className="text-sm underline underline-offset-2">
+            Back to tenants
+          </Link>
+          {/* GRAFT-27.4 — the console's one mutation, on the screen that
+              already shows the tenant it acts on. */}
+          <TierOverrideDialog
+            tenant={{
+              id: tenant.id,
+              name: tenant.name,
+              slug: tenant.slug,
+              tier: tenant.tier,
+            }}
+            onApplied={reload}
+          />
+        </div>
       </div>
 
       <section aria-labelledby="resolved-limits-heading" className="flex flex-col gap-2">

@@ -71,6 +71,25 @@ const IDS = {
   // Premium tier on purpose — the free tenant's api rate-limit budget (60/min)
   // is already fully spent by the rest of the Bruno suite.
   tenantPlatform: oid(8),
+  // GRAFT-27.4 — the manual tier override's own target tenant, and the one
+  // fixture in this file that a Bruno suite deliberately *mutates*: the
+  // override endpoint flips its tier, freezes its meters and unpublishes its
+  // overflow forms. It therefore cannot be qa-premium, qa-free or qa-platform,
+  // every one of which other suites assert stays exactly where it is. Premium
+  // and already over Free's caps, so a single POST proves the whole downgrade
+  // transition. Bruno needs a fresh seed per run for this tenant in particular
+  // (docs/WORKFLOW.md §5.2) — the suite leaves it on `free`, not `premium`.
+  tenantOverride: oid(9),
+  // GRAFT-27.4 — and a *second* override tenant, for the upgrade half, for
+  // exactly the reason tenantBillingDowngrade exists beside tenantBilling: the
+  // two suites mutate the same field in opposite directions. Sharing one
+  // tenant made them order-dependent in a way that is easy to miss — the
+  // upgrade suite's setup flip to Free unpublishes qa-override's overflow
+  // form, `applyUpgrade` deliberately never republishes it (docs/TIERS.md §4:
+  // re-publishing is the owner's choice), and the downgrade suite then found
+  // two published forms where it seeded three. This tenant starts on Free,
+  // holds no forms and no records, and exists only to be raised.
+  tenantOverrideUpgrade: oid(10),
   userFreeOwner: oid(11),
   userPremiumOwner: oid(12),
   userPremiumMember: oid(13),
@@ -88,6 +107,9 @@ const IDS = {
   // GRAFT-27.1 AC3 — holds BOTH tenant roles and no platform flag: the exact
   // collision the contract names, since "admin" means two different things.
   userPlatformTenantOwner: oid(81),
+  // GRAFT-27.4 AC6 — the owner of qa-override, used to prove that a tenant
+  // owner cannot flip their OWN tenant's tier.
+  userOverrideOwner: oid(82),
   entityBillingDowngrade: oid(25),
   entityFreeCustomers: oid(21),
   entityPremiumCustomers: oid(22),
@@ -119,6 +141,15 @@ const IDS = {
   // say how it may be allocated — so all three are seeded rather than built by
   // the Bruno suite, which would then be testing its own setup.
   entityFreeRentals: oid(26),
+  // GRAFT-27.4 — qa-override's own entity, records and forms. Its own set, so
+  // "the record count did not change" can be asserted over a tenant nothing
+  // else writes to.
+  entityOverrideCustomers: oid(27),
+  recordOverrideFirst: oid(47),
+  recordOverrideSecond: oid(48),
+  formOverrideOldest: oid(51),
+  formOverrideMiddle: oid(52),
+  formOverrideNewest: oid(53),
   recordFreeBoat: oid(46),
   poolFreeBoat: oid(101),
   // Owned by qa-at-quota, so the isolation cases have a real id to quote.
@@ -283,6 +314,51 @@ async function main() {
         settings: { currency: "EUR", timezone: "UTC", locale: "en" },
         ...base,
       },
+      {
+        // GRAFT-27.4 — the tenant the override suite moves. Premium, already
+        // over Free's entities (3) and records (2,000) caps, and holding three
+        // public published forms against Free's cap of 2, so one POST exercises
+        // the freeze *and* the unpublish. It carries a live Stripe subscription
+        // on purpose: the contract's headline out-of-scope note is that an
+        // override changes Graft's tier and nothing in Stripe, and a fixture
+        // with no subscription could not show that.
+        _id: IDS.tenantOverride,
+        name: "QA Override Tenant",
+        slug: "qa-override",
+        tier: "premium",
+        limits: TIER_LIMITS.premium,
+        readOnly: [],
+        downgradedAt: null,
+        billing: {
+          stripeCustomerId: "cus_qa_override",
+          stripeSubscriptionId: "sub_qa_override",
+        },
+        billingAnchorDay: BILLING_ANCHOR_DAY,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
+      {
+        // GRAFT-27.4 AC1 — the upgrade half's own tenant. Free, with a Stripe
+        // customer and subscription attached so the "an override changes
+        // Graft's tier and nothing in Stripe" assertion has something to be
+        // about. No forms, no records, no meters: raising a tenant touches
+        // none of them, and a fixture with nothing to lose cannot make the
+        // downgrade suite order-dependent.
+        _id: IDS.tenantOverrideUpgrade,
+        name: "QA Override Upgrade Tenant",
+        slug: "qa-override-upgrade",
+        tier: "free",
+        limits: TIER_LIMITS.free,
+        readOnly: [],
+        downgradedAt: null,
+        billing: {
+          stripeCustomerId: "cus_qa_override_upgrade",
+          stripeSubscriptionId: "sub_qa_override_upgrade",
+        },
+        billingAnchorDay: BILLING_ANCHOR_DAY,
+        settings: { currency: "EUR", timezone: "UTC", locale: "en" },
+        ...base,
+      },
     ]);
 
     // One hash for all five: argon2id is deliberately slow, and five identical
@@ -376,6 +452,19 @@ async function main() {
         emailVerifiedAt: FIXED_DATE,
         passwordHash,
         memberships: [{ tenantId: IDS.tenantBillingDowngrade, roles: ["owner"] }],
+        ...base,
+      },
+      {
+        // GRAFT-27.4 AC6 — the owner of the tenant the override suite targets,
+        // carrying no `isPlatformAdmin` field at all. There is no self-serve
+        // tier change: this account gets a 404 from the override endpoint even
+        // for its own workspace.
+        _id: IDS.userOverrideOwner,
+        email: "owner@qa-override.test",
+        name: "QA Override Owner",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantOverride, roles: ["owner", "admin"] }],
         ...base,
       },
       {
@@ -483,6 +572,18 @@ async function main() {
       {
         _id: IDS.entityBillingDowngrade,
         tenantId: IDS.tenantBillingDowngrade,
+        key: "customers",
+        name: "Customers",
+        fields: CUSTOMER_FIELDS,
+        schemaVersion: 1,
+        readOnly: false,
+        ...base,
+      },
+      {
+        // GRAFT-27.4 — qa-override's entity, so its records and forms hang off
+        // a definition no other suite touches.
+        _id: IDS.entityOverrideCustomers,
+        tenantId: IDS.tenantOverride,
         key: "customers",
         name: "Customers",
         fields: CUSTOMER_FIELDS,
@@ -739,6 +840,52 @@ async function main() {
         ...base,
         createdAt: new Date("2026-01-03T00:00:00.000Z"),
       },
+      // GRAFT-27.4 — qa-override's three public published forms against Free's
+      // activeForms cap of 2. A manual override to `free` must unpublish
+      // exactly the newest and leave the older two published, by the same
+      // applyDowngradePolicy the Stripe webhook runs. Distinct createdAt makes
+      // "oldest kept" deterministic.
+      ...(["Oldest", "Middle", "Newest"] as const).map((label, n) => ({
+        _id: [IDS.formOverrideOldest, IDS.formOverrideMiddle, IDS.formOverrideNewest][n]!,
+        tenantId: IDS.tenantOverride,
+        entityDefId: IDS.entityOverrideCustomers,
+        name: `QA Override ${label}`,
+        slug: `qa-override-${label.toLowerCase()}`,
+        publicSlug: `qa-override/qa-override-${label.toLowerCase()}`,
+        visibility: "public",
+        published: true,
+        enabled: true,
+        killSwitchAt: null,
+        killSwitchBy: null,
+        fields: CUSTOMER_FIELDS,
+        showBadge: true,
+        deletedAt: null,
+        ...base,
+        createdAt: new Date(`2026-02-0${n + 1}T00:00:00.000Z`),
+      })),
+    ]);
+
+    // GRAFT-27.4 — two real records on qa-override. They are what
+    // "no document is deleted" is counted over in
+    // bruno/admin/tenant-tier-override-downgrade.bru: the downgrade freezes the
+    // `records` meter and must leave both rows exactly where they are.
+    await db.collection("records").insertMany([
+      {
+        _id: IDS.recordOverrideFirst,
+        tenantId: IDS.tenantOverride,
+        entityDefId: IDS.entityOverrideCustomers,
+        data: { name: "Override Customer One", email: "one@qa-override.test" },
+        deletedAt: null,
+        ...base,
+      },
+      {
+        _id: IDS.recordOverrideSecond,
+        tenantId: IDS.tenantOverride,
+        entityDefId: IDS.entityOverrideCustomers,
+        data: { name: "Override Customer Two", email: "two@qa-override.test" },
+        deletedAt: null,
+        ...base,
+      },
     ]);
 
     await db.collection("usage_meters").insertMany([
@@ -802,6 +949,27 @@ async function main() {
         meter: "records",
         period: LIFETIME_PERIOD,
         count: 3_000,
+        ...base,
+      },
+      // GRAFT-27.4 — qa-override, over Free's entities (3) and records (2,000)
+      // caps, so a manual override to `free` must freeze both read-only. The
+      // meter counts are deliberately larger than the two seeded record rows:
+      // a freeze is a decision about the *meter*, and proving nothing is
+      // deleted means counting the rows, which is what the Bruno suite does.
+      {
+        _id: oid(68),
+        tenantId: IDS.tenantOverride,
+        meter: "entities",
+        period: LIFETIME_PERIOD,
+        count: 12,
+        ...base,
+      },
+      {
+        _id: oid(69),
+        tenantId: IDS.tenantOverride,
+        meter: "records",
+        period: LIFETIME_PERIOD,
+        count: 4_200,
         ...base,
       },
     ]);
@@ -928,6 +1096,9 @@ async function main() {
       if (count) console.log(`  ${String(count).padStart(4)}  ${name}`);
     console.log(
       "        tenants: qa-free · qa-premium · qa-at-quota (at hard stop) · qa-downgraded (read-only over-limit)",
+    );
+    console.log(
+      "        qa-override is MUTATED by bruno/admin/tenant-tier-override*.bru — re-seed before every run",
     );
   } finally {
     await client.close();
