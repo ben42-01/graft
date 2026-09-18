@@ -1,0 +1,34 @@
+meta {
+  name: Applying again with a finished run's id changes nothing
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/workspace-templates/hotel/apply
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{templatesAccessToken}}
+}
+
+body:json {
+  {
+    "runId": "{{templateRunId}}"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.status: eq completed
+  res.body.data.records: eq 3
+}
+
+tests {
+  test("it is the run applied above, returned as-is rather than built again", function () {
+    expect(res.getBody().data.runId).to.equal(bru.getVar("templateRunId"));
+    expect(res.getBody().data.forms[0].id).to.equal(bru.getVar("templateFormId"));
+  });
+}

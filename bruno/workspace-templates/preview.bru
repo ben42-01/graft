@@ -1,0 +1,38 @@
+meta {
+  name: Previewing a template prices it and writes nothing
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/workspace-templates/hotel/preview
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{templatesAccessToken}}
+}
+
+body:json {
+  {
+    "answers": {
+      "nouns": { "room": { "singular": "Cabin", "plural": "Cabins" } },
+      "modules": ["housekeeping"],
+      "depositPercent": 20
+    }
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.fits: eq true
+  res.body.data.requirements.entities: eq 3
+  res.body.data.requirements.records: eq 3
+  res.body.data.requirements.internal_forms: eq 1
+  res.body.data.requirements.active_forms: eq 1
+  res.body.data.plan.entities[0].name: eq Cabins
+  res.body.data.plan.forms[0].name: eq Book a cabin
+  res.body.data.plan.forms[0].booking.depositPercent: eq 20
+  res.body.data.modules[1].selected: eq true
+}

@@ -1,0 +1,27 @@
+meta {
+  name: A payment link that is not Stripe's is refused before anything is built
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{baseUrl}}/api/v1/workspace-templates/salon/apply
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{templatesAccessToken}}
+}
+
+body:json {
+  {
+    "answers": { "paymentLink": "https://buy.stripe.com.evil.test/pay" }
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.details.fields.paymentLink: isString
+}

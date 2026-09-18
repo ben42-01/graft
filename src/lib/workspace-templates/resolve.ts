@@ -286,7 +286,8 @@ export function resolveTemplate(
           if (keys.has(key)) data[key] = typeof value === "string" ? fill(value) : value;
         }
         records.push({
-          ref: `${set.entityRef}.${setIndex}.${recordIndex}`,
+          // No dots: a run stores progress under `created.records.<ref>`.
+          ref: `${set.entityRef}:${setIndex}:${recordIndex}`,
           entityRef: set.entityRef,
           data,
           pool: pool

@@ -1,0 +1,24 @@
+meta {
+  name: A template that does not exist is a 404
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/workspace-templates/castle/preview
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{templatesAccessToken}}
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+}

@@ -1,0 +1,46 @@
+meta {
+  name: Applying a template builds a bookable workspace and publishes its form
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/workspace-templates/hotel/apply
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{templatesAccessToken}}
+}
+
+body:json {
+  {
+    "answers": {
+      "depositPercent": 20,
+      "termsUrl": "https://example.com/terms"
+    }
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.status: eq completed
+  res.body.data.entities.length: eq 2
+  res.body.data.records: eq 3
+  res.body.data.pools: eq 3
+  res.body.data.forms.length: eq 1
+  res.body.data.forms[0].visibility: eq public
+  res.body.data.forms[0].takesBookings: eq true
+  res.body.data.forms[0].publicSlug: isString
+}
+
+script:post-response {
+  bru.setVar("templateRunId", res.getBody().data.runId);
+  bru.setVar("templateFormId", res.getBody().data.forms[0].id);
+}
+
+docs {
+  Keys and slugs the seeded premium tenant already uses are suffixed
+  (`rooms_2`), never adopted, so this asserts counts rather than names.
+}
