@@ -30,5 +30,7 @@ export async function up(db: Db): Promise<void> {
   }
 
   await forms.dropIndex("tenantId_1_slug_1");
-  console.log("    dropped forms.tenantId_1_slug_1 — create-indexes will recreate it as partial");
+  console.log(
+    "    dropped forms.tenantId_1_slug_1 — create-indexes will recreate it as partial",
+  );
 }

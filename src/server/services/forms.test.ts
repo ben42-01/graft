@@ -532,12 +532,8 @@ describe("resolveCatalogue", () => {
       /Unknown field "name" on the form's own entity/,
     );
     expect(
-      resolveCatalogue(
-        input({ selectionKey: "chosen_item" }),
-        browse,
-        submit,
-        SUBMIT_ENTITY_ID,
-      ).selectionKey,
+      resolveCatalogue(input({ selectionKey: "chosen_item" }), browse, submit, SUBMIT_ENTITY_ID)
+        .selectionKey,
     ).toBe("chosen_item");
   });
 
@@ -563,9 +559,7 @@ describe("resolveCatalogue", () => {
     expect(() =>
       resolveCatalogue(input({ entityId: SUBMIT_ENTITY_ID }), browse, submit, SUBMIT_ENTITY_ID),
     ).toThrow(AppError);
-    expect(reasonFor({ entityId: SUBMIT_ENTITY_ID })).toMatch(
-      /must browse a different entity/,
-    );
+    expect(reasonFor({ entityId: SUBMIT_ENTITY_ID })).toMatch(/must browse a different entity/);
   });
 });
 

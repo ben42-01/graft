@@ -147,9 +147,9 @@ describe("BookingEditor", () => {
     render(<BookingEditor {...props} />);
     await enable();
 
-    expect(
-      screen.getByRole("combobox", { name: "Charge" }),
-    ).toHaveTextContent("Choose how it's charged…");
+    expect(screen.getByRole("combobox", { name: "Charge" })).toHaveTextContent(
+      "Choose how it's charged…",
+    );
     expect(screen.getByText(/no default on purpose/i)).toBeInTheDocument();
   });
 
