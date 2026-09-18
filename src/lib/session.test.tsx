@@ -74,4 +74,30 @@ describe("useMe", () => {
     );
     expect(fetch).toHaveBeenNthCalledWith(3, "/api/v1/me", { credentials: "include" });
   });
+
+  it("a 401 from /me triggers a silent refresh-and-retry before reporting unauthenticated", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({}, 401))
+      .mockResolvedValueOnce(jsonResponse({}, 200))
+      .mockResolvedValueOnce(jsonResponse({ data: ME }));
+
+    render(<Harness />);
+
+    await waitFor(() => expect(screen.getByText("authenticated:First Co")).toBeInTheDocument());
+    expect(fetch).toHaveBeenNthCalledWith(2, "/api/v1/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+    });
+  });
+
+  it("reports unauthenticated when the refresh cookie has also expired", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(jsonResponse({}, 401))
+      .mockResolvedValueOnce(jsonResponse({}, 401));
+
+    render(<Harness />);
+
+    await waitFor(() => expect(screen.getByText("unauthenticated")).toBeInTheDocument());
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
 });

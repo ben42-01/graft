@@ -74,6 +74,7 @@ describe("BookingEditor", () => {
 
     await choose("Booking starts at", "From");
     await choose("Booking ends at", "Until");
+    await choose("Charge", "Per hour");
     await userEvent
       .setup({ pointerEventsCheck: 0 })
       .click(screen.getByRole("button", { name: /save bookings/i }));
@@ -100,6 +101,7 @@ describe("BookingEditor", () => {
     const minutes = screen.getByRole("spinbutton", { name: /length in minutes/i });
     await user.clear(minutes);
     await user.type(minutes, "90");
+    await choose("Charge", "Per hour");
     await user.click(screen.getByRole("button", { name: /save bookings/i }));
 
     expect(onSave).toHaveBeenCalledWith(
@@ -132,7 +134,23 @@ describe("BookingEditor", () => {
     expect(save()).toBeDisabled();
 
     await choose("Booking ends at", "Until");
+    expect(save()).toBeDisabled();
+
+    // A window with no rate basis is a booking priced by accident — this is
+    // the exact "$3K for a hotel room" bug, so the panel refuses to save
+    // until the builder has explicitly chosen one.
+    await choose("Charge", "Per hour");
     expect(save()).toBeEnabled();
+  });
+
+  it("cannot be saved without an explicit rate basis, and has no default", async () => {
+    render(<BookingEditor {...props} />);
+    await enable();
+
+    expect(screen.getByRole("combobox", { name: "Charge" })).toHaveTextContent(
+      "Choose how it's charged…",
+    );
+    expect(screen.getByText(/no default on purpose/i)).toBeInTheDocument();
   });
 
   it("turning booking mode off saves null rather than a half-filled config", async () => {
@@ -168,6 +186,7 @@ describe("BookingEditor", () => {
 
     await choose("Booking starts at", "From");
     await choose("Booking ends at", "Until");
+    await choose("Charge", "Per hour");
     // Typed: only numbers can be a rate, only text can be a name. Offering a
     // text field as the rate is the mistake that used to price at zero.
     await choose("Price comes from", "Price per hour");

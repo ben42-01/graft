@@ -329,6 +329,7 @@ export default function FormPage() {
           catalogue={form.catalogue}
           entities={state.entities}
           submissionFields={state.entity?.fields ?? form.fields}
+          submissionEntityId={form.entityId}
           busy={busy}
           onSave={(catalogue) => void patch({ catalogue }, () => void load())}
         />

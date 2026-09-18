@@ -162,7 +162,10 @@ export const bookingSchema = z
     durationMinutes: z.number().int().min(1).max(MAX_BOOKING_MINUTES).nullable().default(null),
     /** A `number` field: how many of a pooled resource. Absent means one. */
     quantityKey: fieldKey.nullable().default(null),
-    rateBasis: z.enum(RATE_BASES).default("hourly"),
+    // No default: a $/hour rate applied to a nightly-priced room (or vice
+    // versa) is a silent, three-figure billing error, not something a
+    // sensible fallback can guess its way out of — the builder must choose.
+    rateBasis: z.enum(RATE_BASES),
     /**
      * A `number` field **on the resource's entity** holding its rate, and a
      * text field holding its name. Both used to be conventions — `hourly_rate`
@@ -595,7 +598,23 @@ export function resolveCatalogue(
   input: z.infer<typeof catalogueSchema>,
   catalogueEntityFields: readonly FieldDef[],
   submissionEntityFields: readonly FieldDef[],
+  submissionEntityId: string,
 ): CatalogueConfig {
+  // Browsing and submitting have to be different entities. Collapse them and
+  // every catalogue field doubles as a submission field: a visitor sees a
+  // room's own photo and price as a read-only card, then has to fill in
+  // "photo" and "price" again to submit — and, worse, "browse" now reads
+  // every prior visitor's own submissions as if they were catalogue items.
+  if (input.entityId === submissionEntityId) {
+    throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+      source: "body",
+      fields: {
+        catalogue:
+          "The catalogue must browse a different entity than the one this form submits to",
+      },
+    });
+  }
+
   const byKey = new Map(catalogueEntityFields.map((field) => [field.key, field]));
 
   const seen = new Set<string>();
@@ -819,7 +838,7 @@ export async function createForm(
     ? (await deps.getEntity(ctx, parsed.catalogue.entityId)).fields
     : [];
   const catalogue = parsed.catalogue
-    ? resolveCatalogue(parsed.catalogue, catalogueEntityFields, entity.fields)
+    ? resolveCatalogue(parsed.catalogue, catalogueEntityFields, entity.fields, parsed.entityId)
     : null;
   const booking = parsed.booking
     ? resolveBooking(parsed.booking, fields, catalogue, catalogueEntityFields)
@@ -913,6 +932,7 @@ export async function updateForm(
           parsed.catalogue,
           (await deps.getEntity(ctx, parsed.catalogue.entityId)).fields,
           (await deps.getEntity(ctx, existing.entityDefId.toHexString())).fields,
+          existing.entityDefId.toHexString(),
         )
       : null;
   }
