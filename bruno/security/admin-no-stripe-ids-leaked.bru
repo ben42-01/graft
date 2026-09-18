@@ -1,0 +1,105 @@
+meta {
+  name: The admin surface never leaks a Stripe id, a secret or an email
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/tenants/000000000000000000000006
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  // 000000000000000000000006 is IDS.tenantBillingDowngrade (scripts/seed-qa.ts),
+  // the seeded tenant that really does carry
+  //   billing.stripeCustomerId     = "cus_qa_billing_downgrade"
+  //   billing.stripeSubscriptionId = "sub_qa_billing_downgrade"
+  // in Mongo. Asserting "no cus_ in the body" against a tenant with no Stripe
+  // identity would prove nothing, so this reads the one fixture where the
+  // allow-list serialiser has something to withhold.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const list = await axios.get(`${baseUrl}/api/v1/admin/tenants`, auth);
+  bru.setVar("resList", JSON.stringify({ status: list.status, body: list.data }));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.slug: eq qa-billing-downgrade
+  res.body.data.billing.hasCustomer: eq true
+  res.body.data.billing.hasSubscription: eq true
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC8 — the detail body contains no cus_ or sub_ substring", function () {
+    const serialised = JSON.stringify(res.getBody());
+    expect(serialised).to.not.contain("cus_");
+    expect(serialised).to.not.contain("sub_");
+    expect(serialised).to.not.contain("qa_billing_downgrade");
+  });
+
+  test("AC8 — nor any secret-shaped value", function () {
+    const serialised = JSON.stringify(res.getBody());
+    for (const fragment of ["sk_", "pk_", "whsec_", "secret", "Secret"]) {
+      expect(serialised).to.not.contain(fragment);
+    }
+  });
+
+  test("AC8 — nor any email address", function () {
+    const serialised = JSON.stringify(res.getBody());
+    expect(serialised).to.not.contain("@");
+    expect(serialised).to.not.contain("email");
+  });
+
+  test("AC8 — presence is reported as booleans, which is the whole of it", function () {
+    const billing = res.getBody().data.billing;
+    expect(Object.keys(billing).sort()).to.eql([
+      "graceExpiresAt",
+      "hasCustomer",
+      "hasSubscription",
+      "trialEndsAt",
+    ]);
+    expect(billing.hasCustomer).to.equal(true);
+    expect(billing.hasSubscription).to.equal(true);
+  });
+
+  test("AC8 — the list body withholds the same things", function () {
+    const list = JSON.parse(bru.getVar("resList"));
+    expect(list.status).to.equal(200);
+    const serialised = JSON.stringify(list.body);
+    for (const fragment of ["cus_", "sub_", "sk_", "whsec_", "@"]) {
+      expect(serialised).to.not.contain(fragment);
+    }
+    const target = list.body.data.filter((t) => t.slug === "qa-billing-downgrade")[0];
+    expect(target.billing.hasCustomer).to.equal(true);
+  });
+}
+
+docs {
+  GRAFT-27.2 AC8. This is the test that makes the allow-list serialiser load
+  bearing rather than decorative: `src/server/services/admin-tenants.ts` names
+  every field it emits and contains no `...tenant` spread anywhere, so a field
+  added to the tenant document tomorrow cannot appear in an API response by
+  default.
+
+  Read against the one seeded tenant that actually holds Stripe identifiers, so
+  the assertion has something real to be withheld. The same claim is pinned
+  independently over the serialiser itself in
+  src/server/services/admin-tenants.test.ts, which is where a regression is
+  cheapest to catch.
+}

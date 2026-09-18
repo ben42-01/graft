@@ -1,0 +1,109 @@
+meta {
+  name: A signed-in non-admin gets 404 and no tenant data — not even their own
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/tenants
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformTenantOwnerToken}}
+}
+
+script:pre-request {
+  // owner@qa-platform.test holds BOTH tenant roles — `owner` and `admin` — and
+  // carries no `isPlatformAdmin` field at all. The word "admin" means two
+  // different things in this system and only one of them is a platform
+  // privilege, so the most privileged tenant role there is gets nothing here.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-platform.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformTenantOwnerToken", token);
+
+  // The detail endpoint refuses the same way, including for the caller's OWN
+  // tenant id and for an id that would be a 400 for a real admin.
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const get = async (path) => {
+    const response = await axios.get(`${baseUrl}${path}`, auth);
+    return { status: response.status, body: response.data };
+  };
+
+  // 000000000000000000000008 is IDS.tenantPlatform — this caller's own tenant.
+  bru.setVar("resOwnTenant", JSON.stringify(await get("/api/v1/admin/tenants/000000000000000000000008")));
+  bru.setVar("resOtherTenant", JSON.stringify(await get("/api/v1/admin/tenants/000000000000000000000001")));
+  bru.setVar("resBadId", JSON.stringify(await get("/api/v1/admin/tenants/nope")));
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC7 — the refusal is NOT_FOUND and is not a 403 in disguise", function () {
+    expect(res.getStatus()).to.equal(404);
+    expect(res.getStatus()).to.not.equal(403);
+    expect(res.getBody().error.code).to.not.equal("FORBIDDEN");
+  });
+
+  test("AC7 — no tenant data of any kind appears in the body", function () {
+    const serialised = JSON.stringify(res.getBody());
+    for (const fragment of ["qa-", "Tenant", "tier", "free", "premium", "billing"]) {
+      expect(serialised).to.not.contain(fragment);
+    }
+  });
+
+  test("AC7 — the detail endpoint refuses the caller's own tenant too", function () {
+    const own = JSON.parse(bru.getVar("resOwnTenant"));
+    expect(own.status).to.equal(404);
+    expect(own.body.error.code).to.equal("NOT_FOUND");
+    expect(JSON.stringify(own.body)).to.not.contain("qa-platform");
+    expect(own.body.data).to.equal(undefined);
+  });
+
+  test("AC7 — another tenant's id is refused identically", function () {
+    const other = JSON.parse(bru.getVar("resOtherTenant"));
+    expect(other.status).to.equal(404);
+    expect(other.body.error.code).to.equal("NOT_FOUND");
+    expect(JSON.stringify(other.body)).to.not.contain("qa-free");
+  });
+
+  test("AC7 — a malformed id is also 404, so the surface is not an oracle", function () {
+    // A 400 here would confirm that the path exists and validates its input.
+    const bad = JSON.parse(bru.getVar("resBadId"));
+    expect(bad.status).to.equal(404);
+    expect(bad.body.error.code).to.equal("NOT_FOUND");
+    expect(bad.body.error.code).to.not.equal("VALIDATION_FAILED");
+  });
+
+  test("AC7 — this account really does hold the tenant roles that grant nothing", function () {
+    const token = bru.getVar("platformTenantOwnerToken");
+    const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    expect(claims.roles).to.include("owner");
+    expect(claims.roles).to.include("admin");
+  });
+}
+
+docs {
+  GRAFT-27.2 AC7, and the inverted cross-tenant isolation test the contract
+  asks for. These endpoints are deliberately not tenant-scoped, so the isolation
+  claim is not "another tenant's data is refused" but "everyone without the
+  platform flag is refused — including the most privileged tenant role there
+  is, and including their own workspace".
+
+  The malformed-id case is the subtle one: every refusal is the same 404 with
+  the same wording the /api/v1 catch-all produces, so a non-admin cannot learn
+  from the status code that /api/v1/admin/tenants is a real surface that parses
+  ids. See src/server/auth/platform-admin.ts for why 404 rather than 403.
+}

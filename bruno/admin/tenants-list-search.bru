@@ -1,0 +1,105 @@
+meta {
+  name: Search and tier filter — a pattern in q is text, an unknown tier is a 400
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/tenants?q=downgraded
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+
+  // AC3/AC4 need several responses and Bruno runs one request per .bru file, so
+  // the sibling cases are fetched here and asserted synchronously below. The
+  // file's own request is the happy-path search, which `assert {}` still covers.
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const get = async (qs) => {
+    const response = await axios.get(`${baseUrl}/api/v1/admin/tenants${qs}`, auth);
+    return { status: response.status, body: response.data };
+  };
+
+  bru.setVar("resWildcard", JSON.stringify(await get("?q=.*")));
+  bru.setVar("resOperator", JSON.stringify(await get("?q=%24ne")));
+  bru.setVar("resTierPremium", JSON.stringify(await get("?tier=premium")));
+  bru.setVar("resTierUnknown", JSON.stringify(await get("?tier=platinum")));
+  bru.setVar("resCaseInsensitive", JSON.stringify(await get("?q=QA-DOWN")));
+}
+
+assert {
+  res.status: eq 200
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC3 — q matches name or slug, case-insensitively", function () {
+    const slugs = res.getBody().data.map((t) => t.slug);
+    expect(slugs).to.include("qa-downgraded");
+    expect(slugs).to.not.include("qa-free");
+    expect(slugs).to.not.include("qa-premium");
+
+    const mixedCase = JSON.parse(bru.getVar("resCaseInsensitive"));
+    expect(mixedCase.status).to.equal(200);
+    expect(mixedCase.body.data.map((t) => t.slug)).to.include("qa-downgraded");
+  });
+
+  test("AC3 — `.*` is escaped and therefore matches nothing, not everything", function () {
+    const wildcard = JSON.parse(bru.getVar("resWildcard"));
+    expect(wildcard.status).to.equal(200);
+    // The regex-injection case: unescaped, this would return every tenant.
+    expect(wildcard.body.data).to.have.lengthOf(0);
+  });
+
+  test("AC3 — an operator-shaped term is text, not an operator", function () {
+    const operator = JSON.parse(bru.getVar("resOperator"));
+    expect(operator.status).to.equal(200);
+    expect(operator.body.data).to.have.lengthOf(0);
+    expect(operator.body.error).to.equal(undefined);
+  });
+
+  test("AC4 — ?tier=premium returns only premium tenants", function () {
+    const premium = JSON.parse(bru.getVar("resTierPremium"));
+    expect(premium.status).to.equal(200);
+    expect(premium.body.data.length).to.be.greaterThan(0);
+    for (const tenant of premium.body.data) expect(tenant.tier).to.equal("premium");
+    expect(premium.body.data.map((t) => t.slug)).to.not.include("qa-free");
+  });
+
+  test("AC4 — an unknown tier is a 400, never an empty 200", function () {
+    const unknown = JSON.parse(bru.getVar("resTierUnknown"));
+    expect(unknown.status).to.equal(400);
+    expect(unknown.body.error.code).to.equal("VALIDATION_FAILED");
+    expect(unknown.body.error.details.source).to.equal("query");
+    expect(unknown.body.error.details.fields).to.have.property("tier");
+    expect(unknown.body.data).to.equal(undefined);
+  });
+}
+
+docs {
+  GRAFT-27.2 AC3 and AC4.
+
+  The regex-injection case is the point of this file: `?q=.*` must come back
+  empty. Unescaped it would be a wildcard returning the entire tenant table to
+  anyone who reached this endpoint, which is why the escaping is also pinned by
+  a dedicated unit test (src/server/services/admin-tenants.test.ts) rather than
+  living only here.
+
+  An unknown tier is a 400 rather than an empty list so that a typo in the
+  console is visibly a typo, not an apparently-empty platform.
+}
