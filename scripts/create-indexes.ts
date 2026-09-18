@@ -28,7 +28,14 @@ const INDEXES: IndexDef[] = [
     keys: { tenantId: 1, pluginId: 1 },
     options: { unique: true },
   },
-  { collection: "entity_defs", keys: { tenantId: 1, key: 1 }, options: { unique: true } },
+  // Partial on `deletedAt: null` for the same reason as the forms slug index
+  // below (migrations/003): a deleted entity must free its key, or re-applying
+  // a workspace template after deleting one of its entities is stuck forever.
+  {
+    collection: "entity_defs",
+    keys: { tenantId: 1, key: 1 },
+    options: { unique: true, partialFilterExpression: { deletedAt: null } },
+  },
   { collection: "records", keys: { tenantId: 1, entityDefId: 1, updatedAt: -1 } },
   { collection: "records", keys: { tenantId: 1, entityDefId: 1, deletedAt: 1 } },
   // GRAFT-25.1 — an import result is always read back by (tenant, entity, id),

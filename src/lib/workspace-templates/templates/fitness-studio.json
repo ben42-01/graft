@@ -1,0 +1,221 @@
+{
+  "id": "fitness_studio",
+  "name": "Graft Studio",
+  "tagline": "Yoga, pilates, dance and fitness studios",
+  "description": "Your classes with how many people each one holds, a public page where people book a place, and an optional membership sign-up that can take payment.",
+  "icon": "🧘",
+  "industry": "Fitness",
+  "highlights": [
+    "Class timetable with class sizes",
+    "People book a place; full classes are refused",
+    "Optional membership sign-up with a payment link",
+    "Waiver notice with an agree tick"
+  ],
+  "nouns": [
+    {
+      "id": "class",
+      "singular": "Class",
+      "plural": "Classes",
+      "question": "What do people book? (Classes, Sessions, Workshops…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Let people book a place online",
+      "help": "On: each booking takes a place and a full class refuses more. Off: people register interest and you confirm.",
+      "default": true
+    },
+    {
+      "id": "class_length",
+      "kind": "choice",
+      "label": "How long is a class?",
+      "options": [
+        { "value": "min_45", "label": "45 minutes" },
+        { "value": "min_60", "label": "1 hour" },
+        { "value": "min_75", "label": "1¼ hours" },
+        { "value": "min_90", "label": "1½ hours" }
+      ],
+      "default": "min_60"
+    }
+  ],
+  "modules": [
+    {
+      "id": "memberships",
+      "name": "Memberships",
+      "description": "A members list and a public sign-up form — attach your Stripe payment link to charge for it."
+    }
+  ],
+  "policy": {
+    "title": "Health & safety",
+    "body": "Exercise carries some risk. Tell your instructor about any injury, pregnancy or condition before class. You take part at your own risk."
+  },
+  "entities": [
+    {
+      "ref": "classes",
+      "key": "classes",
+      "name": "Classes",
+      "noun": "class",
+      "fields": [
+        { "key": "name", "label": "{Class}", "type": "text", "required": true },
+        { "key": "description", "label": "Description", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        { "key": "instructor", "label": "Instructor", "type": "text", "optional": true },
+        {
+          "key": "level",
+          "label": "Level",
+          "type": "select",
+          "options": ["All levels", "Beginner", "Intermediate", "Advanced"],
+          "optional": true
+        },
+        { "key": "price", "label": "Drop-in price", "type": "number", "required": true }
+      ]
+    },
+    {
+      "ref": "class_bookings",
+      "key": "class_bookings",
+      "name": "{Class} bookings",
+      "fields": [
+        { "key": "name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "optional": true },
+        {
+          "key": "class_time",
+          "label": "{Class} date and time",
+          "type": "date",
+          "required": true
+        },
+        { "key": "selected_item", "label": "{Class}", "type": "text" },
+        {
+          "key": "first_time",
+          "label": "First time with us?",
+          "type": "checkbox",
+          "optional": true
+        },
+        {
+          "key": "notes",
+          "label": "Injuries or anything we should know",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Booked", "Attended", "No-show", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "members",
+      "key": "members",
+      "name": "Members",
+      "module": "memberships",
+      "fields": [
+        { "key": "full_name", "label": "Full name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        {
+          "key": "plan",
+          "label": "Membership",
+          "type": "select",
+          "required": true,
+          "options": ["Monthly unlimited", "10-class pass", "Drop-in"]
+        },
+        { "key": "start_date", "label": "Start date", "type": "date", "required": true },
+        {
+          "key": "emergency_contact",
+          "label": "Emergency contact",
+          "type": "text",
+          "optional": true
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "classes",
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Vinyasa flow",
+            "description": "A flowing class linking breath and movement.",
+            "instructor": "Maya",
+            "level": "All levels",
+            "price": 14
+          },
+          "quantity": 20
+        },
+        {
+          "data": {
+            "name": "HIIT",
+            "description": "Short bursts, big effect.",
+            "instructor": "Chris",
+            "level": "Intermediate",
+            "price": 12
+          },
+          "quantity": 15
+        },
+        {
+          "data": {
+            "name": "Mat pilates",
+            "description": "Core strength and control.",
+            "instructor": "Priya",
+            "level": "Beginner",
+            "price": 14
+          },
+          "quantity": 12
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "class_booking",
+      "entityRef": "class_bookings",
+      "name": "Book a {class}",
+      "slug": "book-a-{class}",
+      "visibility": "public",
+      "fields": [
+        "name",
+        "email",
+        "phone",
+        "class_time",
+        "selected_item",
+        "first_time",
+        "notes"
+      ],
+      "catalogue": {
+        "entityRef": "classes",
+        "fields": ["name", "description", "instructor", "level", "price"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "class_time",
+        "durationMinutes": { "toggle": "class_length" },
+        "rateBasis": "flat",
+        "rateKey": "price",
+        "labelKey": "name"
+      },
+      "terms": true
+    },
+    {
+      "ref": "membership",
+      "entityRef": "members",
+      "module": "memberships",
+      "name": "Become a member",
+      "slug": "become-a-member",
+      "visibility": "public",
+      "fields": ["full_name", "email", "phone", "plan", "start_date", "emergency_contact"],
+      "payment": true,
+      "terms": true
+    }
+  ]
+}

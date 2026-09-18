@@ -33,6 +33,8 @@ export type SetupStep = {
   description: string;
   href: string;
   cta: string;
+  /** A second way through the same step, offered beside the main one. */
+  alternative?: { href: string; cta: string };
   status: SetupStepStatus;
 };
 
@@ -61,6 +63,10 @@ export function buildSetupSteps(input: {
         "Customers, jobs, bookable items — entities are the shapes your business runs on.",
       href: "/setup",
       cta: "Walk me through it",
+      // Someone who runs a hotel or a salon should not have to model one:
+      // a business template builds the lists, the form and the booking
+      // wiring in one go.
+      alternative: { href: "/templates", cta: "Use a business template" },
       status: statusOf(input.entityCount),
     },
     {
@@ -160,9 +166,16 @@ export function SetupChecklist({ steps }: { steps: SetupStep[] }) {
                 </p>
               ) : null}
               {step === next ? (
-                <Button asChild size="sm" className="mt-2">
-                  <Link href={step.href}>{step.cta}</Link>
-                </Button>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Button asChild size="sm">
+                    <Link href={step.href}>{step.cta}</Link>
+                  </Button>
+                  {step.alternative ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link href={step.alternative.href}>{step.alternative.cta}</Link>
+                    </Button>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           </li>

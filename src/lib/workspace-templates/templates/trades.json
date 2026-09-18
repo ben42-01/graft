@@ -1,0 +1,231 @@
+{
+  "id": "trades",
+  "name": "Graft Trades",
+  "tagline": "Plumbers, electricians, cleaners, builders and handypeople",
+  "description": "Your services, a public quote request page where customers describe the job, and optional jobs and quotes lists to run the work from enquiry to invoice.",
+  "icon": "🔧",
+  "industry": "Trades & home services",
+  "highlights": [
+    "Services list with 'prices from'",
+    "Public quote requests with address and urgency",
+    "Optional jobs board and quotes list",
+    "Optional call-out fee payment link"
+  ],
+  "nouns": [
+    {
+      "id": "service",
+      "singular": "Service",
+      "plural": "Services",
+      "question": "What do customers ask you for? (Services, Jobs, Repairs…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "emergency",
+      "kind": "boolean",
+      "label": "Do you take emergency call-outs?",
+      "help": "Adds an 'Emergency' urgency and a note about call-out charges.",
+      "default": false
+    }
+  ],
+  "modules": [
+    {
+      "id": "jobs",
+      "name": "Jobs board",
+      "description": "Booked jobs with address, date, who's on it and status."
+    },
+    {
+      "id": "quotes",
+      "name": "Quotes",
+      "description": "The quotes you've sent, what they're worth and whether they were accepted."
+    }
+  ],
+  "policy": {
+    "title": "Call-out terms",
+    "body": "Quotes are free. Work is charged as quoted; anything extra is agreed with you before we start. Emergency call-outs carry a call-out fee."
+  },
+  "entities": [
+    {
+      "ref": "services",
+      "key": "services",
+      "name": "Services",
+      "noun": "service",
+      "fields": [
+        { "key": "name", "label": "{Service}", "type": "text", "required": true },
+        { "key": "description", "label": "Description", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        { "key": "from_price", "label": "Prices from", "type": "number", "optional": true }
+      ]
+    },
+    {
+      "ref": "requests",
+      "key": "quote_requests",
+      "name": "Quote requests",
+      "fields": [
+        { "key": "name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "required": true },
+        { "key": "address", "label": "Address or postcode", "type": "text", "required": true },
+        { "key": "selected_item", "label": "{Service}", "type": "text" },
+        { "key": "problem", "label": "What needs doing?", "type": "text", "required": true },
+        {
+          "key": "urgency",
+          "label": "How soon?",
+          "type": "select",
+          "required": true,
+          "options": ["Emergency", "This week", "This month", "Flexible"],
+          "when": [{ "toggle": "emergency", "equals": true }]
+        },
+        {
+          "key": "urgency",
+          "label": "How soon?",
+          "type": "select",
+          "required": true,
+          "options": ["This week", "This month", "Flexible"],
+          "when": [{ "toggle": "emergency", "equals": false }]
+        },
+        {
+          "key": "preferred_date",
+          "label": "Preferred date",
+          "type": "date",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["New", "Quoted", "Won", "Lost"]
+        }
+      ]
+    },
+    {
+      "ref": "jobs",
+      "key": "jobs",
+      "name": "Jobs",
+      "module": "jobs",
+      "fields": [
+        { "key": "customer", "label": "Customer", "type": "text", "required": true },
+        { "key": "address", "label": "Address", "type": "text", "required": true },
+        { "key": "description", "label": "Job", "type": "text", "required": true },
+        { "key": "scheduled_for", "label": "Scheduled for", "type": "date" },
+        { "key": "assigned_to", "label": "Who's on it", "type": "text", "optional": true },
+        { "key": "price", "label": "Price", "type": "number", "optional": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Booked", "In progress", "Done", "Invoiced", "Paid"]
+        }
+      ]
+    },
+    {
+      "ref": "quotes",
+      "key": "quotes",
+      "name": "Quotes",
+      "module": "quotes",
+      "fields": [
+        { "key": "customer", "label": "Customer", "type": "text", "required": true },
+        { "key": "description", "label": "Work quoted", "type": "text", "required": true },
+        { "key": "amount", "label": "Amount", "type": "number", "required": true },
+        { "key": "valid_until", "label": "Valid until", "type": "date", "optional": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Draft", "Sent", "Accepted", "Declined"]
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "services",
+      "records": [
+        {
+          "data": {
+            "name": "Leak or drip repair",
+            "description": "Taps, pipes, toilets and radiators.",
+            "from_price": 65
+          }
+        },
+        {
+          "data": {
+            "name": "Boiler service",
+            "description": "Annual service and safety check.",
+            "from_price": 85
+          }
+        },
+        {
+          "data": {
+            "name": "Fault finding",
+            "description": "Tripping switches, dead sockets, flickering lights.",
+            "from_price": 70
+          }
+        },
+        {
+          "data": {
+            "name": "Small jobs",
+            "description": "Shelves, doors, fittings — the list you've been meaning to get to.",
+            "from_price": 50
+          }
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "quote_request",
+      "entityRef": "requests",
+      "name": "Request a quote",
+      "slug": "request-a-quote",
+      "visibility": "public",
+      "fields": [
+        "name",
+        "email",
+        "phone",
+        "address",
+        "selected_item",
+        "problem",
+        "urgency",
+        "preferred_date"
+      ],
+      "catalogue": {
+        "entityRef": "services",
+        "fields": ["name", "description", "from_price"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "payment": true,
+      "terms": true,
+      "notices": [
+        {
+          "body": "Pick the closest {service}, tell us what's wrong and we'll get back to you with a quote.",
+          "after": null
+        },
+        {
+          "title": "Emergencies",
+          "body": "For an emergency, please also call us — emergency call-outs carry a call-out fee.",
+          "after": "urgency",
+          "when": [{ "toggle": "emergency", "equals": true }]
+        }
+      ]
+    },
+    {
+      "ref": "add_job",
+      "entityRef": "jobs",
+      "module": "jobs",
+      "name": "Add a job",
+      "slug": "add-a-job",
+      "visibility": "internal",
+      "fields": [
+        "customer",
+        "address",
+        "description",
+        "scheduled_for",
+        "assigned_to",
+        "price",
+        "status"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,203 @@
+{
+  "id": "professional_services",
+  "name": "Graft Pro",
+  "tagline": "Photographers, tutors, coaches, consultants and therapists",
+  "description": "Your practitioners, a public booking page for sessions or an enquiry-only page if you prefer to talk first, and optional client and project lists.",
+  "icon": "📸",
+  "industry": "Professional services",
+  "highlights": [
+    "Your practitioners with photos and rates",
+    "Session bookings with a set length, or enquiries only",
+    "Each practitioner's diary kept clash-free",
+    "Optional deposit, payment link and terms"
+  ],
+  "nouns": [
+    {
+      "id": "practitioner",
+      "singular": "Consultant",
+      "plural": "Consultants",
+      "question": "What do you call the people clients book? (Photographers, Tutors, Coaches…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Let clients book a session time online",
+      "help": "On: clients pick a time and clashes are refused. Off: clients send an enquiry and you arrange a time with them.",
+      "default": true
+    },
+    {
+      "id": "session_length",
+      "kind": "choice",
+      "label": "How long is a session?",
+      "options": [
+        { "value": "min_30", "label": "30 minutes" },
+        { "value": "min_60", "label": "1 hour" },
+        { "value": "min_120", "label": "2 hours" },
+        { "value": "min_240", "label": "Half a day" }
+      ],
+      "default": "min_60"
+    },
+    {
+      "id": "rate_basis",
+      "kind": "choice",
+      "label": "How do you charge?",
+      "options": [
+        { "value": "flat", "label": "A set price per session" },
+        { "value": "hourly", "label": "Per hour" }
+      ],
+      "default": "flat"
+    }
+  ],
+  "modules": [
+    {
+      "id": "clients",
+      "name": "Clients",
+      "description": "A list of your clients with company and contact details."
+    },
+    {
+      "id": "projects",
+      "name": "Projects",
+      "description": "Ongoing work per client with a deadline, a value and a status."
+    }
+  ],
+  "policy": {
+    "title": "Terms",
+    "body": "Sessions can be moved free of charge with 48 hours' notice. Deposits are non-refundable within 48 hours of the session."
+  },
+  "entities": [
+    {
+      "ref": "practitioners",
+      "key": "consultants",
+      "name": "Consultants",
+      "noun": "practitioner",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        { "key": "bio", "label": "About", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        { "key": "specialties", "label": "Specialties", "type": "text", "optional": true },
+        { "key": "rate", "label": "Rate", "type": "number", "required": true }
+      ]
+    },
+    {
+      "ref": "sessions",
+      "key": "session_requests",
+      "name": "Session requests",
+      "fields": [
+        { "key": "name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "optional": true },
+        { "key": "company", "label": "Company", "type": "text", "optional": true },
+        {
+          "key": "session_at",
+          "label": "Session time",
+          "type": "date",
+          "required": true,
+          "when": [{ "toggle": "bookable", "equals": true }]
+        },
+        {
+          "key": "session_at",
+          "label": "Preferred date",
+          "type": "date",
+          "when": [{ "toggle": "bookable", "equals": false }]
+        },
+        { "key": "selected_item", "label": "{Practitioner}", "type": "text" },
+        { "key": "brief", "label": "What can we help with?", "type": "text", "required": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["New", "Confirmed", "Completed", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "clients",
+      "key": "clients",
+      "name": "Clients",
+      "module": "clients",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        { "key": "company", "label": "Company", "type": "text" },
+        { "key": "email", "label": "Email", "type": "email" },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    },
+    {
+      "ref": "projects",
+      "key": "projects",
+      "name": "Projects",
+      "module": "projects",
+      "fields": [
+        { "key": "title", "label": "Project", "type": "text", "required": true },
+        { "key": "client", "label": "Client", "type": "text", "required": true },
+        { "key": "deadline", "label": "Deadline", "type": "date", "optional": true },
+        { "key": "value", "label": "Value", "type": "number", "optional": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Proposed", "Active", "Delivered", "Paid"]
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "practitioners",
+      "pool": {
+        "strategy": "individual_asset",
+        "bufferMinutes": 15,
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Your name here",
+            "bio": "Replace this with a line about you.",
+            "specialties": "What you're known for",
+            "rate": 90
+          }
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "session",
+      "entityRef": "sessions",
+      "name": "Book a session",
+      "slug": "book-a-session",
+      "visibility": "public",
+      "fields": ["name", "email", "phone", "company", "session_at", "selected_item", "brief"],
+      "catalogue": {
+        "entityRef": "practitioners",
+        "fields": ["name", "bio", "specialties", "rate"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "session_at",
+        "durationMinutes": { "toggle": "session_length" },
+        "rateBasis": { "toggle": "rate_basis" },
+        "rateKey": "rate",
+        "labelKey": "name",
+        "deposit": true
+      },
+      "payment": true,
+      "terms": true
+    },
+    {
+      "ref": "add_project",
+      "entityRef": "projects",
+      "module": "projects",
+      "name": "Add a project",
+      "slug": "add-a-project",
+      "visibility": "internal",
+      "fields": ["title", "client", "deadline", "value", "status"]
+    }
+  ]
+}

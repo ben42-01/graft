@@ -1,0 +1,223 @@
+{
+  "id": "salon",
+  "name": "Graft Salon",
+  "tagline": "Hair salons, barbers, nail and beauty studios",
+  "description": "Your team, a public booking page where clients pick who they want and when, and an appointments list that keeps each person's diary free of clashes.",
+  "icon": "💇",
+  "industry": "Beauty & wellbeing",
+  "highlights": [
+    "Your team, with photos and prices",
+    "Online appointments with a set length",
+    "Each person's diary kept clash-free",
+    "Optional deposit and cancellation policy"
+  ],
+  "nouns": [
+    {
+      "id": "stylist",
+      "singular": "Stylist",
+      "plural": "Stylists",
+      "question": "What do you call the people clients book with? (Stylists, Barbers, Therapists…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Let clients book a time online",
+      "help": "On: clients pick a time and clashes are refused for them. Off: clients send a request and you confirm by hand.",
+      "default": true
+    },
+    {
+      "id": "appointment_length",
+      "kind": "choice",
+      "label": "How long is a standard appointment?",
+      "help": "Every online booking blocks this long in the diary. You can change it later on the form.",
+      "options": [
+        { "value": "min_30", "label": "30 minutes" },
+        { "value": "min_45", "label": "45 minutes" },
+        { "value": "min_60", "label": "1 hour" },
+        { "value": "min_90", "label": "1½ hours" }
+      ],
+      "default": "min_60"
+    }
+  ],
+  "modules": [
+    {
+      "id": "services",
+      "name": "Price list",
+      "description": "Your services with their prices and lengths, for your team to quote from."
+    },
+    {
+      "id": "clients",
+      "name": "Client cards",
+      "description": "A card per client with contact details, preferences and colour formulas."
+    }
+  ],
+  "policy": {
+    "title": "Cancellation policy",
+    "body": "Please give us 24 hours' notice to cancel or move an appointment. Late cancellations and no-shows may lose their deposit."
+  },
+  "entities": [
+    {
+      "ref": "team",
+      "key": "stylists",
+      "name": "Stylists",
+      "noun": "stylist",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        { "key": "bio", "label": "About", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        { "key": "specialties", "label": "Specialties", "type": "text", "optional": true },
+        { "key": "price", "label": "Price per appointment", "type": "number", "required": true }
+      ]
+    },
+    {
+      "ref": "appointments",
+      "key": "appointments",
+      "name": "Appointments",
+      "fields": [
+        { "key": "client_name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "optional": true },
+        {
+          "key": "service",
+          "label": "What would you like?",
+          "type": "select",
+          "required": true,
+          "options": ["Cut", "Cut & colour", "Colour", "Blow-dry", "Beard trim", "Other"]
+        },
+        {
+          "key": "appointment_at",
+          "label": "Appointment time",
+          "type": "date",
+          "required": true
+        },
+        { "key": "selected_item", "label": "{Stylist}", "type": "text" },
+        {
+          "key": "notes",
+          "label": "Anything we should know?",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Requested", "Confirmed", "Completed", "No-show", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "services",
+      "key": "services",
+      "name": "Services",
+      "module": "services",
+      "fields": [
+        { "key": "name", "label": "Service", "type": "text", "required": true },
+        { "key": "minutes", "label": "Length (minutes)", "type": "number" },
+        { "key": "price", "label": "Price", "type": "number", "required": true },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": ["Hair", "Colour", "Nails", "Beauty", "Barbering"],
+          "optional": true
+        }
+      ]
+    },
+    {
+      "ref": "clients",
+      "key": "clients",
+      "name": "Clients",
+      "module": "clients",
+      "fields": [
+        { "key": "full_name", "label": "Full name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email" },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        { "key": "birthday", "label": "Birthday", "type": "date", "optional": true },
+        {
+          "key": "preferences",
+          "label": "Preferences & formulas",
+          "type": "text",
+          "optional": true
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "team",
+      "pool": {
+        "strategy": "individual_asset",
+        "bufferMinutes": 10,
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": { "name": "Alex", "specialties": "Cuts and styling", "price": 45 }
+        },
+        {
+          "data": { "name": "Sam", "specialties": "Colour and balayage", "price": 60 }
+        },
+        {
+          "data": { "name": "Jordan", "specialties": "Barbering and beard trims", "price": 30 }
+        }
+      ]
+    },
+    {
+      "entityRef": "services",
+      "records": [
+        { "data": { "name": "Cut & finish", "minutes": 45, "price": 45, "category": "Hair" } },
+        { "data": { "name": "Full colour", "minutes": 90, "price": 85, "category": "Colour" } },
+        {
+          "data": { "name": "Beard trim", "minutes": 20, "price": 18, "category": "Barbering" }
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "appointment",
+      "entityRef": "appointments",
+      "name": "Book an appointment",
+      "slug": "book-an-appointment",
+      "visibility": "public",
+      "fields": [
+        "client_name",
+        "email",
+        "phone",
+        "service",
+        "appointment_at",
+        "selected_item",
+        "notes"
+      ],
+      "catalogue": {
+        "entityRef": "team",
+        "fields": ["name", "specialties", "price"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "appointment_at",
+        "durationMinutes": { "toggle": "appointment_length" },
+        "rateBasis": "flat",
+        "rateKey": "price",
+        "labelKey": "name",
+        "deposit": true
+      },
+      "payment": true,
+      "terms": true,
+      "notices": [{ "body": "Pick who you'd like to see, then choose a time that suits you." }]
+    },
+    {
+      "ref": "add_client",
+      "entityRef": "clients",
+      "module": "clients",
+      "name": "Add a client",
+      "slug": "add-a-client",
+      "visibility": "internal",
+      "fields": ["full_name", "email", "phone", "birthday", "preferences"]
+    }
+  ]
+}

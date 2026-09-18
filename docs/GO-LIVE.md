@@ -79,7 +79,7 @@ Legend: 🔴 REQUIRED for launch · 🟡 required within 30 days of launch · �
 - 🔴 Empty states, error states, and 404/500 pages designed — no raw stack traces ever
 - 🔴 Accessibility pass on public forms (keyboard, labels, contrast) — these face the general public
 - 🟡 In-app help/docs for the builder; support email + shared inbox
-- 🟡 5–8 industry onboarding templates (README §8 open question — decide before launch marketing)
+- ✅ 5–8 industry onboarding templates — ten business templates at `/templates` (docs/Graft.md §3, step 4)
 
 ## 8. Performance & Capacity
 

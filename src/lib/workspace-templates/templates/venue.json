@@ -1,0 +1,220 @@
+{
+  "id": "venue",
+  "name": "Graft Venue",
+  "tagline": "Event venues, halls, meeting rooms and studios for hire",
+  "description": "Your spaces, a public booking page with start and end times, and bookings that leave time to reset the room between events so nothing overlaps.",
+  "icon": "🏛️",
+  "industry": "Events",
+  "highlights": [
+    "Your spaces with capacity and prices",
+    "Bookings by the hour or at a flat fee",
+    "Reset time kept free between events",
+    "Optional deposit and venue rules"
+  ],
+  "nouns": [
+    {
+      "id": "space",
+      "singular": "Space",
+      "plural": "Spaces",
+      "question": "What do people book? (Spaces, Rooms, Halls, Studios…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Let people book times online",
+      "help": "On: each booking blocks the space for its times. Off: people send an enquiry and you confirm.",
+      "default": true
+    },
+    {
+      "id": "rate_basis",
+      "kind": "choice",
+      "label": "How do you price a booking?",
+      "options": [
+        { "value": "hourly", "label": "Per hour" },
+        { "value": "daily", "label": "Per day" },
+        { "value": "flat", "label": "A flat fee per booking" }
+      ],
+      "default": "hourly"
+    }
+  ],
+  "modules": [
+    {
+      "id": "clients",
+      "name": "Clients",
+      "description": "Organisations and people who book with you, for repeat events."
+    },
+    {
+      "id": "event_checklist",
+      "name": "Event checklist",
+      "description": "Set-up, catering and follow-up tasks per event, with a form for your team."
+    }
+  ],
+  "policy": {
+    "title": "Venue rules",
+    "body": "Bookings include set-up and pack-down time. Please leave the {space} as you found it. Music must end by 11pm. Cancellations within 14 days lose their deposit."
+  },
+  "entities": [
+    {
+      "ref": "spaces",
+      "key": "spaces",
+      "name": "Spaces",
+      "noun": "space",
+      "fields": [
+        { "key": "name", "label": "{Space}", "type": "text", "required": true },
+        { "key": "description", "label": "Description", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        { "key": "capacity", "label": "Holds up to", "type": "number", "optional": true },
+        { "key": "features", "label": "Features", "type": "text", "optional": true },
+        { "key": "rate", "label": "Price", "type": "number", "required": true }
+      ]
+    },
+    {
+      "ref": "bookings",
+      "key": "venue_bookings",
+      "name": "{Space} bookings",
+      "fields": [
+        { "key": "name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "required": true },
+        { "key": "organisation", "label": "Organisation", "type": "text", "optional": true },
+        { "key": "starts_at", "label": "Starts", "type": "date", "required": true },
+        { "key": "ends_at", "label": "Ends", "type": "date", "required": true },
+        { "key": "attendees", "label": "Number of people", "type": "number", "required": true },
+        {
+          "key": "event_type",
+          "label": "Type of event",
+          "type": "select",
+          "options": ["Meeting", "Party", "Wedding", "Workshop", "Performance", "Other"],
+          "optional": true
+        },
+        { "key": "selected_item", "label": "{Space}", "type": "text" },
+        {
+          "key": "notes",
+          "label": "Tell us about your event",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Enquiry", "Confirmed", "Completed", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "clients",
+      "key": "clients",
+      "name": "Clients",
+      "module": "clients",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        { "key": "organisation", "label": "Organisation", "type": "text" },
+        { "key": "email", "label": "Email", "type": "email" },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    },
+    {
+      "ref": "checklist",
+      "key": "event_checklist",
+      "name": "Event checklist",
+      "module": "event_checklist",
+      "fields": [
+        { "key": "task", "label": "Task", "type": "text", "required": true },
+        { "key": "event", "label": "Event", "type": "text", "required": true },
+        { "key": "due", "label": "Due", "type": "date", "required": true },
+        { "key": "owner", "label": "Who", "type": "text", "optional": true },
+        { "key": "done", "label": "Done", "type": "checkbox" }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "spaces",
+      "pool": {
+        "strategy": "individual_asset",
+        "bufferMinutes": 30,
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Main hall",
+            "description": "Our largest {space}, with a stage and a sprung floor.",
+            "capacity": 150,
+            "features": "Stage, PA, kitchen access",
+            "rate": 80
+          }
+        },
+        {
+          "data": {
+            "name": "Meeting room",
+            "description": "A bright room with one big table.",
+            "capacity": 12,
+            "features": "Screen, whiteboard, Wi-Fi",
+            "rate": 25
+          }
+        },
+        {
+          "data": {
+            "name": "Garden terrace",
+            "description": "Outdoor space for summer events.",
+            "capacity": 60,
+            "features": "Festoon lights, heaters",
+            "rate": 50
+          }
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "booking",
+      "entityRef": "bookings",
+      "name": "Book a {space}",
+      "slug": "book-a-{space}",
+      "visibility": "public",
+      "fields": [
+        "name",
+        "email",
+        "phone",
+        "organisation",
+        "starts_at",
+        "ends_at",
+        "attendees",
+        "event_type",
+        "selected_item",
+        "notes"
+      ],
+      "catalogue": {
+        "entityRef": "spaces",
+        "fields": ["name", "description", "capacity", "features", "rate"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "starts_at",
+        "endKey": "ends_at",
+        "rateBasis": { "toggle": "rate_basis" },
+        "rateKey": "rate",
+        "labelKey": "name",
+        "deposit": true
+      },
+      "payment": true,
+      "terms": true
+    },
+    {
+      "ref": "checklist_entry",
+      "entityRef": "checklist",
+      "module": "event_checklist",
+      "name": "Add an event task",
+      "slug": "event-task",
+      "visibility": "internal",
+      "fields": ["task", "event", "due", "owner", "done"]
+    }
+  ]
+}

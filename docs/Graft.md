@@ -48,6 +48,7 @@ The result: each tenant "grafts" together the exact system their business needs.
 4. **Template suggestion**
    - Based on industry, Graft suggests a starter bundle (e.g. "Trades & Services": Contacts + Jobs + Quotes + Scheduling).
    - User can accept, tweak, or start from a blank canvas.
+   - **Business templates (shipped, `/templates`)** — ten one-click workspaces: Graft Hotel, Salon, Studio (fitness), Hire (equipment), Rentals (vehicles), Venue, Pets, Restaurant, Trades and Pro (professional services). Each creates the resource list, the request list, sample entries made bookable, and a public form with catalogue, booking, deposit, Stripe payment link and terms already wired. The owner answers plain questions ("Let guests book dates online?", "How long is an appointment?"), renames things ("Rooms" → "Cabins"), unticks optional fields and picks extras (Housekeeping, Catering, Jobs board…). The core of every template fits the Free plan; extras that would not fit are shown locked. Blueprints are JSON in `src/lib/workspace-templates/templates/`; applying goes through `src/server/services/workspace-templates.ts`.
 5. **Plugin selection**
    - Toggle plugins on/off. Free tier limits apply (e.g. max 3 plugins).
 6. **Entity & form setup**
@@ -245,7 +246,7 @@ API/webhooks, SSO/SAML, white-labeling, custom domains, dedicated infrastructure
 - **Plugin SDK:** internal-only plugins first, or design for third-party developers from day one?
 - **tRPC vs REST:** internal type-safety vs. easier future public API.
 - **Record validation:** enforce with MongoDB JSON Schema per collection, or purely at the API layer?
-- **Onboarding templates:** how many industry templates at launch? (Suggest 5–8.)
+- ~~**Onboarding templates:** how many industry templates at launch? (Suggest 5–8.)~~ Ten business templates shipped at `/templates` (§3, step 4).
 - **Pricing:** exact price points per tier and regional pricing.
 - **Name/branding:** "Graft" — check trademark availability and domain options.
 
