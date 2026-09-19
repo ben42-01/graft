@@ -25,6 +25,7 @@ import { TIER_FEATURES, TIER_LIMITS, type TierLimits } from "@/server/tiers";
 import type { Session } from "@/server/services/tokens";
 import { startTrial, TRIAL_DAYS, type BillingStore, type StripeClient } from "./billing";
 import { resolveEntitlements } from "./entitlements";
+import { emitActivity, type ActivityInput } from "./activity-log";
 import { getMe, login, signup, switchTenant, verifyEmail, type AccountDeps } from "./accounts";
 
 const PASSWORD = "correct horse battery staple";
@@ -712,5 +713,182 @@ describe("getMe", () => {
 
     const error = await rejection(() => getMe(ctxFor(otherId, userId), deps));
     expect(error.code).toBe("FORBIDDEN");
+  });
+});
+
+/**
+ * GRAFT-29.4 AC1 / AC5 — the `account.*` call sites.
+ *
+ * What is under test is the instrumentation, not the flows: every assertion
+ * here is about a row that should exist alongside an outcome these tests
+ * already proved above, and the outcome is re-asserted each time so a
+ * regression shows up as a failing flow rather than only a missing row.
+ */
+describe("activity log wiring — GRAFT-29.4 AC1", () => {
+  /** Collects what the service tried to record, with no store behind it. */
+  function captureEmit() {
+    const rows: ActivityInput[] = [];
+    return { rows, emit: async (input: ActivityInput) => void rows.push(input) };
+  }
+
+  const signupInput = {
+    email: "founder@example.com",
+    password: PASSWORD,
+    businessName: "Blue Door Studio",
+  };
+
+  it("records account.signup with the new tenant and user as the actor", async () => {
+    const { rows, emit } = captureEmit();
+    const { userId, tenantId } = await signup(signupInput, { ...deps, emit });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId,
+      actorType: "customer",
+      actorId: userId,
+      action: "account.signup",
+      ok: true,
+      context: { method: "password" },
+    });
+  });
+
+  /**
+   * AC4 of GRAFT-29.1 is the thing most likely to be got wrong at exactly this
+   * call site — signup has the address in scope and `account` has no field for
+   * it. Asserted directly rather than trusted to `recordActivity`'s throw,
+   * because `emitActivity` swallows that throw: if this call site regressed,
+   * the row would silently stop being written and nothing else would fail.
+   */
+  it("puts no email address in the account.signup context", async () => {
+    const { rows, emit } = captureEmit();
+    await signup(signupInput, { ...deps, emit });
+    const context = rows[0]!.context ?? {};
+    expect(context).not.toHaveProperty("to");
+    expect(context).not.toHaveProperty("email");
+    expect(JSON.stringify(context)).not.toContain("founder@example.com");
+  });
+
+  it("records account.login on a successful login", async () => {
+    const { rows, emit } = captureEmit();
+    const { userId, tenantId } = await signup(signupInput, deps);
+    await verifyEmail(emitted[0]!.token, deps);
+    rows.length = 0;
+
+    await login({ email: signupInput.email, password: PASSWORD }, { ...deps, emit });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId,
+      actorType: "customer",
+      actorId: userId,
+      action: "account.login",
+      ok: true,
+      context: { method: "password" },
+    });
+  });
+
+  it("records account.login_failed with ok:false when the password is wrong", async () => {
+    const { rows, emit } = captureEmit();
+    const { userId, tenantId } = await signup(signupInput, deps);
+    await verifyEmail(emitted[0]!.token, deps);
+    rows.length = 0;
+
+    await expect(
+      login({ email: signupInput.email, password: "not-the-password" }, { ...deps, emit }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId,
+      actorType: "customer",
+      actorId: userId,
+      action: "account.login_failed",
+      ok: false,
+    });
+  });
+
+  it("records account.login_failed when the account exists but is unverified", async () => {
+    const { rows, emit } = captureEmit();
+    const { tenantId } = await signup(signupInput, deps);
+    rows.length = 0;
+
+    await expect(
+      login({ email: signupInput.email, password: PASSWORD }, { ...deps, emit }),
+    ).rejects.toMatchObject({ code: "EMAIL_NOT_VERIFIED" });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ tenantId, action: "account.login_failed", ok: false });
+  });
+
+  /**
+   * The deliberate gap, and the reason it is deliberate: `activities.tenantId`
+   * is required (GRAFT-29.1 — "a tenant-less row is one the read surface could
+   * never attribute"), and an unknown email belongs to no tenant. Recording it
+   * is not merely unsupported by the schema, it would also be unbounded: the
+   * login endpoint is anonymous, so anyone could append a row per guess.
+   * Enumeration-safety is preserved either way — the caller still gets the one
+   * `unauthorized()` message, and learns nothing from what was or wasn't logged.
+   */
+  it("records nothing for an unknown email — there is no tenant to attribute", async () => {
+    const { rows, emit } = captureEmit();
+    await expect(
+      login({ email: "nobody@example.com", password: PASSWORD }, { ...deps, emit }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(rows).toHaveLength(0);
+  });
+
+  /**
+   * AC5 at a real call site. `emitActivity`'s own unit tests prove the swallow;
+   * this proves signup and login actually route through it, which is the half
+   * that a refactor to a direct `recordActivity` call would break.
+   */
+  describe("AC5 — a failing activity write never fails the parent operation", () => {
+    /**
+     * The failure is injected at the *store*, not by replacing `emit` with a
+     * thrower. `deps.emit` defaults to `emitActivity`, whose whole contract is
+     * that it does not throw — swapping it for one that does would test a
+     * state production cannot reach, and would pass even if the call site
+     * wrapped its own `recordActivity` in a `try`/`catch`. Driving the real
+     * `emitActivity` over a broken store reproduces the actual failure (Mongo
+     * unavailable) and fails if this call site ever stops routing through it.
+     */
+    const explode = (input: ActivityInput) =>
+      emitActivity(input, {
+        activities: {
+          append: async () => {
+            throw new Error("activity store unavailable");
+          },
+        },
+      });
+
+    it("signup still creates the account and tenant", async () => {
+      const result = await signup(signupInput, { ...deps, emit: explode });
+      expect(result.userId).toBeTruthy();
+      expect(result.tenantId).toBeTruthy();
+      // Not merely "did not throw": the real work is intact.
+      expect(fake.users.get(result.userId)?.email).toBe(signupInput.email);
+      expect(fake.tenants.get(result.tenantId)?.slug).toBe("blue-door-studio");
+    });
+
+    it("login still returns its normal session", async () => {
+      await signup(signupInput, deps);
+      await verifyEmail(emitted[0]!.token, deps);
+
+      const session = await login(
+        { email: signupInput.email, password: PASSWORD },
+        { ...deps, emit: explode },
+      );
+      expect(session.accessToken).toBeTruthy();
+      expect(session.claims.roles).toEqual(["owner"]);
+    });
+
+    it("a failed login still reports UNAUTHORIZED, not the activity error", async () => {
+      await signup(signupInput, deps);
+      await verifyEmail(emitted[0]!.token, deps);
+
+      await expect(
+        login({ email: signupInput.email, password: "wrong" }, { ...deps, emit: explode }),
+      ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    });
   });
 });

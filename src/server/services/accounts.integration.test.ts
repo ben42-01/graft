@@ -21,6 +21,8 @@ import { getDb, getMongoClient } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
 import { TIER_FEATURES, TIER_LIMITS } from "@/server/tiers";
 import { mongoBillingStore, TRIAL_DAYS } from "./billing";
+import { ACTIVITIES_COLLECTION } from "./activity-log";
+import { listAdminActivities } from "./admin-activities";
 import type { AccessTokenInput, Session } from "@/server/services/tokens";
 import {
   getMe,
@@ -76,7 +78,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   const db = await getDb();
-  for (const name of ["users", "tenants", VERIFICATION_COLLECTION]) {
+  for (const name of ["users", "tenants", ACTIVITIES_COLLECTION, VERIFICATION_COLLECTION]) {
     await db.collection(name).deleteMany({});
   }
   emitted = [];
@@ -352,4 +354,86 @@ it("connects to a real mongod", async () => {
   expect(await (await getDb()).admin().ping()).toMatchObject({ ok: 1 });
   expect(mongod.getUri()).toContain("mongodb://");
   expect(MongoClient).toBeTruthy();
+});
+
+/**
+ * GRAFT-29.4 AC1 — the `account.*` rows, read back through GRAFT-29.2's API
+ * rather than out of the collection, for the reason activity-log.integration
+ * .test.ts sets out: a row the operator cannot find is the same as no row.
+ *
+ * These run on the real `emitActivity` and the real Mongo store — nothing about
+ * the activity path is stubbed here, which is what makes it the end-to-end half
+ * of the proof that accounts.test.ts's stubbed assertions describe.
+ */
+describe("GRAFT-29.4 AC1 — account activity, end to end", () => {
+  const rowsFor = async (action: string) => (await listAdminActivities({ action })).items;
+
+  it("a real signup is findable as account.signup", async () => {
+    const { userId, tenantId } = await signup(signupInput, deps);
+
+    const rows = await rowsFor("account.signup");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId,
+      actorType: "customer",
+      actorId: userId,
+      action: "account.signup",
+      ok: true,
+      context: { method: "password" },
+    });
+  });
+
+  it("a real login is findable as account.login", async () => {
+    const { userId, tenantId } = await signup(signupInput, deps);
+    await verifyEmail(emitted[0]!.token, deps);
+
+    await login({ email: signupInput.email, password: PASSWORD }, deps);
+
+    const rows = await rowsFor("account.login");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId,
+      actorType: "customer",
+      actorId: userId,
+      action: "account.login",
+      ok: true,
+    });
+  });
+
+  it("a real failed login is findable as account.login_failed with ok:false", async () => {
+    const { userId, tenantId } = await signup(signupInput, deps);
+    await verifyEmail(emitted[0]!.token, deps);
+
+    await rejection(() => login({ email: signupInput.email, password: "wrong" }, deps));
+
+    const rows = await rowsFor("account.login_failed");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId,
+      actorType: "customer",
+      actorId: userId,
+      action: "account.login_failed",
+      ok: false,
+    });
+  });
+
+  /**
+   * GRAFT-29.1 AC4, checked against what actually landed in the database rather
+   * than against what the call site intended. This is the review note the
+   * contract's Constraints section asks for, made mechanical: the signup path
+   * has the address in scope, and none of it may reach the row.
+   */
+  it("stores no email address anywhere in an account row", async () => {
+    await signup(signupInput, deps);
+    await verifyEmail(emitted[0]!.token, deps);
+    await login({ email: signupInput.email, password: PASSWORD }, deps);
+
+    const { items } = await listAdminActivities({});
+    expect(items.length).toBeGreaterThanOrEqual(2);
+    expect(JSON.stringify(items)).not.toContain(signupInput.email);
+    for (const row of items) {
+      expect(row.context).not.toHaveProperty("to");
+      expect(row.context).not.toHaveProperty("email");
+    }
+  });
 });

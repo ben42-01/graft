@@ -32,7 +32,8 @@ import { ObjectId } from "mongodb";
 import Stripe from "stripe";
 import { z } from "zod";
 import type { Ctx } from "@/server/context";
-import { createContext } from "@/server/context";
+import { createContext, newRequestId } from "@/server/context";
+import { emitActivity, type ActivityInput } from "./activity-log";
 import { getDb } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
 import { parse } from "@/server/http/validate";
@@ -180,6 +181,12 @@ export type BillingDeps = {
   /** The app's own base URL, for the Checkout redirect targets — a seam so a
    * unit test never has to satisfy src/env.ts's full, app-wide schema. */
   appUrl: () => string;
+  /**
+   * GRAFT-29.4 — the activity-log seam. Defaults to `emitActivity`, which
+   * never throws (AC5), so the webhook's `switch` does not guard its own
+   * writes and a failed row can never turn a delivered event into a retry.
+   */
+  emit: (input: ActivityInput) => Promise<void>;
 };
 
 type TenantBillingDoc = {
@@ -398,6 +405,7 @@ const defaultUsageMetersRepo = createRepository<{
 
 function resolveDeps(overrides: Partial<BillingDeps> = {}): BillingDeps {
   return {
+    emit: overrides.emit ?? ((input) => emitActivity(input)),
     store: overrides.store ?? mongoBillingStore(),
     events: overrides.events ?? mongoWebhookEventStore(),
     formsRepo: overrides.formsRepo ?? defaultFormsRepo,
@@ -607,6 +615,43 @@ function readTenantId(object: Record<string, unknown>): string | null {
 const asString = (value: unknown): string | undefined =>
   typeof value === "string" ? value : undefined;
 
+const asNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+/**
+ * GRAFT-29.4 AC2 — one `billing.*` row per handled webhook event.
+ *
+ * `actorType` is always `"system"` and `actorId` always null: a webhook has no
+ * acting user, which is the case GRAFT-29.1 made `actorId` nullable for.
+ *
+ * Nothing from the Stripe object is copied in. The `context` is built from
+ * named fields only — the tier the tenant landed on, the amount, the currency,
+ * the failure code — so a `cus_`/`sub_`/`in_` identifier cannot reach the
+ * admin surface through this path. That is the same posture GRAFT-27.2 took
+ * with `hasCustomer`/`hasSubscription`, and AC2 restates it for these rows.
+ */
+async function recordBillingActivity(
+  deps: BillingDeps,
+  tenantId: string,
+  action: string,
+  ok: boolean,
+  requestId: string | undefined,
+  context: Record<string, unknown>,
+): Promise<void> {
+  await deps.emit({
+    tenantId,
+    actorType: "system",
+    actorId: null,
+    action,
+    ok,
+    // Same seam and same reasoning as accounts.ts: the webhook route has a
+    // request id, and passes it when it has one. Minted here otherwise so a
+    // direct service call still produces a well-formed row.
+    requestId: requestId ?? newRequestId(),
+    context,
+  });
+}
+
 /**
  * AC2, AC3, AC4, AC5, AC8. Verifies the signature over the exact raw body
  * (AC2), claims the event id before doing anything else (AC3), then
@@ -618,6 +663,7 @@ export async function handleStripeWebhookEvent(
   payload: string,
   signature: string | null,
   overrides: Partial<BillingDeps> = {},
+  requestId?: string,
 ): Promise<void> {
   const deps = resolveDeps(overrides);
   const webhookEnv = deps.billingEnv();
@@ -650,6 +696,9 @@ export async function handleStripeWebhookEvent(
       if (customerId) await deps.store.setStripeCustomerId(tenantId, customerId);
       if (subscriptionId) await deps.store.setSubscriptionId(tenantId, subscriptionId);
       await applyUpgrade(tenantId, "premium", overrides);
+      await recordBillingActivity(deps, tenantId, "billing.subscription.add", true, requestId, {
+        toTier: "premium",
+      });
       break;
     }
 
@@ -658,8 +707,29 @@ export async function handleStripeWebhookEvent(
       const tenantId = readTenantId(subscription);
       if (!tenantId) break;
       const status = asString(subscription.status);
+      /**
+       * GRAFT-29.4 AC2 — the mapping this contract left to the build's
+       * judgment, resolved by what the handler actually does rather than by
+       * the event's name. The only branch that changes anything here raises
+       * the tenant to Premium, so it is `billing.subscription.add`.
+       *
+       * Every other status falls through without touching the tier, and so
+       * writes no row. Mapping those to `cancel` would be the tempting reading
+       * of "subscription updated" and it would be wrong: nothing was
+       * cancelled, the tenant is still Premium, and the row would tell a
+       * support operator the opposite of what happened. A row this log does
+       * not write is a gap; a row it writes falsely is a defect.
+       */
       if (status === "active" || status === "trialing") {
         await applyUpgrade(tenantId, "premium", overrides);
+        await recordBillingActivity(
+          deps,
+          tenantId,
+          "billing.subscription.add",
+          true,
+          requestId,
+          { toTier: "premium" },
+        );
       }
       break;
     }
@@ -669,6 +739,16 @@ export async function handleStripeWebhookEvent(
       const tenantId = readTenantId(subscription);
       if (!tenantId) break;
       await applyDowngradePolicy(tenantId, overrides);
+      // `applyDowngradePolicy`'s Stripe-driven default target, stated rather
+      // than inferred so the row cannot drift from the call above.
+      await recordBillingActivity(
+        deps,
+        tenantId,
+        "billing.subscription.cancel",
+        true,
+        requestId,
+        { toTier: "free", reason: "subscription_deleted" },
+      );
       break;
     }
 
@@ -679,6 +759,25 @@ export async function handleStripeWebhookEvent(
       const tenant = await deps.store.findTenantByStripeCustomerId(customerId);
       if (!tenant) break;
       await startGracePeriod(tenant.id, overrides);
+      /**
+       * `ok: false` — the field describes the payment, not the write. A failed
+       * payment is exactly the activity a support operator came looking for.
+       *
+       * `amountCents` and `currency` are required by the family's schema and
+       * are read straight off the invoice. If a malformed invoice ever lacked
+       * them the row is rejected and dropped (and logged) rather than written
+       * with a fabricated zero: an invented amount on a billing row is worse
+       * than a missing row.
+       */
+      const failure = invoice.last_finalization_error;
+      await recordBillingActivity(deps, tenant.id, "billing.payment.failed", false, requestId, {
+        amountCents: asNumber(invoice.amount_due),
+        currency: asString(invoice.currency),
+        failureCode:
+          failure && typeof failure === "object"
+            ? asString((failure as Record<string, unknown>).code)
+            : undefined,
+      });
       break;
     }
 

@@ -222,6 +222,22 @@ The rest of the surface: **GRAFT-29.2** the read/search API
 (`GET /api/v1/admin/activities`), **GRAFT-29.3** the `/admin/activities`
 console screen, **GRAFT-29.4** the real call sites that make rows exist.
 
+**Wired (GRAFT-29.4):** `account.signup`, `account.login`, `account.login_failed`
+(`src/server/services/accounts.ts`); `billing.subscription.add`,
+`billing.subscription.cancel`, `billing.payment.failed` (the four handled
+Stripe events in `handleStripeWebhookEvent`,
+`src/server/services/billing.ts`); `entity.created`, `entity.updated`,
+`entity.deleted` (`src/server/services/records.ts`). Every call goes through
+`emitActivity()`, not `recordActivity()` directly — it never propagates a
+failure, so a lost row can never turn into a broken signup, webhook, or write.
+
+**Still planned, not wired:** `account.password_reset_*` (no password-reset
+flow exists yet), `notify.email.*` (no real mailer — the verification-token
+path is a logged stub), `billing.subscription.expire`,
+`billing.payment.succeeded`, `billing.payment.refunded` (not handled event
+types in the webhook today). Each gets wired alongside the feature that makes
+it real, per the amendment on issue #105.
+
 ## 7. Testing Strategy
 
 ### 7.1 Pyramid
