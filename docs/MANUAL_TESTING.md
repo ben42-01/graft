@@ -186,9 +186,21 @@ QA seeds it for you):
    tenant's records are all still there, just frozen. Flip it back to Premium
    on `qa-override-upgrade` and confirm the freeze clears and limits restore.
    Every call — read or write — appends one row to `admin_audit_log`; there
-   is no UI for the log itself yet, so check it via `mongosh` if you want to
-   see the audit trail directly.
-5. **Prove the boundary, not just the happy path:** sign out, sign in as an
+   is no UI for that log yet (it's `admin_audit_log`, a separate collection
+   from the customer-facing activity log below), so check it via `mongosh` if
+   you want to see the audit trail directly.
+5. **Activity log** (GRAFT-29): from a tenant's detail screen, click "View
+   activity" — lands on `/admin/activities?tenantId=<id>`, pre-filtered and
+   locked to that tenant (the filter can't be cleared from this screen; go to
+   `/admin/activities` directly for the cross-tenant view). Try the action
+   dropdown — exactly the five families (`notify.email`, `billing.subscription`,
+   `billing.payment`, `account`, `entity`) plus "All", never free text — the
+   actor-type filter, the date range, and search; each re-queries the server.
+   Expand a row to see its full context with human labels rather than raw
+   JSON; a `notify.email` row shows its template and masked recipient plus
+   the row's own succeeded/failed outcome. Page through with "Load more" if
+   there's enough activity to trigger the cursor pager.
+6. **Prove the boundary, not just the happy path:** sign out, sign in as an
    ordinary tenant owner (e.g. `owner@qa-premium.test`), and visit `/admin`
    or `/admin/tenants` directly. You should be bounced to `/` with **no**
    flash of tenant data, no "you're not an admin" message, nothing — the
