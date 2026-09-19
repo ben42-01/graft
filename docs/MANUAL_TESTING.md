@@ -154,6 +154,14 @@ trusted from the access token.
 `scripts/grant-platform-admin.ts <email>` run once against a real user first;
 QA seeds it for you):
 
+`admin:grant` has no `.env.dev`/`.env.qa` wired in (same as `db:migrate` /
+`db:indexes` — it's the one runner used in dev, QA, and prod alike), so for a
+local grant, load dev's env yourself:
+
+```
+npx dotenv -e .env.dev -- npm run admin:grant -- <email>
+```
+
 - QA: `platform-admin@qa.test` / `qa-fixture-password-2026`. This user
   happens to belong to tenant `qa-platform`, but tenant membership grants
   nothing here — the flag is what matters.
