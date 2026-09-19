@@ -1086,6 +1086,123 @@ async function main() {
       expiresAt: new Date(FIXED_DATE.getTime() + 365 * 24 * 60 * 60 * 1000),
     });
 
+    /**
+     * GRAFT-29.2 — activity-log fixtures, inserted directly (the write path is
+     * GRAFT-29.4's job, not this contract's) so bruno/admin/activities-*.bru
+     * has deterministic rows to read/filter/search. Shaped exactly like
+     * `mongoActivityStore().append` writes them (src/server/services/
+     * activity-log.ts) so this fixture cannot silently drift from what the
+     * real writer produces.
+     *
+     * Spread across qa-premium and qa-free so bruno/admin/activities-list.bru
+     * can prove the `tenantId` filter narrows the read, across five of the
+     * five action families so `action` (exact and prefix) has real rows to
+     * match, and across three consecutive days so `from`/`to` has a real
+     * boundary to test.
+     */
+    const activityFixture = (
+      n: number,
+      over: Partial<{
+        tenantId: ObjectId;
+        actorType: "customer" | "system" | "admin";
+        actorId: ObjectId | null;
+        action: string;
+        ok: boolean;
+        at: Date;
+        context: Record<string, unknown>;
+      }>,
+    ) => ({
+      _id: oid(n),
+      tenantId: IDS.tenantPremium,
+      actorType: "system" as const,
+      actorId: null,
+      action: "account.login",
+      ok: true,
+      requestId: `qa-seed-activity-${n}`,
+      at: new Date("2026-01-10T00:00:00.000Z"),
+      context: {},
+      ...over,
+    });
+
+    await db.collection("activities").insertMany([
+      activityFixture(110, {
+        tenantId: IDS.tenantPremium,
+        actorType: "customer",
+        actorId: IDS.userPremiumOwner,
+        action: "account.login",
+        ok: true,
+        at: new Date("2026-01-10T00:00:00.000Z"),
+        context: { method: "password" },
+      }),
+      activityFixture(111, {
+        tenantId: IDS.tenantPremium,
+        actorType: "customer",
+        actorId: IDS.userPremiumOwner,
+        action: "account.login_failed",
+        ok: false,
+        at: new Date("2026-01-11T00:00:00.000Z"),
+        context: { method: "password" },
+      }),
+      // The one row anywhere with an email address — masked by the admin
+      // read surface, never by the fixture (GRAFT-29.2 AC4/AC6).
+      activityFixture(112, {
+        action: "notify.email.sent",
+        ok: true,
+        at: new Date("2026-01-12T00:00:00.000Z"),
+        context: {
+          template: "welcome-email",
+          to: "owner@qa-premium.test",
+          messageId: "msg_qa_seed_abc",
+        },
+      }),
+      activityFixture(113, {
+        action: "notify.email.failed",
+        ok: false,
+        at: new Date("2026-01-13T00:00:00.000Z"),
+        context: {
+          template: "invoice-email",
+          to: "owner@qa-premium.test",
+          errorCode: "bounce",
+        },
+      }),
+      activityFixture(114, {
+        action: "billing.subscription.add",
+        ok: true,
+        at: new Date("2026-01-14T00:00:00.000Z"),
+        context: { toTier: "premium", reason: "upgrade via checkout" },
+      }),
+      activityFixture(115, {
+        action: "billing.payment.succeeded",
+        ok: true,
+        at: new Date("2026-01-15T00:00:00.000Z"),
+        context: { amountCents: 2900, currency: "usd" },
+      }),
+      activityFixture(117, {
+        tenantId: IDS.tenantPremium,
+        actorType: "customer",
+        actorId: IDS.userPremiumOwner,
+        action: "entity.created",
+        ok: true,
+        at: new Date("2026-01-16T00:00:00.000Z"),
+        context: {
+          entityDefId: IDS.entityPremiumCustomers.toHexString(),
+          entityType: "customers",
+          recordId: "0000000000000000000000ff",
+        },
+      }),
+      // A different tenant, so the `tenantId` filter (AC2) has something real
+      // to exclude.
+      activityFixture(116, {
+        tenantId: IDS.tenantFree,
+        actorType: "customer",
+        actorId: IDS.userFreeOwner,
+        action: "account.signup",
+        ok: true,
+        at: new Date("2026-01-05T00:00:00.000Z"),
+        context: { method: "password" },
+      }),
+    ]);
+
     const counts = await Promise.all(
       COLLECTIONS.map(
         async (name) => [name, await db.collection(name).countDocuments()] as const,

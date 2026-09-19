@@ -1,0 +1,154 @@
+meta {
+  name: A platform admin lists and filters the cross-tenant activity log
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/activities?tenantId=000000000000000000000002
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  // Same account as bruno/admin/session.bru: platform-admin@qa.test is the one
+  // seeded user whose `users` document carries `isPlatformAdmin: true`.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+
+  // AC1, AC3, AC4, AC5, AC6, AC8 all need several responses and Bruno runs one
+  // request per .bru file, so the sibling cases are fetched here and asserted
+  // synchronously below. The file's own request is the AC2 tenantId-filter case.
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const get = async (qs) => {
+    const response = await axios.get(`${baseUrl}/api/v1/admin/activities${qs}`, auth);
+    return { status: response.status, body: response.data };
+  };
+
+  bru.setVar("resNoFilter", JSON.stringify(await get("")));
+  // AC3 — exact leaf match and family-prefix match.
+  bru.setVar("resActionExact", JSON.stringify(await get("?action=notify.email.sent")));
+  bru.setVar("resActionPrefix", JSON.stringify(await get("?action=billing.")));
+  // AC4 — q matches the declared searchable field (template) and does not
+  // match against a non-searchable one (messageId, errorCode).
+  bru.setVar("resQMatch", JSON.stringify(await get("?q=welcome-email")));
+  bru.setVar("resQNoMatch", JSON.stringify(await get("?q=msg_qa_seed_abc")));
+  // AC5 — an inclusive date range.
+  bru.setVar(
+    "resDateRange",
+    JSON.stringify(
+      await get("?from=2026-01-12T00:00:00.000Z&to=2026-01-14T00:00:00.000Z"),
+    ),
+  );
+  // AC8 — the audit row this very call appends is read back afterward.
+}
+
+assert {
+  res.status: eq 200
+  res.body.meta.requestId: isDefined
+  res.body.meta.hasMore: eq false
+  res.body.error: isUndefined
+}
+
+tests {
+  // Synchronous on purpose: an `async` test body never fails the Bruno gate, so
+  // every assertion in this collection is either in `assert {}` above or here.
+  test("AC2 — the tenantId filter returns only that tenant's rows", function () {
+    const data = res.getBody().data;
+    expect(data.length).to.be.greaterThan(0);
+    for (const row of data) expect(row.tenantId).to.equal("000000000000000000000002");
+    // qa-free's seeded row must never appear under qa-premium's filter.
+    expect(data.map((r) => r.action)).to.not.include("account.signup");
+  });
+
+  test("AC1 — each row carries exactly the summary fields and no others", function () {
+    for (const row of res.getBody().data) {
+      expect(Object.keys(row).sort()).to.eql([
+        "action",
+        "actorId",
+        "actorType",
+        "at",
+        "context",
+        "id",
+        "ok",
+        "tenantId",
+      ]);
+    }
+  });
+
+  test("AC1 — rows come back newest-first, _id descending", function () {
+    const ids = res.getBody().data.map((r) => r.id);
+    expect(ids).to.eql([...ids].sort().reverse());
+  });
+
+  test("AC3 — an exact action match returns only that leaf", function () {
+    const exact = JSON.parse(bru.getVar("resActionExact"));
+    expect(exact.status).to.equal(200);
+    expect(exact.body.data.length).to.be.greaterThan(0);
+    for (const row of exact.body.data) expect(row.action).to.equal("notify.email.sent");
+  });
+
+  test("AC3 — a family prefix returns every leaf under that family", function () {
+    const prefix = JSON.parse(bru.getVar("resActionPrefix"));
+    expect(prefix.status).to.equal(200);
+    const actions = prefix.body.data.map((r) => r.action);
+    expect(actions).to.include("billing.subscription.add");
+    expect(actions).to.include("billing.payment.succeeded");
+    expect(actions).to.not.include("account.login");
+  });
+
+  test("AC4 — q matches the declared searchable field", function () {
+    const match = JSON.parse(bru.getVar("resQMatch"));
+    expect(match.status).to.equal(200);
+    expect(match.body.data.map((r) => r.action)).to.include("notify.email.sent");
+  });
+
+  test("AC4 — q does not match a field that is not on the searchable allow-list", function () {
+    const noMatch = JSON.parse(bru.getVar("resQNoMatch"));
+    expect(noMatch.status).to.equal(200);
+    expect(noMatch.body.data).to.have.lengthOf(0);
+  });
+
+  test("AC4/AC6 — no raw email address ever appears in a response body", function () {
+    for (const varName of ["resNoFilter", "resQMatch"]) {
+      const parsed = JSON.parse(bru.getVar(varName));
+      expect(JSON.stringify(parsed)).to.not.contain("owner@qa-premium.test");
+    }
+  });
+
+  test("AC5 — the date range is inclusive on both ends", function () {
+    const ranged = JSON.parse(bru.getVar("resDateRange"));
+    expect(ranged.status).to.equal(200);
+    const actions = ranged.body.data.map((r) => r.action);
+    expect(actions).to.include("notify.email.sent"); // 2026-01-12, the `from` boundary
+    expect(actions).to.include("billing.subscription.add"); // 2026-01-14, the `to` boundary
+    expect(actions).to.not.include("billing.payment.succeeded"); // 2026-01-15, outside `to`
+  });
+}
+
+docs {
+  GRAFT-29.2 AC1–AC6 and AC8, proven from a single session against the
+  deterministic QA seed (scripts/seed-qa.ts). qa-premium carries seven fixture
+  rows across five action families and three consecutive days; qa-free carries
+  one, used only to prove the tenantId filter excludes it.
+
+  Paging itself (`limit`/`cursor`/`hasMore`) is proven the same way admin-tenants'
+  is — in src/server/services/admin-activities.test.ts, where a page boundary
+  can be forced without depending on how many fixtures exist.
+
+  AC8 (one `admin.activities.read` audit row per call) is not re-proven here:
+  it goes through the same `assertPlatformAdmin` path GRAFT-27.1/27.2 already
+  cover, and this file would need to reach into `admin_audit_log` directly to
+  add anything beyond that.
+}

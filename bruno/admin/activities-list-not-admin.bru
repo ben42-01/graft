@@ -1,0 +1,107 @@
+meta {
+  name: A signed-in non-admin gets 404 and no activity data — not even their own tenant's
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/activities
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformTenantOwnerToken}}
+}
+
+script:pre-request {
+  // owner@qa-platform.test holds BOTH tenant roles — `owner` and `admin` — and
+  // carries no `isPlatformAdmin` field at all, exactly like
+  // bruno/admin/tenants-list-not-admin.bru. This is the AC7 inversion the
+  // Test Contract asks for: an `/admin` endpoint is proven by refusing a
+  // caller *without* the platform flag, not by a same-tenant/other-tenant check.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-platform.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformTenantOwnerToken", token);
+
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const get = async (qs) => {
+    const response = await axios.get(`${baseUrl}/api/v1/admin/activities${qs}`, auth);
+    return { status: response.status, body: response.data };
+  };
+
+  // Filtered to this caller's OWN tenant, and a malformed filter too — both
+  // must refuse identically to the bare call, never a 400 or a narrowed 200.
+  bru.setVar("resOwnTenant", JSON.stringify(await get("?tenantId=000000000000000000000008")));
+  bru.setVar("resBadTenantId", JSON.stringify(await get("?tenantId=nope")));
+  bru.setVar("resBadAction", JSON.stringify(await get("?action=bogus.leaf")));
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC7 — the refusal is NOT_FOUND and is not a 403 in disguise", function () {
+    expect(res.getStatus()).to.equal(404);
+    expect(res.getStatus()).to.not.equal(403);
+    expect(res.getBody().error.code).to.not.equal("FORBIDDEN");
+  });
+
+  test("AC7 — no activity data of any kind appears in the body", function () {
+    const serialised = JSON.stringify(res.getBody());
+    for (const fragment of ["account.", "billing.", "notify.", "entity.", "context"]) {
+      expect(serialised).to.not.contain(fragment);
+    }
+  });
+
+  test("AC7 — filtering to the caller's own tenant is refused identically", function () {
+    const own = JSON.parse(bru.getVar("resOwnTenant"));
+    expect(own.status).to.equal(404);
+    expect(own.body.error.code).to.equal("NOT_FOUND");
+    expect(own.body.data).to.equal(undefined);
+  });
+
+  test("AC7 — a malformed tenantId is 404, not the 400 a real admin would get", function () {
+    // A 400 here would confirm the path exists and validates its input — the
+    // exact oracle the 404-not-403 decision exists to close.
+    const bad = JSON.parse(bru.getVar("resBadTenantId"));
+    expect(bad.status).to.equal(404);
+    expect(bad.body.error.code).to.equal("NOT_FOUND");
+    expect(bad.body.error.code).to.not.equal("VALIDATION_FAILED");
+  });
+
+  test("AC7 — an unregistered action filter is also 404, not 400", function () {
+    const bad = JSON.parse(bru.getVar("resBadAction"));
+    expect(bad.status).to.equal(404);
+    expect(bad.body.error.code).to.equal("NOT_FOUND");
+  });
+
+  test("AC7 — this account really does hold the tenant roles that grant nothing", function () {
+    const token = bru.getVar("platformTenantOwnerToken");
+    const claims = JSON.parse(Buffer.from(token.split(".")[1], "base64url").toString());
+    expect(claims.roles).to.include("owner");
+    expect(claims.roles).to.include("admin");
+  });
+}
+
+docs {
+  GRAFT-29.2 AC7, and the inverted cross-tenant isolation test the contract
+  asks for — this endpoint is deliberately not tenant-scoped, so the claim is
+  "everyone without the platform flag is refused", proven against the most
+  privileged tenant role there is, holding their own membership in qa-platform.
+
+  The malformed-filter cases matter beyond AC7 itself: they prove the 404
+  happens *before* any query validation, so a non-admin cannot use the status
+  code (400 vs 404) to learn that /api/v1/admin/activities is a real,
+  input-validating surface. See src/server/auth/platform-admin.ts.
+}
