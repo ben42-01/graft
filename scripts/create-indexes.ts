@@ -135,6 +135,18 @@ const INDEXES: IndexDef[] = [
   // TTL: an append-only record that expires is not an audit trail.
   { collection: "admin_audit_log", keys: { at: -1 } },
 
+  // Tenant activity log (GRAFT-29.1). Two access patterns, both newest-first,
+  // both named by GRAFT-29.2's read API: "everything this tenant did" — the
+  // support question the feature exists to answer — and "every occurrence of
+  // this action across the platform", which is how a spike in
+  // `notify.email.failed` or `billing.payment.failed` gets noticed at all.
+  // Unlike the tenant-scoped business collections, the second index is
+  // deliberately not prefixed by tenantId: it is a cross-tenant admin query.
+  // No TTL — retention on this collection is a product decision nobody has
+  // taken yet, and a log that silently expires is not one support can cite.
+  { collection: "activities", keys: { tenantId: 1, at: -1 } },
+  { collection: "activities", keys: { action: 1, at: -1 } },
+
   // Refresh tokens (docs/BACKEND.md §3.1). The lookup is (tenantId, tokenHash)
   // and it is unique: one stored hash can never resolve to two families.
   {
