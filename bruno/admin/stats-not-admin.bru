@@ -1,0 +1,39 @@
+meta {
+  name: A tenant owner/admin cannot read the stats widget data
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/stats
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformTenantOwnerToken}}
+}
+
+script:pre-request {
+  // Same negative-case account as bruno/admin/session-not-admin.bru.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-platform.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  bru.setVar("platformTenantOwnerToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.data: isUndefined
+}
+
+docs {
+  Inverted isolation test for GET /api/v1/admin/stats, same convention as the
+  rest of /bruno/admin: the required test is that a caller without the
+  platform flag is refused, not that another tenant's data is hidden.
+}
