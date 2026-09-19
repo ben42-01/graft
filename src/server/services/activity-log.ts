@@ -31,6 +31,7 @@ import { z } from "zod";
 
 import { getDb } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
+import { createLogger, redactErrorMessage } from "@/server/log";
 import { TIERS } from "@/server/tiers";
 
 export const ACTIVITIES_COLLECTION = "activities";
@@ -302,4 +303,57 @@ export async function recordActivity(
 
   await (deps.activities ?? store()).append(entry);
   return entry;
+}
+
+/**
+ * Record an activity, or don't — but never fail the thing being recorded
+ * (GRAFT-29.4 AC5).
+ *
+ * `recordActivity` propagates on purpose (AC7 above): GRAFT-29.1 declined to
+ * decide whether a failed activity write should fail its parent operation,
+ * because that is a call-site judgement. This is GRAFT-29.4 making it, once,
+ * for every call site it wires: **it should not.** Every event in this
+ * taxonomy is a description of something that already happened — a signup that
+ * created a tenant, a webhook that moved a tier, a record that was written.
+ * Losing the description is a gap in an audit surface; failing the parent
+ * because the description could not be stored would turn an observability
+ * feature into a new way for the product to break. The first is recoverable,
+ * the second is a regression in already-working code, which is the only real
+ * risk this instrumentation issue carries.
+ *
+ * Centralised rather than left as a `try`/`catch` per call site for the reason
+ * that argument implies: an isolation guarantee that each of eight call sites
+ * re-implements is one a ninth will forget. Call sites use this; nothing in
+ * GRAFT-29.4 calls `recordActivity` directly.
+ *
+ * Both failure modes are swallowed, and they are genuinely different:
+ *
+ *  - **A store failure** (Mongo down) loses a row and nothing else.
+ *  - **A validation failure** — an unregistered action, or AC4's stray-PII
+ *    rejection — means the call site is wrong. That is a bug worth fixing, but
+ *    it is *this* code's bug, and a bug in instrumentation must not take down
+ *    the flow it instruments. It is logged at `warn` so it is findable rather
+ *    than invisible, and the row still does not land: the swallow must not
+ *    become a bypass of AC4's guard.
+ *
+ * Nothing from `context` reaches the log line — that is where an address would
+ * be if a call site got AC4 wrong, and logging it here would recreate the leak
+ * the throw exists to prevent. `redactErrorMessage` covers the message itself;
+ * the identifiers are the safe ones the security checklist already names.
+ */
+export async function emitActivity(
+  input: ActivityInput,
+  deps: Partial<ActivityDeps> = {},
+): Promise<void> {
+  try {
+    await recordActivity(input, deps);
+  } catch (error) {
+    const log = createLogger({ requestId: input.requestId });
+    log.warn("activity.record.failed", {
+      tenantId: input.tenantId,
+      actorId: input.actorId ?? null,
+      action: input.action,
+      reason: redactErrorMessage(error instanceof Error ? error.message : String(error)),
+    });
+  }
 }

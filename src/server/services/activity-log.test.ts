@@ -38,6 +38,7 @@ import {
   ACTIVITY_FIELDS,
   ACTIVITY_REGISTRY,
   mongoActivityStore,
+  emitActivity,
   recordActivity,
   type ActivityEntry,
   type ActivityStore,
@@ -432,5 +433,105 @@ describe("mongoActivityStore", () => {
       context: {},
     });
     expect(insertOne.mock.calls[0]![0]!.actorId).toBeNull();
+  });
+});
+
+/**
+ * GRAFT-29.4 AC5 — the failure-isolation seam.
+ *
+ * `recordActivity` deliberately propagates (GRAFT-29.1 AC7), leaving the
+ * swallow decision to this issue. `emitActivity` is that decision, made once:
+ * every call site in GRAFT-29.4 goes through it, so "an activity write can
+ * never fail the thing it describes" is a property of one function rather than
+ * a `try`/`catch` each call site has to remember. The call-site tests then only
+ * have to prove they route through here.
+ */
+describe("emitActivity — GRAFT-29.4 AC5, failure isolation", () => {
+  it("writes the row and resolves when the store is healthy", async () => {
+    const { appended, store } = capture();
+    await emitActivity(
+      {
+        tenantId: TENANT_ID,
+        actorType: "customer",
+        actorId: ACTOR_ID,
+        action: "entity.created",
+        ok: true,
+        requestId: "req-emit-1",
+        context: { entityDefId: "def-1", entityType: "invoice", recordId: "rec-1" },
+      },
+      { activities: store, now: () => AT },
+    );
+    expect(appended).toHaveLength(1);
+    expect(appended[0]!.action).toBe("entity.created");
+  });
+
+  it("swallows a store failure instead of propagating it", async () => {
+    const store: ActivityStore = {
+      append: async () => {
+        throw new Error("mongo is down");
+      },
+    };
+    await expect(
+      emitActivity(
+        {
+          tenantId: TENANT_ID,
+          actorType: "customer",
+          actorId: ACTOR_ID,
+          action: "entity.created",
+          ok: true,
+          requestId: "req-emit-2",
+          context: { entityDefId: "def-1", entityType: "invoice", recordId: "rec-1" },
+        },
+        { activities: store },
+      ),
+    ).resolves.toBeUndefined();
+  });
+
+  /**
+   * The validation failures are the ones most likely to be a genuine call-site
+   * bug, and they must still not take the parent operation down with them —
+   * an unregistered action is a GRAFT-29.4 typo, not a reason to fail a signup.
+   */
+  it("swallows a validation failure (unregistered action) too", async () => {
+    const { appended, store } = capture();
+    await expect(
+      emitActivity(
+        {
+          tenantId: TENANT_ID,
+          actorType: "customer",
+          actorId: ACTOR_ID,
+          action: "entity.exploded",
+          ok: true,
+          requestId: "req-emit-3",
+        },
+        { activities: store },
+      ),
+    ).resolves.toBeUndefined();
+    expect(appended).toHaveLength(0);
+  });
+
+  /**
+   * AC4's PII guard is the other loud one: an address reaching `account.*`
+   * throws inside `recordActivity`. It must be swallowed here for the same
+   * reason — but the row must genuinely not land, or the swallow would have
+   * converted a security control into a silent bypass.
+   */
+  it("swallows a stray-PII rejection without writing the row", async () => {
+    const { appended, store } = capture();
+    await expect(
+      emitActivity(
+        {
+          tenantId: TENANT_ID,
+          actorType: "customer",
+          actorId: ACTOR_ID,
+          action: "account.login",
+          ok: true,
+          requestId: "req-emit-4",
+          context: { to: "someone@example.com" },
+        },
+        { activities: store },
+      ),
+    ).resolves.toBeUndefined();
+    expect(appended).toHaveLength(0);
   });
 });

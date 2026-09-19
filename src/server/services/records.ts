@@ -42,6 +42,7 @@ import {
   type EntityView,
   type FieldDef,
 } from "./entities";
+import { emitActivity, type ActivityInput } from "./activity-log";
 import { consumeQuota as consumeQuotaDefault, type Meter, type QuotaResult } from "./meters";
 import { createRepository, type Repository } from "@/server/repositories/base";
 
@@ -239,6 +240,11 @@ export type RecordDeps = {
   repo: Repository<RecordDoc>;
   getEntity: (ctx: Ctx, entityId: string) => Promise<EntityView>;
   consumeQuota: (ctx: Ctx, meter: Meter, amount?: number) => Promise<QuotaResult>;
+  /**
+   * GRAFT-29.4 — the activity-log seam. Defaults to `emitActivity`, which
+   * never throws (AC5), so the call sites below do not guard their own write.
+   */
+  emit: (input: ActivityInput) => Promise<void>;
 };
 
 const defaultRepo = createRepository<RecordDoc>("records");
@@ -250,7 +256,36 @@ function resolveDeps(overrides: Partial<RecordDeps> = {}): RecordDeps {
     consumeQuota:
       overrides.consumeQuota ??
       ((ctx, meter, amount) => consumeQuotaDefault(ctx, meter, amount)),
+    emit: overrides.emit ?? ((input) => emitActivity(input)),
   };
+}
+
+/**
+ * GRAFT-29.4 AC3 — one `entity.*` row for one record write.
+ *
+ * Always after the write has actually landed, never before: the row asserts
+ * that something happened, so a validation or quota refusal above must leave
+ * no trace. `ctx` supplies tenant, actor and requestId directly — these are the
+ * only call sites in the issue with a real request context to record.
+ */
+async function recordEntityActivity(
+  deps: RecordDeps,
+  ctx: Ctx,
+  leaf: "created" | "updated" | "deleted",
+  entity: EntityView,
+  recordId: string,
+): Promise<void> {
+  await deps.emit({
+    tenantId: ctx.tenantId,
+    actorType: "customer",
+    actorId: ctx.userId,
+    action: `entity.${leaf}`,
+    ok: true,
+    requestId: ctx.requestId,
+    // `entityType` is the entity's stable key, not its display name: the read
+    // surface filters on it, and a renamed entity must not split its history.
+    context: { entityDefId: entity.id, entityType: entity.key, recordId },
+  });
 }
 
 async function findRecordOrThrow(
@@ -318,7 +353,9 @@ export async function createRecord(
     data,
     deletedAt: null,
   });
-  return toView(doc, entityId);
+  const view = toView(doc, entityId);
+  await recordEntityActivity(deps, ctx, "created", entity, view.id);
+  return view;
 }
 
 /** AC2, AC3, AC4 — cursor-paginated, filter- and sort-whitelisted listing. */
@@ -455,7 +492,9 @@ export async function updateRecord(
     { $set: { data, schemaVersion: entity.schemaVersion } },
   );
   if (!updated) throw new AppError("NOT_FOUND", "Record not found");
-  return toView(updated, entityId);
+  const view = toView(updated, entityId);
+  await recordEntityActivity(deps, ctx, "updated", entity, view.id);
+  return view;
 }
 
 /** AC5 — soft delete only; still reachable by id via `getRecord(..., { includeDeleted: true })`. */
@@ -466,8 +505,11 @@ export async function deleteRecord(
   overrides: Partial<RecordDeps> = {},
 ): Promise<void> {
   const deps = resolveDeps(overrides);
-  await deps.getEntity(ctx, entityId);
+  const entity = await deps.getEntity(ctx, entityId);
   const existing = await findRecordOrThrow(deps, ctx, entityId, recordId);
   const deleted = await deps.repo.softDelete(ctx, existing._id);
   if (!deleted) throw new AppError("NOT_FOUND", "Record not found");
+  // A soft delete is still a delete from the operator's point of view, which is
+  // the point of view this log is written for.
+  await recordEntityActivity(deps, ctx, "deleted", entity, existing._id.toHexString());
 }

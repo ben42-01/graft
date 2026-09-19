@@ -23,7 +23,11 @@ export const POST = route(
   async (request, { requestId }) => {
     const payload = await request.text();
     const signature = request.headers.get("stripe-signature");
-    await handleStripeWebhookEvent(payload, signature);
+    // GRAFT-29.4 — the request id is passed so the `billing.*` activity rows
+    // this event writes carry the same id as this request's log lines, making
+    // a row in /admin/activities traceable back to the delivery that caused
+    // it. Nothing else about the call changes, and the response is untouched.
+    await handleStripeWebhookEvent(payload, signature, {}, requestId);
     // AC7 — nothing about the tenant, ever, in the response body.
     return jsonOk({ received: true }, requestId);
   },

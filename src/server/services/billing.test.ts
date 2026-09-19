@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createContext, type Ctx } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
 import { TIER_LIMITS } from "@/server/tiers";
+import { emitActivity, type ActivityInput } from "./activity-log";
 import {
   applyDowngradePolicy,
   applyUpgrade,
@@ -838,5 +839,255 @@ describe("trialDaysRemaining — GRAFT-26 AC8", () => {
     // Already lapsed — awaiting the expiry job, not a trial any more.
     expect(trialDaysRemaining(new Date("2026-05-31T00:00:00.000Z"), NOW_D)).toBeNull();
     expect(trialDaysRemaining(NOW_D, NOW_D)).toBeNull();
+  });
+});
+
+/**
+ * GRAFT-29.4 AC2 — the `billing.*` call sites.
+ *
+ * `actorType` is `"system"` throughout and `actorId` is null: a webhook has no
+ * acting user, which is exactly the case GRAFT-29.1 made `actorId` nullable
+ * for. The rows are written from the four `case`s that already exist; this
+ * issue adds no event type, so an unhandled type still produces no row.
+ */
+describe("activity log wiring — GRAFT-29.4 AC2", () => {
+  function captureEmit() {
+    const rows: ActivityInput[] = [];
+    return { rows, emit: async (input: ActivityInput) => void rows.push(input) };
+  }
+
+  const fire = async (event: StripeEvent, over: Partial<BillingDeps> = {}) => {
+    const { rows, emit } = captureEmit();
+    const stripe = fakeStripe({ constructEvent: vi.fn(async () => event) });
+    await handleStripeWebhookEvent(
+      JSON.stringify(event),
+      "sig",
+      deps({ stripe, emit, ...over }),
+    );
+    return rows;
+  };
+
+  it("records billing.subscription.add for checkout.session.completed", async () => {
+    const { store } = fakeStore({ [TENANT_A]: tenant() });
+    const rows = await fire(
+      {
+        id: "evt_a1",
+        type: "checkout.session.completed",
+        data: {
+          object: {
+            customer: "cus_1",
+            subscription: "sub_1",
+            metadata: { tenantId: TENANT_A },
+          },
+        },
+      },
+      { store, usageMetersRepo: usageMetersRepoOf({ entities: 0, records: 0 }) },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId: TENANT_A,
+      actorType: "system",
+      actorId: null,
+      action: "billing.subscription.add",
+      ok: true,
+      context: { toTier: "premium" },
+    });
+  });
+
+  it("records billing.subscription.cancel for customer.subscription.deleted", async () => {
+    const { store } = fakeStore({ [TENANT_A]: tenant({ tier: "premium" }) });
+    const rows = await fire(
+      {
+        id: "evt_a2",
+        type: "customer.subscription.deleted",
+        data: { object: { metadata: { tenantId: TENANT_A } } },
+      },
+      { store, usageMetersRepo: usageMetersRepoOf({ entities: 0, records: 0 }) },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId: TENANT_A,
+      actorType: "system",
+      actorId: null,
+      action: "billing.subscription.cancel",
+      ok: true,
+      context: { toTier: "free" },
+    });
+  });
+
+  /**
+   * The mapping this issue left to the build's judgment. `customer.subscription
+   * .updated` only does anything here when the status is `active`/`trialing`,
+   * and what it does is `applyUpgrade(premium)` — a tier going up. So it maps
+   * to `add`, and the row is written on that branch alone.
+   */
+  it("records billing.subscription.add for an active customer.subscription.updated", async () => {
+    const { store } = fakeStore({ [TENANT_A]: tenant() });
+    const rows = await fire(
+      {
+        id: "evt_a3",
+        type: "customer.subscription.updated",
+        data: { object: { status: "active", metadata: { tenantId: TENANT_A } } },
+      },
+      { store, usageMetersRepo: usageMetersRepoOf({ entities: 0, records: 0 }) },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      action: "billing.subscription.add",
+      ok: true,
+      context: { toTier: "premium" },
+    });
+  });
+
+  /**
+   * The other half of that judgment, and the more important half: a status this
+   * handler does not act on changes no tier, so it must produce no row.
+   * Recording `cancel` here would assert a downgrade that never happened and
+   * would put a fiction in front of a support operator.
+   */
+  it("records nothing for a customer.subscription.updated status it does not act on", async () => {
+    const { store } = fakeStore({ [TENANT_A]: tenant({ tier: "premium" }) });
+    const rows = await fire(
+      {
+        id: "evt_a4",
+        type: "customer.subscription.updated",
+        data: { object: { status: "past_due", metadata: { tenantId: TENANT_A } } },
+      },
+      { store },
+    );
+    expect(rows).toHaveLength(0);
+  });
+
+  it("records billing.payment.failed for invoice.payment_failed", async () => {
+    const { store } = fakeStore({
+      [TENANT_A]: tenant({
+        billing: {
+          stripeCustomerId: "cus_a",
+          stripeSubscriptionId: null,
+          graceExpiresAt: null,
+          trialEndsAt: null,
+        },
+      }),
+    });
+    const rows = await fire(
+      {
+        id: "evt_a5",
+        type: "invoice.payment_failed",
+        data: {
+          object: {
+            customer: "cus_a",
+            amount_due: 4900,
+            currency: "gbp",
+            last_finalization_error: { code: "card_declined" },
+          },
+        },
+      },
+      { store },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId: TENANT_A,
+      actorType: "system",
+      actorId: null,
+      action: "billing.payment.failed",
+      // A failed payment is activity that did not succeed — `ok` describes the
+      // thing that happened, not whether the row was written.
+      ok: false,
+      context: { amountCents: 4900, currency: "gbp", failureCode: "card_declined" },
+    });
+  });
+
+  /**
+   * AC2's PII/secret boundary. The Stripe object is full of `cus_`, `sub_`,
+   * `in_` and `evt_` identifiers, and the admin surface's standing posture
+   * (GRAFT-27.2's `hasCustomer`/`hasSubscription`) is that none of them cross
+   * into it. Asserted over the serialised context so a future added field
+   * cannot smuggle one in unnoticed.
+   */
+  it("puts no raw Stripe identifier in any billing context", async () => {
+    const { store } = fakeStore({
+      [TENANT_A]: tenant({
+        billing: {
+          stripeCustomerId: "cus_a",
+          stripeSubscriptionId: null,
+          graceExpiresAt: null,
+          trialEndsAt: null,
+        },
+      }),
+    });
+    const usageMetersRepo = usageMetersRepoOf({ entities: 0, records: 0 });
+    const all = [
+      ...(await fire(
+        {
+          id: "evt_b1",
+          type: "checkout.session.completed",
+          data: {
+            object: {
+              customer: "cus_1",
+              subscription: "sub_1",
+              metadata: { tenantId: TENANT_A },
+            },
+          },
+        },
+        { store, usageMetersRepo },
+      )),
+      ...(await fire(
+        {
+          id: "evt_b2",
+          type: "invoice.payment_failed",
+          data: {
+            object: { id: "in_123", customer: "cus_a", amount_due: 100, currency: "usd" },
+          },
+        },
+        { store },
+      )),
+    ];
+
+    expect(all.length).toBeGreaterThan(0);
+    for (const row of all) {
+      const serialised = JSON.stringify(row.context ?? {});
+      expect(serialised).not.toMatch(/\b(cus|sub|in|evt|pi|ch)_/);
+    }
+  });
+
+  /** AC5 at the webhook call site — see accounts.test.ts for why it breaks the store. */
+  it("AC5 — a broken activity store does not fail the webhook or its tier change", async () => {
+    const { store, tenants } = fakeStore({ [TENANT_A]: tenant() });
+    const emit = (input: ActivityInput) =>
+      emitActivity(input, {
+        activities: {
+          append: async () => {
+            throw new Error("activity store unavailable");
+          },
+        },
+      });
+    const event: StripeEvent = {
+      id: "evt_ac5",
+      type: "checkout.session.completed",
+      data: {
+        object: { customer: "cus_1", subscription: "sub_1", metadata: { tenantId: TENANT_A } },
+      },
+    };
+    const stripe = fakeStripe({ constructEvent: vi.fn(async () => event) });
+
+    await expect(
+      handleStripeWebhookEvent(
+        JSON.stringify(event),
+        "sig",
+        deps({
+          store,
+          stripe,
+          emit,
+          usageMetersRepo: usageMetersRepoOf({ entities: 0, records: 0 }),
+        }),
+      ),
+    ).resolves.toBeUndefined();
+
+    // The tier change still landed — the isolation is real, not just a caught throw.
+    expect(tenants.get(TENANT_A)?.tier).toBe("premium");
   });
 });

@@ -12,6 +12,7 @@ import { createContext, type Ctx } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
 import type { EntityView, FieldDef } from "@/server/services/entities";
 import type { Repository } from "@/server/repositories/base";
+import { emitActivity, type ActivityInput } from "./activity-log";
 import {
   createRecord,
   deleteRecord,
@@ -524,5 +525,149 @@ describe("listRecords (AC2, AC3, AC8)", () => {
     );
     expect(second.items.map((r) => r.data.name)).toEqual(["Charlie"]);
     expect(second.meta.hasMore).toBe(false);
+  });
+});
+
+/**
+ * GRAFT-29.4 AC3 — the `entity.*` call sites.
+ *
+ * Unlike the `account.*` and `billing.*` sites, these already have a `Ctx`, so
+ * the row's tenant, actor and requestId are the request's own — there is
+ * nothing to synthesise and nothing to plumb.
+ */
+describe("activity log wiring — GRAFT-29.4 AC3", () => {
+  function captureEmit() {
+    const rows: ActivityInput[] = [];
+    return { rows, emit: async (input: ActivityInput) => void rows.push(input) };
+  }
+
+  it("records entity.created with the acting user as the actor", async () => {
+    const { rows, emit } = captureEmit();
+    const { repo } = fakeRepo();
+    const getEntity = vi.fn().mockResolvedValue(entity());
+    const consumeQuota = vi.fn().mockResolvedValue({ allowed: true });
+
+    const created = await createRecord(
+      ctx,
+      ENTITY_ID,
+      { name: "Ada", email: "ada@example.com" },
+      { repo, getEntity, consumeQuota, emit },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      tenantId: TENANT,
+      actorType: "customer",
+      actorId: USER,
+      action: "entity.created",
+      ok: true,
+      requestId: ctx.requestId,
+      context: { entityDefId: ENTITY_ID, entityType: "customers", recordId: created.id },
+    });
+  });
+
+  it("records entity.updated", async () => {
+    const { rows, emit } = captureEmit();
+    const doc = seedDoc();
+    const { repo } = fakeRepo([doc]);
+    const getEntity = vi.fn().mockResolvedValue(entity());
+
+    await updateRecord(
+      ctx,
+      ENTITY_ID,
+      doc._id.toHexString(),
+      { name: "Grace" },
+      {
+        repo,
+        getEntity,
+        emit,
+      },
+    );
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      actorType: "customer",
+      actorId: USER,
+      action: "entity.updated",
+      ok: true,
+      context: {
+        entityDefId: ENTITY_ID,
+        entityType: "customers",
+        recordId: doc._id.toHexString(),
+      },
+    });
+  });
+
+  it("records entity.deleted", async () => {
+    const { rows, emit } = captureEmit();
+    const doc = seedDoc();
+    const { repo } = fakeRepo([doc]);
+    const getEntity = vi.fn().mockResolvedValue(entity());
+
+    await deleteRecord(ctx, ENTITY_ID, doc._id.toHexString(), { repo, getEntity, emit });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      action: "entity.deleted",
+      ok: true,
+      context: {
+        entityDefId: ENTITY_ID,
+        entityType: "customers",
+        recordId: doc._id.toHexString(),
+      },
+    });
+  });
+
+  /**
+   * The row describes the write, so it must not exist when the write did not
+   * happen. A quota refusal is the cheapest proof: it throws between
+   * validation and the insert.
+   */
+  it("records nothing when the write never happened", async () => {
+    const { rows, emit } = captureEmit();
+    const { repo, docs } = fakeRepo();
+    const getEntity = vi.fn().mockResolvedValue(entity());
+    const consumeQuota = vi.fn().mockRejectedValue(new AppError("QUOTA_EXCEEDED", "nope"));
+
+    await expect(
+      createRecord(
+        ctx,
+        ENTITY_ID,
+        { name: "Ada", email: "a@b.com" },
+        {
+          repo,
+          getEntity,
+          consumeQuota,
+          emit,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "QUOTA_EXCEEDED" });
+    expect(rows).toHaveLength(0);
+    expect(docs.size).toBe(0);
+  });
+
+  /** AC5 at the entity call site — see accounts.test.ts for why it breaks the store. */
+  it("AC5 — a broken activity store does not fail the record write", async () => {
+    const { repo, docs } = fakeRepo();
+    const getEntity = vi.fn().mockResolvedValue(entity());
+    const consumeQuota = vi.fn().mockResolvedValue({ allowed: true });
+    const emit = (input: ActivityInput) =>
+      emitActivity(input, {
+        activities: {
+          append: async () => {
+            throw new Error("activity store unavailable");
+          },
+        },
+      });
+
+    const created = await createRecord(
+      ctx,
+      ENTITY_ID,
+      { name: "Ada", email: "ada@example.com" },
+      { repo, getEntity, consumeQuota, emit },
+    );
+
+    expect(created.data).toEqual({ name: "Ada", email: "ada@example.com" });
+    expect(docs.size).toBe(1);
   });
 });

@@ -30,7 +30,7 @@ import {
   type UserRecord,
 } from "@/server/auth/accounts-store";
 import { hashPassword, passwordSchema, verifyPassword } from "@/server/auth/passwords";
-import type { Ctx } from "@/server/context";
+import { newRequestId, type Ctx } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
@@ -41,6 +41,7 @@ import {
   trialDaysRemaining,
   type BillingStore,
 } from "./billing";
+import { emitActivity, type ActivityInput } from "./activity-log";
 import { loadEntitlements, type Entitlements } from "./entitlements";
 import { isReservedSlug, slugify } from "./slugs";
 import { issueSession, type AccessTokenInput, type Session } from "./tokens";
@@ -117,6 +118,14 @@ export type AccountDeps = {
   billing: BillingStore;
   /** The same resolver `can()` reads, so `/me`'s `features` cannot disagree with it. */
   entitlements: (ctx: Ctx) => Promise<Entitlements>;
+  /**
+   * GRAFT-29.4 — the activity-log seam. Defaults to `emitActivity`, which
+   * never throws (AC5); a call site here therefore does not guard its own
+   * write, and a test can swap in a spy or an exploding stub to prove both
+   * halves. Deliberately typed as returning `void`: nothing in this file may
+   * branch on whether the row landed.
+   */
+  emit: (input: ActivityInput) => Promise<void>;
 };
 
 /**
@@ -162,8 +171,29 @@ function resolve(overrides: Partial<AccountDeps> = {}): AccountDeps {
     startTrial: overrides.startTrial ?? ((tenantId) => startTrialDefault(tenantId)),
     billing: overrides.billing ?? mongoBillingStore(),
     entitlements: overrides.entitlements ?? loadEntitlements,
+    emit: overrides.emit ?? ((input) => emitActivity(input)),
   };
 }
+
+/**
+ * GRAFT-29.4 — the `requestId` an `account.*` row carries.
+ *
+ * Signup and login run before there is a `Ctx`, so unlike every other call site
+ * in this issue they have no request id in scope. The routes that call them do
+ * (`route()` mints one), but `src/app/api/v1/auth/**` is a protected path this
+ * contract is not authorised to touch — the `agent:co-review-approved` label on
+ * GRAFT-29.4 covers `src/server/auth/**` and the Stripe webhook route, and
+ * nothing else.
+ *
+ * So the id is minted here, and the optional parameter is the seam for fixing
+ * that properly: the day an authorised contract touches those routes, they pass
+ * their own `requestId` through and these rows start correlating with the
+ * response and the log line for the same request. Until then the field is
+ * honest — a real, unique, well-formed id for this operation — but it will not
+ * match a log line, which is a gap worth knowing about rather than papering
+ * over. Tracked as follow-up in the PR body, not silently absorbed.
+ */
+const activityRequestId = (requestId?: string): string => requestId ?? newRequestId();
 
 /** One message for every credential failure — see AC8. */
 const unauthorized = (): never => {
@@ -216,6 +246,7 @@ async function createVerification(
 export async function signup(
   input: SignupInput,
   overrides: Partial<AccountDeps> = {},
+  requestId?: string,
 ): Promise<{ userId: string; tenantId: string }> {
   const deps = resolve(overrides);
   // Parsed again here, not only at the route: the service is the boundary
@@ -282,6 +313,21 @@ export async function signup(
   }
 
   await createVerification({ id: userId, email }, deps);
+
+  // GRAFT-29.4 AC1. After the account genuinely exists — an activity row is a
+  // record of something that happened, so it is written where that becomes
+  // true, past every compensating rollback above. `method` is the only field
+  // the `account` family defines; the address is deliberately absent (AC4).
+  await deps.emit({
+    tenantId,
+    actorType: "customer",
+    actorId: userId,
+    action: "account.signup",
+    ok: true,
+    requestId: activityRequestId(requestId),
+    context: { method: "password" },
+  });
+
   return { userId, tenantId };
 }
 
@@ -314,6 +360,7 @@ const primaryMembership = (user: UserRecord): Membership | undefined => user.mem
 export async function login(
   input: LoginInput,
   overrides: Partial<AccountDeps> = {},
+  requestId?: string,
 ): Promise<Session> {
   const deps = resolve(overrides);
   const { email, password } = parse(loginSchema, input, "body");
@@ -322,10 +369,50 @@ export async function login(
   // Unconditional, and before any branch on `user`: verifyPassword does real
   // argon2 work even when the hash is null, so the two paths cost the same.
   const matched = await verifyPassword(user?.passwordHash ?? null, password);
-  if (!user || !matched) return unauthorized();
+
+  /**
+   * GRAFT-29.4 AC1 — a failed login, recorded against the tenant it was aimed
+   * at, or not recorded at all.
+   *
+   * `activities.tenantId` is required (GRAFT-29.1: "a tenant-less row is one
+   * the read surface could never attribute"), and an unknown email belongs to
+   * no tenant — so there is nothing to write, and this returns without
+   * writing. That is the right answer twice over: this endpoint is anonymous,
+   * so a row per unknown email would let anyone append unbounded rows to a
+   * support surface by guessing addresses.
+   *
+   * The enumeration posture above is unchanged: every caller still gets the
+   * same `unauthorized()` message, and what is or is not recorded is invisible
+   * to them. It does add work on the known-email path that the unknown-email
+   * path skips — but the row write is a single insert against the argon2
+   * verification that already dominates both paths by orders of magnitude, and
+   * AC5 requires this call be awaited rather than floated.
+   */
+  const recordLoginFailure = async (): Promise<void> => {
+    const tenantId = user ? primaryMembership(user)?.tenantId : undefined;
+    if (!user || !tenantId) return;
+    await deps.emit({
+      tenantId,
+      actorType: "customer",
+      actorId: user.id,
+      action: "account.login_failed",
+      ok: false,
+      requestId: activityRequestId(requestId),
+      context: { method: "password" },
+    });
+  };
+
+  if (!user || !matched) {
+    await recordLoginFailure();
+    return unauthorized();
+  }
 
   // Only now — a caller who does not know the password learns nothing here.
   if (!user.emailVerifiedAt) {
+    // A correct password that cannot yet be used is still a login that failed,
+    // and it is the one failure a support operator is most likely to be asked
+    // about ("I keep getting signed out and I don't know why").
+    await recordLoginFailure();
     throw new AppError("EMAIL_NOT_VERIFIED", "Verify your email address before signing in");
   }
 
@@ -333,6 +420,16 @@ export async function login(
   if (!membership) return unauthorized();
   const tenant = await deps.accounts.findTenantById(membership.tenantId);
   if (!tenant) return unauthorized();
+
+  await deps.emit({
+    tenantId: tenant.id,
+    actorType: "customer",
+    actorId: user.id,
+    action: "account.login",
+    ok: true,
+    requestId: activityRequestId(requestId),
+    context: { method: "password" },
+  });
 
   return deps.issue({
     tenantId: tenant.id,
