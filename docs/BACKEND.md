@@ -106,6 +106,7 @@ the platform flag grants nothing inside a tenant.
 | `GET /api/v1/admin/session` | `admin.session.read` | The console's gate probe (GRAFT-27.1). Exposes no tenant data. |
 | `GET /api/v1/admin/tenants?q=&tier=&limit=&cursor=` | `admin.tenants.list` | Every tenant in the database, cursor-paginated (`DEFAULT_LIMIT` 25 / `MAX_LIMIT` 100). `q` matches `name`/`slug` case-insensitively and is regex-escaped before it reaches Mongo; an unknown `tier` is a `400 VALIDATION_FAILED`, never an empty list (GRAFT-27.2). |
 | `GET /api/v1/admin/tenants/:tenantId` | `admin.tenants.read` | One tenant's tier, resolved entitlements, override bag, `readOnly`, `downgradedAt`, `billingAnchorDay`. Non-24-hex is `400`; unknown id is `404` (GRAFT-27.2). |
+| `GET /api/v1/admin/activities?tenantId=&action=&actorType=&from=&to=&q=&limit=&cursor=` | `admin.activities.read` | The tenant activity log (GRAFT-29.1), cursor-paginated. `action` is an exact `family.leaf` or a family prefix ending in `.` (`"billing."`), validated against `ACTIVITY_REGISTRY`; an unregistered one is `400`, never an empty list. `q` only searches a declared per-family allow-list of `context` fields, never the whole sub-document. `targetTenantId` on the audit row is the `tenantId` filter or `null` (GRAFT-29.2). |
 
 Both tenant reads go through an allow-list serialiser in
 `src/server/services/admin-tenants.ts` — every emitted field is named, there is

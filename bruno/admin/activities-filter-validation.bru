@@ -1,0 +1,124 @@
+meta {
+  name: A bad tenantId, action or date range is a 400, never an empty list
+  type: http
+  seq: 15
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/activities?tenantId=nope
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+
+  // AC2, AC3, AC5 need several bad-input responses and Bruno runs one request
+  // per .bru file, so the sibling cases are fetched here and asserted
+  // synchronously below. The file's own request is the AC2 malformed-tenantId case.
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const get = async (qs) => {
+    const response = await axios.get(`${baseUrl}/api/v1/admin/activities${qs}`, auth);
+    return { status: response.status, body: response.data };
+  };
+
+  // AC3 — an action naming no real family or leaf.
+  bru.setVar("resBadActionLeaf", JSON.stringify(await get("?action=account.bogus")));
+  bru.setVar("resBadActionFamily", JSON.stringify(await get("?action=bogus.leaf")));
+  bru.setVar("resBadActionFamilyPrefix", JSON.stringify(await get("?action=bogus.")));
+  // AC5 — from after to, and an unparsable date.
+  bru.setVar(
+    "resBadRange",
+    JSON.stringify(
+      await get("?from=2026-02-01T00:00:00.000Z&to=2026-01-01T00:00:00.000Z"),
+    ),
+  );
+  bru.setVar("resBadDate", JSON.stringify(await get("?from=not-a-date")));
+  // A cursor not issued by this API — same treatment as every other cursor
+  // endpoint (admin-tenants, records list).
+  bru.setVar("resBadCursor", JSON.stringify(await get("?cursor=not-a-real-cursor")));
+
+  // The endpoint stays a 200 for a well-formed, empty-result query, so a 400
+  // above is proven to be about validation and not "no rows matched".
+  bru.setVar("resWellFormedEmpty", JSON.stringify(await get("?tenantId=0000000000000000000000ff")));
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.error.details.source: eq query
+  res.body.error.details.fields.tenantId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC3 — an unregistered leaf under a real family is VALIDATION_FAILED", function () {
+    const bad = JSON.parse(bru.getVar("resBadActionLeaf"));
+    expect(bad.status).to.equal(400);
+    expect(bad.body.error.code).to.equal("VALIDATION_FAILED");
+    expect(bad.body.error.details.fields).to.have.property("action");
+  });
+
+  test("AC3 — an unregistered family (exact) is VALIDATION_FAILED, never an empty list", function () {
+    const bad = JSON.parse(bru.getVar("resBadActionFamily"));
+    expect(bad.status).to.equal(400);
+    expect(bad.body.error.code).to.equal("VALIDATION_FAILED");
+    expect(bad.body.data).to.equal(undefined);
+  });
+
+  test("AC3 — an unregistered family prefix is VALIDATION_FAILED too", function () {
+    const bad = JSON.parse(bru.getVar("resBadActionFamilyPrefix"));
+    expect(bad.status).to.equal(400);
+    expect(bad.body.error.code).to.equal("VALIDATION_FAILED");
+  });
+
+  test("AC5 — from after to is VALIDATION_FAILED", function () {
+    const bad = JSON.parse(bru.getVar("resBadRange"));
+    expect(bad.status).to.equal(400);
+    expect(bad.body.error.code).to.equal("VALIDATION_FAILED");
+    expect(bad.body.error.details.fields).to.have.property("from");
+  });
+
+  test("AC5 — an unparsable date is VALIDATION_FAILED", function () {
+    const bad = JSON.parse(bru.getVar("resBadDate"));
+    expect(bad.status).to.equal(400);
+    expect(bad.body.error.code).to.equal("VALIDATION_FAILED");
+  });
+
+  test("a cursor this API did not issue is VALIDATION_FAILED, not a 500", function () {
+    const bad = JSON.parse(bru.getVar("resBadCursor"));
+    expect(bad.status).to.equal(400);
+    expect(bad.body.error.code).to.equal("VALIDATION_FAILED");
+    expect(bad.body.error.details.fields).to.have.property("cursor");
+  });
+
+  test("a well-formed query with no matching rows is a 200 empty page, not a 400", function () {
+    const empty = JSON.parse(bru.getVar("resWellFormedEmpty"));
+    expect(empty.status).to.equal(200);
+    expect(empty.body.data).to.eql([]);
+    expect(empty.body.meta.hasMore).to.equal(false);
+  });
+}
+
+docs {
+  GRAFT-29.2 AC2, AC3 and AC5 — every bad-input case the API Contract names.
+
+  The AC3 cases are the point of this file: an `action` filter that names no
+  real family or leaf must be a 400, mirroring GRAFT-27.2 AC4's tier
+  treatment, exactly so a typo in the console reads as a typo rather than an
+  apparently-empty activity log. `resWellFormedEmpty` is the control for that
+  claim — proving the 400s above are about validation, not "nothing matched".
+}
