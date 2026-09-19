@@ -26,7 +26,8 @@ type AdminStats = {
   inGrace: number;
 };
 
-type State = { status: "loading" } | { status: "error" } | { status: "ready"; stats: AdminStats };
+type State =
+  { status: "loading" } | { status: "error" } | { status: "ready"; stats: AdminStats };
 
 const TIER_LABEL: Record<Tier, string> = {
   free: "Free",
