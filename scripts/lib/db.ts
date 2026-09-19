@@ -69,6 +69,11 @@ export const COLLECTIONS = [
   "orders",
   "invoices",
   "invoice_counters",
+  // Tenant activity log (GRAFT-29.1). Append-only, one row per lifecycle event,
+  // read cross-tenant from /admin. Listed here so a reset clears it — a run
+  // that inherited yesterday's rows would make "exactly one row was appended"
+  // untestable, same reasoning as admin_audit_log above.
+  "activities",
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];

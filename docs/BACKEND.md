@@ -173,6 +173,54 @@ Layered, Redis-backed (sliding window or token bucket via `rate-limiter-flexible
 - Backups: Atlas continuous backup; restore drills quarterly.
 - Secrets in environment/secret manager, never in the repo; connector credentials encrypted at rest (AES-256-GCM, per-tenant data key).
 
+### 6.1 Activity Log
+
+The `activities` collection (GRAFT-29.1) is the append-only record of what
+happened to a tenant's account, so support can answer "what did this customer
+do, what did we send them, and did anything fail" from `/admin`. It is written
+through exactly one function, `recordActivity()` in
+`src/server/services/activity-log.ts`, and never written any other way.
+
+Every row carries the same base envelope — `tenantId`, `actorType`, `actorId`,
+`action`, `ok`, `requestId`, `at`, `context` — built from the explicit
+`ACTIVITY_FIELDS` allow-list rather than a spread, so a caller cannot widen a
+row by passing more. `tenantId` is required (unlike `admin_audit_log`, which is
+deliberately global); `actorId` is nullable, because a subscription expiry
+fired by a scheduled job has no acting user; `at` is stamped by the writer.
+
+`action` is `<family>.<leaf>` and must be registered in `ACTIVITY_REGISTRY`.
+Five families, each owning the Zod schema for its own `context`:
+
+| Family | Actions | `context` |
+|---|---|---|
+| `notify.email` | `sent`, `failed` | `template`, `to`, `messageId?`, `errorCode?` |
+| `billing.subscription` | `add`, `cancel`, `expire` | `fromTier?`, `toTier?`, `reason?` |
+| `billing.payment` | `succeeded`, `failed`, `refunded` | `amountCents`, `currency`, `failureCode?` |
+| `account` | `signup`, `login`, `login_failed`, `password_reset_requested`, `password_reset_completed` | `method?` |
+| `entity` | `created`, `updated`, `deleted` | `entityDefId`, `entityType`, `recordId` |
+
+Two rules make this a security boundary rather than a naming convention, and
+both are enforced in code:
+
+- **An unregistered action throws** before anything is written. The read API
+  filters by action, so a typo that created an untyped row would create a row
+  that surface can never show.
+- **`notify.email`'s `to` is the only personal data in the collection.** Extra
+  context keys are stripped, but an address reaching a family whose schema does
+  not name one *throws* — a silently dropped address looks exactly like one
+  that was never sent, and the call site goes on sending it. No family stores a
+  name, and none stores an IP. `actorId` says who; resolving that to a person is
+  a deliberate second step, the same argument as `admin_audit_log`'s
+  `actorUserId`.
+
+A write failure propagates rather than being swallowed: whether a failed
+activity write should fail the parent operation is the calling service's
+decision, not this function's.
+
+The rest of the surface: **GRAFT-29.2** the read/search API
+(`GET /api/v1/admin/activities`), **GRAFT-29.3** the `/admin/activities`
+console screen, **GRAFT-29.4** the real call sites that make rows exist.
+
 ## 7. Testing Strategy
 
 ### 7.1 Pyramid
