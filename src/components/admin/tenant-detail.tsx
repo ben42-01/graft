@@ -163,6 +163,14 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
           <Link href="/admin/tenants" className="text-sm underline underline-offset-2">
             Back to tenants
           </Link>
+          {/* GRAFT-29.3 AC4 — the entry point support actually uses: open the
+              tenant, then see its activity, pre-filtered and locked to it. */}
+          <Link
+            href={`/admin/activities?tenantId=${tenant.id}`}
+            className="text-sm underline underline-offset-2"
+          >
+            View activity
+          </Link>
           {/* GRAFT-27.4 — the console's one mutation, on the screen that
               already shows the tenant it acts on. */}
           <TierOverrideDialog
