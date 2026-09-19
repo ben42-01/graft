@@ -1,0 +1,68 @@
+meta {
+  name: A platform admin reads the tenant stats widget data
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/stats
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  // Same seeded platform admin as bruno/admin/session.bru — see that file's
+  // comment for why the account sits on the premium QA tenant.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  bru.setVar("platformAdminToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.totalTenants: isNumber
+  res.body.data.byTier.free: isNumber
+  res.body.data.byTier.premium: isNumber
+  res.body.data.byTier.enterprise: isNumber
+  res.body.data.frozenTenants: isNumber
+  res.body.data.inTrial: isNumber
+  res.body.data.inGrace: isNumber
+  res.body.meta.requestId: isDefined
+  res.body.error: isUndefined
+}
+
+tests {
+  test("the response is exactly these six fields, no per-tenant data", function () {
+    const body = res.getBody();
+    expect(Object.keys(body.data).sort()).to.eql([
+      "byTier",
+      "frozenTenants",
+      "inGrace",
+      "inTrial",
+      "totalTenants",
+    ]);
+    expect(Object.keys(body.data.byTier).sort()).to.eql(["enterprise", "free", "premium"]);
+  });
+
+  test("the tier counts sum to the total", function () {
+    const { totalTenants, byTier } = res.getBody().data;
+    const sum = byTier.free + byTier.premium + byTier.enterprise;
+    expect(sum).to.equal(totalTenants);
+  });
+}
+
+docs {
+  Backs the stat widgets on /admin/tenants (src/components/admin/stats-widgets.tsx,
+  src/server/services/admin-stats.ts) — an ad hoc addition on top of the
+  GRAFT-27 admin console, same gate and audit posture as the rest of
+  /api/v1/admin/*.
+}
