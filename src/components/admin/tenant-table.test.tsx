@@ -74,6 +74,10 @@ describe("TenantTable", () => {
       "Tier",
       "Freeze",
       "Trial / grace",
+      // Appended by the admin console restyle; the five contract columns keep
+      // their positions, which is what the cell assertions below rely on.
+      "Stripe",
+      "Created",
     ]);
 
     const rows = screen.getAllByRole("row").slice(1); // drop the header row

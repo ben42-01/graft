@@ -1,0 +1,106 @@
+meta {
+  name: A platform admin searches users across every tenant
+  type: http
+  seq: 17
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/users?q=both@qa
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const get = async (qs) => {
+    const response = await axios.get(`${baseUrl}/api/v1/admin/users${qs}`, auth);
+    return { status: response.status, body: response.data };
+  };
+  bru.setVar("resUnverified", JSON.stringify(await get("?verified=false")));
+  bru.setVar("resPremiumMembers", JSON.stringify(await get("?tenantId=000000000000000000000002")));
+  bru.setVar("resAdmins", JSON.stringify(await get("?platformAdmin=true")));
+  bru.setVar("resBadRole", JSON.stringify(await get("?role=superuser")));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.length: eq 1
+  res.body.data[0].email: eq both@qa.test
+  res.body.data[0].emailVerified: eq true
+  res.body.meta.requestId: isDefined
+}
+
+tests {
+  test("each user carries exactly the allow-listed fields — never a password hash", function () {
+    const user = res.getBody().data[0];
+    expect(Object.keys(user).sort()).to.eql([
+      "createdAt",
+      "email",
+      "emailVerified",
+      "id",
+      "isPlatformAdmin",
+      "memberships",
+      "name",
+    ]);
+    expect(JSON.stringify(res.getBody())).to.not.contain("argon2");
+    expect(JSON.stringify(res.getBody())).to.not.contain("passwordHash");
+  });
+
+  test("memberships resolve tenant names and keep roles", function () {
+    const memberships = res.getBody().data[0].memberships;
+    expect(memberships).to.have.lengthOf(2);
+    for (const m of memberships) expect(m.tenantName).to.be.a("string");
+    const roles = memberships.map((m) => m.roles.join(",")).sort();
+    expect(roles).to.eql(["admin", "member"]);
+  });
+
+  test("verified=false finds the unverified fixture and nobody verified", function () {
+    const parsed = JSON.parse(bru.getVar("resUnverified"));
+    expect(parsed.status).to.equal(200);
+    const emails = parsed.body.data.map((u) => u.email);
+    expect(emails).to.include("unverified@qa.test");
+    for (const u of parsed.body.data) expect(u.emailVerified).to.equal(false);
+  });
+
+  test("tenantId narrows to that workspace's members", function () {
+    const parsed = JSON.parse(bru.getVar("resPremiumMembers"));
+    expect(parsed.status).to.equal(200);
+    for (const u of parsed.body.data) {
+      expect(u.memberships.map((m) => m.tenantId)).to.include("000000000000000000000002");
+    }
+    expect(parsed.body.data.map((u) => u.email)).to.include("both@qa.test");
+  });
+
+  test("platformAdmin=true returns only flagged accounts", function () {
+    const parsed = JSON.parse(bru.getVar("resAdmins"));
+    expect(parsed.body.data.map((u) => u.email)).to.include("platform-admin@qa.test");
+    for (const u of parsed.body.data) expect(u.isPlatformAdmin).to.equal(true);
+  });
+
+  test("an unknown role is a 400 naming the field, not an empty list", function () {
+    const parsed = JSON.parse(bru.getVar("resBadRole"));
+    expect(parsed.status).to.equal(400);
+    expect(parsed.body.error.code).to.equal("VALIDATION_FAILED");
+    expect(JSON.stringify(parsed.body.error)).to.contain("role");
+  });
+}
+
+docs {
+  Backs /admin/users (src/components/admin/users-view.tsx,
+  src/server/services/admin-users.ts). The email *is* returned here — this
+  screen exists to find a person — but the hash never is: the store projects
+  it away and the serialiser never names it.
+}

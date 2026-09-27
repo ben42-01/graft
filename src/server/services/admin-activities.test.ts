@@ -371,3 +371,11 @@ describe("AC6 — the serialiser is an allow-list", () => {
     expect(summary.actorId).toBeNull();
   });
 });
+
+describe("buildActivityFilter — outcome (admin console Activity Monitor)", () => {
+  it("narrows to failures or successes", () => {
+    expect(buildActivityFilter({ ok: "false" }).ok).toBe(false);
+    expect(buildActivityFilter({ ok: "true" }).ok).toBe(true);
+    expect(buildActivityFilter({}).ok).toBeUndefined();
+  });
+});

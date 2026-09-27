@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * `/admin/activities` — the Activity Monitor (supersedes the GRAFT-29.3 table). All behaviour lives in `ActivityMonitor`; this file wires the
+ * `/admin/entities` — entity definitions across every tenant. All behaviour lives in `EntitiesView`; this file wires the
  * Suspense boundary its `useSearchParams` read needs in the app router.
  */
 import { Suspense } from "react";
-import { ActivityMonitor } from "@/components/admin/activity-monitor";
+import { EntitiesView } from "@/components/admin/entities-view";
 import { LoadingState } from "@/components/shell/loading-state";
 
-export default function AdminActivityMonitorPage() {
+export default function AdminEntitiesViewPage() {
   return (
     <Suspense fallback={<LoadingState label="Loading…" variant="page" />}>
-      <ActivityMonitor />
+      <EntitiesView />
     </Suspense>
   );
 }

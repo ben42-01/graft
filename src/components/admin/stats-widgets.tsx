@@ -14,7 +14,9 @@
 import { useEffect, useState } from "react";
 import { ErrorState } from "@/components/shell/error-state";
 import { LoadingState } from "@/components/shell/loading-state";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { BlocksIcon, ClockAlertIcon, HourglassIcon, SnowflakeIcon } from "lucide-react";
+import { SegmentBar } from "@/components/admin/admin-charts";
+import { Panel, StatTile } from "@/components/admin/admin-ui";
 import { TIERS, type Tier } from "@/server/tiers";
 
 /** Mirrors `AdminStats` (src/server/services/admin-stats.ts). */
@@ -35,63 +37,14 @@ const TIER_LABEL: Record<Tier, string> = {
   enterprise: "Enterprise",
 };
 
-// The theme is a neutral grayscale (no chart/accent tokens beyond
-// `destructive`), so `bg-primary` and `bg-foreground` render as the same
-// near-black and were indistinguishable in the bar — a 3-step lightness ramp
-// instead, checked visually at http://localhost:3000/admin/tenants.
-const TIER_BAR_COLOR: Record<Tier, string> = {
-  free: "bg-muted-foreground/30",
-  premium: "bg-muted-foreground",
-  enterprise: "bg-foreground",
+// The first three categorical chart slots (globals.css `--chart-*`), the only
+// three validated for colour-blind separation across all pairs. This used to
+// be a grayscale ramp, back when the theme had no chart tokens at all.
+const TIER_COLOR: Record<Tier, string> = {
+  free: "var(--chart-1)",
+  premium: "var(--chart-2)",
+  enterprise: "var(--chart-3)",
 };
-
-function StatCard({ label, value }: { label: string; value: number }) {
-  return (
-    <Card className="gap-1 py-4">
-      <CardHeader className="px-4">
-        <CardTitle className="text-sm font-normal text-muted-foreground">{label}</CardTitle>
-      </CardHeader>
-      <CardContent className="px-4 text-2xl font-semibold tabular-nums">{value}</CardContent>
-    </Card>
-  );
-}
-
-function TierBreakdown({ total, byTier }: { total: number; byTier: Record<Tier, number> }) {
-  return (
-    <Card className="gap-3 py-4">
-      <CardHeader className="px-4">
-        <CardTitle className="text-sm font-normal text-muted-foreground">By tier</CardTitle>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2 px-4">
-        <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
-          {TIERS.map((tier) => {
-            const count = byTier[tier];
-            const pct = total > 0 ? (count / total) * 100 : 0;
-            return count > 0 ? (
-              <div
-                key={tier}
-                className={TIER_BAR_COLOR[tier]}
-                style={{ width: `${pct}%` }}
-                title={`${TIER_LABEL[tier]}: ${count}`}
-              />
-            ) : null;
-          })}
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          {TIERS.map((tier) => (
-            <span key={tier} className="flex items-center gap-1.5">
-              <span
-                className={`inline-block size-2 rounded-full ${TIER_BAR_COLOR[tier]}`}
-                aria-hidden="true"
-              />
-              {TIER_LABEL[tier]}: {byTier[tier]}
-            </span>
-          ))}
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
 
 export function AdminStatsWidgets() {
   const [state, setState] = useState<State>({ status: "loading" });
@@ -128,14 +81,30 @@ export function AdminStatsWidgets() {
 
   const { stats } = state;
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      <StatCard label="Tenants" value={stats.totalTenants} />
-      <StatCard label="Frozen" value={stats.frozenTenants} />
-      <StatCard label="In trial" value={stats.inTrial} />
-      <StatCard label="In grace" value={stats.inGrace} />
-      <div className="col-span-2 sm:col-span-4">
-        <TierBreakdown total={stats.totalTenants} byTier={stats.byTier} />
-      </div>
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+      <StatTile label="Accounts" value={stats.totalTenants} icon={BlocksIcon} />
+      <StatTile label="In trial" value={stats.inTrial} icon={HourglassIcon} />
+      <StatTile
+        label="In grace"
+        value={stats.inGrace}
+        icon={ClockAlertIcon}
+        tone={stats.inGrace > 0 ? "warning" : "default"}
+      />
+      <StatTile
+        label="Frozen"
+        value={stats.frozenTenants}
+        icon={SnowflakeIcon}
+        tone={stats.frozenTenants > 0 ? "warning" : "default"}
+      />
+      <Panel title="By tier" className="col-span-2 gap-3 p-4 lg:col-span-1">
+        <SegmentBar
+          segments={TIERS.map((tier) => ({
+            label: TIER_LABEL[tier],
+            value: stats.byTier[tier],
+            color: TIER_COLOR[tier],
+          }))}
+        />
+      </Panel>
     </div>
   );
 }

@@ -29,8 +29,15 @@ test("a seeded platform admin reaches /admin/tenants, searches, and opens a tena
   });
   expect(login.ok()).toBeTruthy();
 
-  // AC1 — /admin redirects to /admin/tenants and the table renders.
+  // AC1 — /admin lands somewhere useful: it is now the console's dashboard
+  // (it used to redirect to /admin/tenants), and the sidebar's "Accounts"
+  // entry reaches the tenant table.
   await page.goto("/admin");
+  await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Admin" })
+    .getByRole("link", { name: "Accounts" })
+    .click();
   await expect(page).toHaveURL(/\/admin\/tenants$/);
   await expect(page.getByRole("table")).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "Name" })).toBeVisible();

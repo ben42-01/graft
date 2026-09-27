@@ -1,0 +1,87 @@
+meta {
+  name: A platform admin reads activity aggregates for the monitor
+  type: http
+  seq: 20
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/activities/summary?tenantId=000000000000000000000002&from=2026-01-12T00:00:00.000Z&to=2026-01-14T23:59:59.999Z
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const failed = await axios.get(
+    `${baseUrl}/api/v1/admin/activities/summary?tenantId=000000000000000000000002&ok=false&from=2026-01-01T00:00:00.000Z&to=2026-02-01T00:00:00.000Z`,
+    auth,
+  );
+  bru.setVar("resFailedOnly", JSON.stringify({ status: failed.status, body: failed.data }));
+  const bad = await axios.get(`${baseUrl}/api/v1/admin/activities/summary?action=nope.nope`, auth);
+  bru.setVar("resBadAction", JSON.stringify({ status: bad.status, body: bad.data }));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.total: gt 0
+  res.body.data.range.bucket: eq day
+  res.body.meta.requestId: isDefined
+}
+
+tests {
+  test("totals, outcome split and breakdowns agree with each other", function () {
+    const d = res.getBody().data;
+    expect(d.ok + d.failed).to.equal(d.total);
+    const familySum = d.byFamily.reduce((n, f) => n + f.total, 0);
+    expect(familySum).to.equal(d.total);
+    const seriesSum = d.series.reduce((n, b) => n + b.ok + b.failed, 0);
+    expect(seriesSum).to.equal(d.total);
+  });
+
+  test("the tenant filter holds and the top tenant is named", function () {
+    const d = res.getBody().data;
+    expect(d.topTenants).to.have.lengthOf(1);
+    expect(d.topTenants[0].tenantId).to.equal("000000000000000000000002");
+    expect(d.topTenants[0].tenantName).to.be.a("string");
+  });
+
+  test("the series is dense over the inclusive range", function () {
+    expect(res.getBody().data.series).to.have.lengthOf(3);
+  });
+
+  test("ok=false narrows to failures", function () {
+    const parsed = JSON.parse(bru.getVar("resFailedOnly"));
+    expect(parsed.status).to.equal(200);
+    expect(parsed.body.data.ok).to.equal(0);
+    expect(parsed.body.data.failed).to.equal(parsed.body.data.total);
+  });
+
+  test("an unregistered action is a 400, same as the list", function () {
+    const parsed = JSON.parse(bru.getVar("resBadAction"));
+    expect(parsed.status).to.equal(400);
+    expect(parsed.body.error.code).to.equal("VALIDATION_FAILED");
+  });
+
+  test("no context field — and so no recipient address — ever appears", function () {
+    expect(JSON.stringify(res.getBody())).to.not.contain("@qa-premium.test");
+  });
+}
+
+docs {
+  Backs the Activity Monitor's charts (src/components/admin/activity-monitor.tsx,
+  src/server/services/admin-activity-summary.ts). Same fixtures and date window
+  as activities-list.bru.
+}

@@ -33,6 +33,7 @@ import { AppError } from "@/server/http/envelope";
 import { DEFAULT_LIMIT, MAX_LIMIT, decodeCursor } from "@/server/http/pagination";
 import { TIER_LIMITS } from "@/server/tiers";
 import {
+  buildTenantFilter,
   adminTenantListQuerySchema,
   adminTenantParamsSchema,
   getAdminTenant,
@@ -400,5 +401,31 @@ describe("AC8 — the serialiser is an allow-list", () => {
     expect(summary.tier).toBe("free");
     expect(summary.name).toBe("");
     expect(summary.createdAt).toBeNull();
+  });
+});
+
+describe("buildTenantFilter — billing status (admin console Subscriptions screen)", () => {
+  const now = new Date("2026-09-27T00:00:00Z");
+
+  it("maps each billing filter to one field condition", () => {
+    expect(buildTenantFilter({ billing: "subscribed" }, now)).toEqual({
+      "billing.stripeSubscriptionId": { $nin: [null, ""] },
+    });
+    expect(buildTenantFilter({ billing: "trial" }, now)).toEqual({
+      "billing.trialEndsAt": { $gt: now },
+    });
+    expect(buildTenantFilter({ billing: "grace" }, now)).toEqual({
+      "billing.graceExpiresAt": { $gt: now },
+    });
+    expect(buildTenantFilter({ billing: "frozen" }, now)).toEqual({
+      "readOnly.0": { $exists: true },
+    });
+    expect(buildTenantFilter({ billing: "none" }, now)).toEqual({
+      "billing.stripeCustomerId": { $in: [null, ""] },
+    });
+  });
+
+  it("rejects an unknown billing filter at the boundary", () => {
+    expect(adminTenantListQuerySchema.safeParse({ billing: "vip" }).success).toBe(false);
   });
 });

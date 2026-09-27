@@ -1,0 +1,66 @@
+meta {
+  name: A platform admin lists entity definitions across tenants
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/entities?tenantId=000000000000000000000001
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const bad = await axios.get(`${baseUrl}/api/v1/admin/entities?deleted=maybe`, auth);
+  bru.setVar("resBadDeleted", JSON.stringify({ status: bad.status, body: bad.data }));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.length: gt 0
+  res.body.meta.requestId: isDefined
+}
+
+tests {
+  test("tenantId scopes the list to one tenant, with its name resolved", function () {
+    for (const e of res.getBody().data) {
+      expect(e.tenantId).to.equal("000000000000000000000001");
+      expect(e.tenantName).to.be.a("string");
+    }
+    expect(res.getBody().data.map((e) => e.key)).to.include("rental_items");
+  });
+
+  test("each definition is schema metadata plus a record count — never record data", function () {
+    for (const e of res.getBody().data) {
+      expect(e.recordCount).to.be.a("number");
+      expect(e.deleted).to.equal(false);
+      for (const f of e.fields) expect(Object.keys(f).sort()).to.eql(["key", "label", "required", "type"]);
+    }
+    for (const e of res.getBody().data) expect(e).to.not.have.property("data");
+  });
+
+  test("an unknown deleted mode is a 400", function () {
+    const parsed = JSON.parse(bru.getVar("resBadDeleted"));
+    expect(parsed.status).to.equal(400);
+    expect(parsed.body.error.code).to.equal("VALIDATION_FAILED");
+  });
+}
+
+docs {
+  Backs /admin/entities (src/components/admin/entities-view.tsx,
+  src/server/services/admin-entities.ts).
+}

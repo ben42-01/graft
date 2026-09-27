@@ -1,0 +1,79 @@
+meta {
+  name: A platform admin reads the admin audit log
+  type: http
+  seq: 19
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/audit
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  // Produce at least one known row first: this read writes admin.stats.read.
+  await axios.get(`${baseUrl}/api/v1/admin/stats`, auth);
+  const writes = await axios.get(`${baseUrl}/api/v1/admin/audit?kind=writes`, auth);
+  bru.setVar("resWrites", JSON.stringify({ status: writes.status, body: writes.data }));
+  const bad = await axios.get(`${baseUrl}/api/v1/admin/audit?action=.*`, auth);
+  bru.setVar("resBadAction", JSON.stringify({ status: bad.status, body: bad.data }));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.length: gt 0
+  res.body.meta.requestId: isDefined
+}
+
+tests {
+  test("rows carry the resolved actor and the allow-listed fields only", function () {
+    const rows = res.getBody().data;
+    const stats = rows.find((r) => r.action === "admin.stats.read");
+    expect(stats, "the admin.stats.read row written just before").to.not.equal(undefined);
+    expect(stats.actorEmail).to.equal("platform-admin@qa.test");
+    expect(Object.keys(stats).sort()).to.eql([
+      "action",
+      "actorEmail",
+      "actorUserId",
+      "at",
+      "details",
+      "id",
+      "requestId",
+      "targetTenantId",
+      "targetTenantName",
+    ]);
+  });
+
+  test("kind=writes returns only rows that recorded an outcome", function () {
+    const parsed = JSON.parse(bru.getVar("resWrites"));
+    expect(parsed.status).to.equal(200);
+    for (const r of parsed.body.data) expect(r.details.ok).to.be.a("boolean");
+  });
+
+  test("an action filter that is not a dotted verb is a 400, not a regex", function () {
+    const parsed = JSON.parse(bru.getVar("resBadAction"));
+    expect(parsed.status).to.equal(400);
+    expect(parsed.body.error.code).to.equal("VALIDATION_FAILED");
+  });
+}
+
+docs {
+  Backs /admin/audit (src/components/admin/audit-view.tsx,
+  src/server/services/admin-audit-read.ts) — the read side of
+  admin_audit_log, kept out of admin-audit.ts so that module stays
+  append-only.
+}

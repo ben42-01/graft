@@ -1,0 +1,68 @@
+meta {
+  name: A platform admin reads the platform overview
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/overview
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformAdminToken}}
+}
+
+script:pre-request {
+  // Same seeded platform admin as session.bru — on the premium QA tenant,
+  // because the free tenant's api budget is spent by the rest of the suite.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "platform-admin@qa.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformAdminToken", token);
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.tenants.total: gt 0
+  res.body.data.users.total: gt 0
+  res.body.data.users.platformAdmins: gte 1
+  res.body.data.content.entityDefs: gt 0
+  res.body.data.window.days: eq 14
+  res.body.meta.requestId: isDefined
+}
+
+tests {
+  // Synchronous on purpose: an async test body never fails the Bruno gate.
+  test("the daily series are dense — one entry per day of the window", function () {
+    const { series, window } = res.getBody().data;
+    expect(series.signups).to.have.lengthOf(window.days);
+    expect(series.tenants).to.have.lengthOf(window.days);
+    expect(series.activity).to.have.lengthOf(window.days);
+    for (const day of series.activity) {
+      expect(day).to.have.all.keys("day", "ok", "failed");
+    }
+  });
+
+  test("the tier counts sum to the total", function () {
+    const { total, byTier } = res.getBody().data.tenants;
+    expect(byTier.free + byTier.premium + byTier.enterprise).to.equal(total);
+  });
+
+  test("counts only — no email address anywhere in the body", function () {
+    expect(JSON.stringify(res.getBody())).to.not.match(/@[a-z0-9-]+\.test/);
+  });
+}
+
+docs {
+  Backs the /admin dashboard (src/components/admin/admin-dashboard.tsx,
+  src/server/services/admin-overview.ts). Admin console addition, same gate
+  and audit posture as the rest of /api/v1/admin/*.
+}

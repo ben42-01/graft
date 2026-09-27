@@ -34,12 +34,13 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import type { ReactNode } from "react";
+import { AdminShell } from "@/components/admin/admin-shell";
 import { ErrorBoundary } from "@/components/shell/error-boundary";
 import { LoadingState } from "@/components/shell/loading-state";
 import { useAdminSession } from "@/lib/admin-session";
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  const { status } = useAdminSession();
+  const { status, actor } = useAdminSession();
   const router = useRouter();
   const pathname = usePathname();
 
@@ -64,14 +65,11 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     return null;
   }
 
+  // The sidebar console (src/components/admin/admin-shell.tsx) — its own
+  // chrome, never the tenant AppShell (AC9 above).
   return (
-    <div className="mx-auto flex min-h-screen w-full max-w-5xl flex-col gap-6 px-4 py-8">
-      <header className="flex items-center justify-between border-b border-border pb-4">
-        <p className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
-          Platform admin
-        </p>
-      </header>
+    <AdminShell email={actor?.email ?? ""}>
       <ErrorBoundary>{children}</ErrorBoundary>
-    </div>
+    </AdminShell>
   );
 }

@@ -1,17 +1,17 @@
 "use client";
 
 /**
- * `/admin/activities` — the Activity Monitor (supersedes the GRAFT-29.3 table). All behaviour lives in `ActivityMonitor`; this file wires the
+ * `/admin/users` — every user account across every tenant. All behaviour lives in `UsersView`; this file wires the
  * Suspense boundary its `useSearchParams` read needs in the app router.
  */
 import { Suspense } from "react";
-import { ActivityMonitor } from "@/components/admin/activity-monitor";
+import { UsersView } from "@/components/admin/users-view";
 import { LoadingState } from "@/components/shell/loading-state";
 
-export default function AdminActivityMonitorPage() {
+export default function AdminUsersViewPage() {
   return (
     <Suspense fallback={<LoadingState label="Loading…" variant="page" />}>
-      <ActivityMonitor />
+      <UsersView />
     </Suspense>
   );
 }
