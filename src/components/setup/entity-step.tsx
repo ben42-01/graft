@@ -150,7 +150,12 @@ export function EntityStep({
       ) : null}
 
       <div className="flex items-center gap-3">
-        <Button type="button" disabled={busy || invalid !== null} onClick={() => void create()}>
+        <Button
+          loading={busy}
+          type="button"
+          disabled={busy || invalid !== null}
+          onClick={() => void create()}
+        >
           {busy ? "Creating…" : "Create it"}
           <ArrowRightIcon className="size-4" aria-hidden="true" />
         </Button>

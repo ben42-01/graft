@@ -106,7 +106,9 @@ export default function FormsPage() {
       </div>
 
       <div className="mt-6">
-        {state.status === "loading" ? <LoadingState label="Loading your forms…" /> : null}
+        {state.status === "loading" ? (
+          <LoadingState label="Loading your forms…" variant="list" />
+        ) : null}
         {state.status === "error" ? (
           <ErrorState description="We couldn't load your forms." />
         ) : null}

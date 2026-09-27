@@ -255,6 +255,7 @@ export function ContentEditor({
 
         <div>
           <Button
+            loading={busy}
             type="button"
             size="sm"
             disabled={busy || problems.some(Boolean)}

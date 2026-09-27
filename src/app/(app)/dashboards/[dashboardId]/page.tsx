@@ -283,7 +283,8 @@ export default function DashboardComposerPage() {
     void persist(widgets);
   }
 
-  if (state.status === "loading") return <LoadingState label="Loading dashboard…" />;
+  if (state.status === "loading")
+    return <LoadingState label="Loading dashboard…" variant="page" />;
   if (state.status === "error") {
     return <ErrorState description="We couldn't load this dashboard." />;
   }

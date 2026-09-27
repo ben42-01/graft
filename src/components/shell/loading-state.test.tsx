@@ -18,4 +18,14 @@ describe("LoadingState", () => {
 
     expect(screen.getByRole("status")).toHaveTextContent("Loading…");
   });
+
+  it("renders skeleton variants as the same accessible status, label kept for screen readers", () => {
+    const { rerender } = render(<LoadingState label="Loading your forms…" variant="list" />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading your forms…");
+    expect(screen.getByRole("status")).toHaveAttribute("data-variant", "list");
+
+    rerender(<LoadingState label="Loading form…" variant="page" />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading form…");
+    expect(screen.getByRole("status")).toHaveAttribute("data-variant", "page");
+  });
 });

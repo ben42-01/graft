@@ -139,7 +139,8 @@ export default function PluginsPage() {
     }
   }
 
-  if (state.status === "loading") return <LoadingState label="Loading plugins…" />;
+  if (state.status === "loading")
+    return <LoadingState label="Loading plugins…" variant="page" />;
   if (state.status === "error") {
     return <ErrorState description="We couldn't load your plugins." />;
   }

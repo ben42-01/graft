@@ -78,6 +78,24 @@ describe("OrderBoard", () => {
     resolve(true);
   });
 
+  it("locks the card while its move is in flight, then unlocks it", async () => {
+    const user = userEvent.setup();
+    let resolve!: (value: boolean) => void;
+    const onMove = vi.fn(() => new Promise<boolean>((r) => (resolve = r)));
+    render(<OrderBoard orders={[order({ status: "draft" })]} onMove={onMove} />);
+
+    await user.selectOptions(screen.getByRole("combobox"), "confirmed");
+
+    // In flight: the landed card can't be moved again until the server answers.
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeDisabled());
+    expect(screen.getByLabelText("Saving")).toBeInTheDocument();
+
+    resolve(true);
+    await waitFor(() => expect(screen.getByRole("combobox")).toBeEnabled());
+    expect(screen.queryByLabelText("Saving")).not.toBeInTheDocument();
+    expect(onMove).toHaveBeenCalledTimes(1);
+  });
+
   it("puts the card back and says why when the server refuses", async () => {
     const user = userEvent.setup();
     const onMove = vi.fn(async () => false);

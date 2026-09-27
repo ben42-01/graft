@@ -427,6 +427,7 @@ export function ActivityTable({ initialTenantId = "" }: { initialTenantId?: stri
       {state.hasMore ? (
         <div className="flex justify-center">
           <Button
+            loading={loadingMore}
             type="button"
             variant="outline"
             disabled={loadingMore}

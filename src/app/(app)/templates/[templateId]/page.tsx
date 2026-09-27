@@ -317,6 +317,7 @@ function Wizard({ template }: { template: WorkspaceTemplate }) {
             </Button>
           ) : (
             <Button
+              loading={applying}
               type="button"
               disabled={applying || !local.plan || (preview !== null && !preview.fits)}
               onClick={() => void apply()}

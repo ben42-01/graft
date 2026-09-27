@@ -245,7 +245,7 @@ export function RecordDialog({
         </div>
 
         <DialogFooter>
-          <Button type="button" disabled={busy} onClick={() => void submit()}>
+          <Button loading={busy} type="button" disabled={busy} onClick={() => void submit()}>
             {busy ? "Saving…" : editing ? "Save changes" : "Add record"}
           </Button>
         </DialogFooter>

@@ -140,6 +140,7 @@ export function ImageField({
           />
           <div className="flex gap-1.5">
             <Button
+              loading={busy}
               type="button"
               size="sm"
               variant="outline"

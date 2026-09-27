@@ -83,7 +83,9 @@ export default function EntitiesPage() {
       </div>
 
       <div className="mt-6">
-        {state.status === "loading" ? <LoadingState label="Loading your entities…" /> : null}
+        {state.status === "loading" ? (
+          <LoadingState label="Loading your entities…" variant="list" />
+        ) : null}
         {state.status === "error" ? (
           <ErrorState description="We couldn't load your entities." />
         ) : null}

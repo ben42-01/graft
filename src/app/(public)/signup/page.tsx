@@ -182,7 +182,7 @@ function SignupForm() {
           ) : null}
         </CardContent>
         <CardFooter className="mt-6 flex flex-col gap-3">
-          <Button type="submit" className="w-full" disabled={submitting}>
+          <Button loading={submitting} type="submit" className="w-full" disabled={submitting}>
             {submitting ? "Signing up…" : "Sign up"}
           </Button>
           <p className="text-sm text-muted-foreground">

@@ -235,7 +235,8 @@ export default function EntityPage() {
     }
   }
 
-  if (state.status === "loading") return <LoadingState label="Loading entity…" />;
+  if (state.status === "loading")
+    return <LoadingState label="Loading entity…" variant="page" />;
   if (state.status === "error") {
     return <ErrorState description="We couldn't load this entity." />;
   }
@@ -293,7 +294,9 @@ export default function EntityPage() {
           <CardTitle className="text-base">Records</CardTitle>
         </CardHeader>
         <CardContent>
-          {loadingRows && rows.length === 0 ? <LoadingState label="Loading records…" /> : null}
+          {loadingRows && rows.length === 0 ? (
+            <LoadingState label="Loading records…" variant="list" />
+          ) : null}
 
           {!loadingRows && rows.length === 0 ? (
             <EmptyState
@@ -376,6 +379,7 @@ export default function EntityPage() {
           {cursor ? (
             <div className="mt-4 flex justify-center">
               <Button
+                loading={loadingRows}
                 type="button"
                 variant="outline"
                 size="sm"
@@ -445,7 +449,12 @@ export default function EntityPage() {
             {schemaSaved ? <p className="text-xs text-muted-foreground">Saved.</p> : null}
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
-              <Button type="button" disabled={savingSchema} onClick={() => void saveSchema()}>
+              <Button
+                loading={savingSchema}
+                type="button"
+                disabled={savingSchema}
+                onClick={() => void saveSchema()}
+              >
                 {savingSchema ? "Saving…" : "Save changes"}
               </Button>
 
@@ -463,6 +472,7 @@ export default function EntityPage() {
                     Cancel
                   </Button>
                   <Button
+                    loading={deleting}
                     type="button"
                     variant="destructive"
                     size="sm"

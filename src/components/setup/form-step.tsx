@@ -261,7 +261,7 @@ export function FormStep({
 
         <div className="flex items-center gap-3">
           {created.published ? null : (
-            <Button type="button" disabled={busy} onClick={() => void publish()}>
+            <Button loading={busy} type="button" disabled={busy} onClick={() => void publish()}>
               {busy ? "Publishing…" : "Publish it"}
             </Button>
           )}
@@ -368,7 +368,12 @@ export function FormStep({
       ) : null}
 
       <div className="flex items-center gap-3">
-        <Button type="button" disabled={busy || invalid !== null} onClick={() => void create()}>
+        <Button
+          loading={busy}
+          type="button"
+          disabled={busy || invalid !== null}
+          onClick={() => void create()}
+        >
           {busy ? "Creating…" : "Create the form"}
         </Button>
         <p className="text-xs text-muted-foreground">

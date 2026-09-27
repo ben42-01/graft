@@ -199,7 +199,13 @@ export function PaymentEditor({
         ) : null}
 
         <div>
-          <Button type="button" size="sm" disabled={busy || (enabled && !ready)} onClick={save}>
+          <Button
+            loading={busy}
+            type="button"
+            size="sm"
+            disabled={busy || (enabled && !ready)}
+            onClick={save}
+          >
             {busy ? "Saving…" : "Save payment"}
           </Button>
         </div>

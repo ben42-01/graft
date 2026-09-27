@@ -464,6 +464,7 @@ export function BookingEditor({
 
         <div>
           <Button
+            loading={busy}
             type="button"
             size="sm"
             disabled={busy || (enabled && !ready)}

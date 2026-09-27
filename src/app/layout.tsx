@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { NavigationProgress } from "@/components/shell/navigation-progress";
 import { ThemeProvider } from "@/components/theme-provider";
 import { env } from "@/env";
 import "./globals.css";
@@ -16,7 +17,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" suppressHydrationWarning>
       <body className="min-h-screen antialiased">
-        <ThemeProvider>{children}</ThemeProvider>
+        <ThemeProvider>
+          <NavigationProgress />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );

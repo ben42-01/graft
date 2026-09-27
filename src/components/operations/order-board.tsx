@@ -23,7 +23,7 @@
  *     targets only from states that can actually reach them.
  */
 import { useEffect, useState } from "react";
-import { GripVerticalIcon } from "lucide-react";
+import { GripVerticalIcon, Loader2Icon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
@@ -105,6 +105,9 @@ export function OrderBoard({
   const [dragging, setDragging] = useState<BoardOrder | null>(null);
   const [over, setOver] = useState<OrderStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Orders with a move in flight: locked until the server answers, so a slow
+  // request can't be raced by a second move of the same card.
+  const [saving, setSaving] = useState<ReadonlySet<string>>(new Set());
 
   const rows = local ?? orders;
 
@@ -116,10 +119,21 @@ export function OrderBoard({
 
   async function move(order: BoardOrder, to: OrderStatus) {
     if (to === order.status || !TRANSITIONS[order.status].includes(to)) return;
+    if (saving.has(order.id)) return;
     setError(null);
     // Optimistic: the card lands now, and comes back if the server says no.
     setLocal(rows.map((row) => (row.id === order.id ? { ...row, status: to } : row)));
-    const ok = await onMove(order.id, to);
+    setSaving((current) => new Set(current).add(order.id));
+    let ok = false;
+    try {
+      ok = await onMove(order.id, to);
+    } finally {
+      setSaving((current) => {
+        const next = new Set(current);
+        next.delete(order.id);
+        return next;
+      });
+    }
     if (!ok) {
       setLocal(rows);
       setError(`${STATUS_LABEL[order.status]} → ${STATUS_LABEL[to]} was refused.`);
@@ -182,6 +196,7 @@ export function OrderBoard({
                   <BoardCard
                     key={order.id}
                     order={order}
+                    saving={saving.has(order.id)}
                     onDragStart={() => setDragging(order)}
                     onDragEnd={() => {
                       setDragging(null);
@@ -201,11 +216,13 @@ export function OrderBoard({
 
 function BoardCard({
   order,
+  saving,
   onDragStart,
   onDragEnd,
   onMove,
 }: {
   order: BoardOrder;
+  saving: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
   onMove: (to: OrderStatus) => void;
@@ -214,13 +231,19 @@ function BoardCard({
 
   return (
     <Card
-      draggable={moves.length > 0}
+      draggable={moves.length > 0 && !saving}
       onDragStart={onDragStart}
       onDragEnd={onDragEnd}
-      className="gap-2 p-3 shadow-sm"
+      aria-busy={saving || undefined}
+      className={cn("gap-2 p-3 shadow-sm transition-opacity", saving && "opacity-70")}
     >
       <div className="flex items-start gap-2">
-        {moves.length > 0 ? (
+        {saving ? (
+          <Loader2Icon
+            className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground"
+            aria-label="Saving"
+          />
+        ) : moves.length > 0 ? (
           <GripVerticalIcon
             className="mt-0.5 size-4 shrink-0 cursor-grab text-muted-foreground"
             aria-hidden
@@ -252,6 +275,7 @@ function BoardCard({
           <span aria-hidden>Move to</span>
           <select
             value=""
+            disabled={saving}
             onChange={(event) => {
               const to = event.target.value as OrderStatus;
               if (to) onMove(to);

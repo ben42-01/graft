@@ -278,6 +278,7 @@ export function NewFormDialog({
         <DialogFooter className="sm:justify-between">
           <p className="text-xs text-muted-foreground">{invalid ?? " "}</p>
           <Button
+            loading={busy}
             type="button"
             disabled={busy || invalid !== null}
             onClick={() => void submit()}

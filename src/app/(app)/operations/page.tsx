@@ -91,7 +91,8 @@ export default function OperationsPage() {
     [load],
   );
 
-  if (state.status === "loading") return <LoadingState label="Loading operations…" />;
+  if (state.status === "loading")
+    return <LoadingState label="Loading operations…" variant="page" />;
   if (state.status === "error") {
     return <ErrorState description="We couldn't load your operations board." />;
   }

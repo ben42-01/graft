@@ -255,6 +255,7 @@ export function CatalogueBrowser({
 
       {hasMore ? (
         <Button
+          loading={loadingMore}
           type="button"
           variant="outline"
           className="self-center rounded-full"

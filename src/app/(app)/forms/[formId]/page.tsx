@@ -187,7 +187,7 @@ export default function FormPage() {
     }
   }
 
-  if (state.status === "loading") return <LoadingState label="Loading form…" />;
+  if (state.status === "loading") return <LoadingState label="Loading form…" variant="page" />;
   if (state.status === "error") return <ErrorState description="We couldn't load this form." />;
 
   const { form, entity } = state;
@@ -444,6 +444,7 @@ export default function FormPage() {
 
           <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-4">
             <Button
+              loading={busy}
               type="button"
               disabled={
                 busy || !name.trim() || selectedKeys.length === 0 || missingRequired.length > 0

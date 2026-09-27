@@ -73,15 +73,17 @@ export default function DashboardsPage() {
           type="button"
           size="sm"
           onClick={() => void createDashboard()}
-          disabled={creating}
+          loading={creating}
         >
-          <PlusIcon /> New dashboard
+          {creating ? null : <PlusIcon />} New dashboard
         </Button>
       </div>
       {quotaMessage ? <p className="mt-2 text-sm text-destructive">{quotaMessage}</p> : null}
 
       <div className="mt-6">
-        {state.status === "loading" ? <LoadingState label="Loading dashboards…" /> : null}
+        {state.status === "loading" ? (
+          <LoadingState label="Loading dashboards…" variant="list" />
+        ) : null}
         {state.status === "error" ? (
           <ErrorState description="We couldn't load your dashboards." />
         ) : null}

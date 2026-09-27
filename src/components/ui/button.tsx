@@ -1,5 +1,6 @@
 import * as React from "react";
 import { cva, type VariantProps } from "class-variance-authority";
+import { Loader2Icon } from "lucide-react";
 import { Slot } from "radix-ui";
 
 import { cn } from "@/lib/utils";
@@ -36,15 +37,26 @@ const buttonVariants = cva(
   },
 );
 
+/**
+ * `loading` is the in-flight state for a save/submit: the button disables
+ * itself (so a slow request can't be sent twice), announces `aria-busy`, and
+ * leads with a spinner so the wait is visible even when the label doesn't
+ * change. With `asChild` it still disables, but draws no spinner — a Slot
+ * takes exactly one child.
+ */
 function Button({
   className,
   variant = "default",
   size = "default",
   asChild = false,
+  loading = false,
+  disabled,
+  children,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean;
+    loading?: boolean;
   }) {
   const Comp = asChild ? Slot.Root : "button";
 
@@ -54,8 +66,19 @@ function Button({
       data-variant={variant}
       data-size={size}
       className={cn(buttonVariants({ variant, size, className }))}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
       {...props}
-    />
+    >
+      {asChild ? (
+        children
+      ) : (
+        <>
+          {loading ? <Loader2Icon className="animate-spin" aria-hidden="true" /> : null}
+          {children}
+        </>
+      )}
+    </Comp>
   );
 }
 

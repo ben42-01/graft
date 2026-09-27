@@ -99,6 +99,7 @@ export default function PrivacyPage() {
               </p>
             </div>
             <Button
+              loading={exporting}
               type="button"
               size="sm"
               disabled={exporting}

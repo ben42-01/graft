@@ -123,3 +123,14 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Navigation progress bar (components/shell/navigation-progress.tsx): eases
+   towards 90% and holds there until the navigation lands. */
+@keyframes graft-nav-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(0.9);
+  }
+}
