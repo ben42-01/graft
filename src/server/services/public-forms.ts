@@ -43,6 +43,7 @@ import {
   type FormDoc,
 } from "./forms";
 import { buildPaymentLinkUrl } from "@/lib/payment-links";
+import { createFormCheckout as createFormCheckoutDefault } from "./stripe-connect";
 import { MAX_CONTENT_BLOCKS, type LinkBlock } from "@/lib/content-blocks";
 import {
   bridgeBooking as bridgeBookingDefault,
@@ -198,6 +199,16 @@ export type PublicFormDeps = {
       requestId: string;
     },
   ) => Promise<BridgeResult | null>;
+  /** Opens a Stripe Checkout Session for a committed order (stripe-connect.ts).
+   * `null` means card payment cannot be offered for it; never throws. */
+  createCheckout: (input: {
+    tenantId: string;
+    orderId: string;
+    submissionId: string;
+    formName: string;
+    formPath: string;
+    requestId: string;
+  }) => Promise<{ url: string } | null>;
   now: () => Date;
 };
 
@@ -227,6 +238,7 @@ function resolveDeps(overrides: Partial<PublicFormDeps> = {}): PublicFormDeps {
       overrides.bridgeBooking ??
       ((session, input) =>
         bridgeBookingDefault(session, { ...input, store: mongoBookingBridgeStore() })),
+    createCheckout: overrides.createCheckout ?? ((input) => createFormCheckoutDefault(input)),
     now: overrides.now ?? (() => new Date()),
   };
 }
@@ -444,7 +456,7 @@ async function writeSubmissionTransactionally(
   selectedRecordId: ObjectId | null,
   now: Date,
   agreements: AgreementRecord[],
-): Promise<SubmitFormResult> {
+): Promise<CommittedSubmission> {
   const store = deps.store;
   const tenantId = new ObjectId(ctx.tenantId);
   const period = periodFor(METER, entitlements, now);
@@ -510,18 +522,47 @@ async function writeSubmissionTransactionally(
     updatedAt: now,
   });
 
+  return {
+    submissionId: submissionId.toHexString(),
+    orderId: bridged?.orderId?.toHexString() ?? null,
+  };
+}
+
+/** What the transaction committed — the payment half is decided after it. */
+type CommittedSubmission = { submissionId: string; orderId: string | null };
+
+/**
+ * The payment block for a committed submission. Link mode is pure URL
+ * building; checkout mode calls Stripe, which is why this runs after the
+ * transaction rather than inside it (see stripe-connect.ts).
+ */
+async function paymentFor(
+  deps: PublicFormDeps,
+  form: FormDoc & { _id: ObjectId },
+  publicSlug: string,
+  committed: CommittedSubmission,
+  requestId: string,
+): Promise<PaymentHandoff | null> {
+  const payment = form.payment;
+  if (!payment) return null;
   // AC6, AC7 — the order the bridge raised is the reference when there is
   // one, because that is the row the tenant confirms on the order board;
   // otherwise the submission itself.
-  const handoff = resolvePaymentHandoff(
-    form.payment,
-    bridged?.orderId?.toHexString() ?? submissionId.toHexString(),
-  );
-
-  return {
-    submissionId: submissionId.toHexString(),
-    ...(handoff ? { payment: handoff } : {}),
-  };
+  if (payment.mode === "link") {
+    return resolvePaymentHandoff(payment, committed.orderId ?? committed.submissionId);
+  }
+  // Checkout charges what an order says is due, so without an order there is
+  // nothing to charge.
+  if (!committed.orderId) return null;
+  const session = await deps.createCheckout({
+    tenantId: form.tenantId.toHexString(),
+    orderId: committed.orderId,
+    submissionId: committed.submissionId,
+    formName: form.name,
+    formPath: `/f/${publicSlug}`,
+    requestId,
+  });
+  return session ? { url: session.url, required: payment.required } : null;
 }
 
 /**
@@ -570,6 +611,8 @@ export async function submitPublicForm(
   if (isSpamSubmission({ hp: parsed._hp, renderedAt: parsed._t, now: now.getTime() })) {
     // A payment-enabled form answers with a payment block here too: the whole
     // point of this branch is that it is indistinguishable from acceptance.
+    // (Checkout forms answer without one, which a real submission also does
+    // whenever card payment cannot be offered — so absence gives nothing away.)
     const submissionId = new ObjectId().toHexString();
     const handoff = resolvePaymentHandoff(form.payment, submissionId);
     return { submissionId, ...(handoff ? { payment: handoff } : {}) };
@@ -585,8 +628,9 @@ export async function submitPublicForm(
 
   const client = await getMongoClient();
   const session = client.startSession();
+  let committed: CommittedSubmission;
   try {
-    return await session.withTransaction(() =>
+    committed = await session.withTransaction(() =>
       writeSubmissionTransactionally(
         session,
         deps,
@@ -603,4 +647,7 @@ export async function submitPublicForm(
   } finally {
     await session.endSession();
   }
+
+  const handoff = await paymentFor(deps, form, publicSlug, committed, requestId);
+  return { submissionId: committed.submissionId, ...(handoff ? { payment: handoff } : {}) };
 }

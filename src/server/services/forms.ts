@@ -196,32 +196,44 @@ export type BookingInput = z.input<typeof bookingSchema>;
  *
  * Two things about this shape are deliberate:
  *
- *   - **`mode` is an enum with one member, not a boolean.** v1 collects by
- *     redirecting to a Stripe Payment Link the tenant created in their own
- *     account. A later `mode: "keys"` — Graft calling Stripe with the
- *     tenant's own credentials — adds a sibling block beside `link` without
- *     migrating a single stored document. A boolean could not.
+ *   - **`mode` discriminates, it is not a boolean.** `link` redirects to a
+ *     Stripe Payment Link the tenant created in their own account; `checkout`
+ *     has Graft open a Checkout Session on the tenant's connected account
+ *     (stripe-connect.ts). Neither migrates a stored document.
  *   - **The URL is allow-listed, not merely parsed.** This value is where an
  *     unauthenticated visitor's browser is sent, so it is checked against
  *     `buy.stripe.com` on write here *and* again on read in public-forms.ts.
  *     Nothing in this block is a secret: a payment link is public by design,
  *     which is exactly why link mode needs no per-tenant credential storage.
  */
-export const paymentSchema = z.object({
-  mode: z.enum(["link"]),
-  link: z.object({
-    url: z
-      .string()
-      .trim()
-      .refine(
-        isPaymentLinkUrl,
-        `Must be a Stripe payment link (https://${PAYMENT_LINK_HOST}/…)`,
-      ),
+export const paymentSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("link"),
+    link: z.object({
+      url: z
+        .string()
+        .trim()
+        .refine(
+          isPaymentLinkUrl,
+          `Must be a Stripe payment link (https://${PAYMENT_LINK_HOST}/…)`,
+        ),
+    }),
+    /** True redirects the submitter to payment; false offers it (AC9). Never a
+     * condition on the submission itself — link mode cannot verify payment. */
+    required: z.boolean().default(false),
   }),
-  /** True redirects the submitter to payment; false offers it (AC9). Never a
-   * condition on the submission itself — link mode cannot verify payment. */
-  required: z.boolean().default(false),
-});
+  /**
+   * Stripe Checkout on the tenant's own connected account (stripe-connect.ts).
+   * No amount and no price here, on purpose: what is charged is the amount
+   * due on the order the submission raised, priced server-side from the
+   * resource's own rate. A form-stored amount would be a second price that
+   * disagrees with the order the tenant confirms against.
+   */
+  z.object({
+    mode: z.literal("checkout"),
+    required: z.boolean().default(false),
+  }),
+]);
 
 export type PaymentInput = z.input<typeof paymentSchema>;
 
@@ -473,14 +485,13 @@ export type BookingConfig = {
 };
 
 /**
- * A payment config as stored — a public URL and two flags, no secret of any
- * kind (GRAFT-24 Constraints).
+ * A payment config as stored — a public URL or a mode and a flag, no secret
+ * of any kind (GRAFT-24 Constraints). Checkout's credential is the platform's
+ * own key plus the tenant's connected account id, neither of which is here.
  */
-export type PaymentConfig = {
-  mode: "link";
-  link: { url: string };
-  required: boolean;
-};
+export type PaymentConfig =
+  | { mode: "link"; link: { url: string }; required: boolean }
+  | { mode: "checkout"; required: boolean };
 
 export type CatalogueConfig = {
   entityDefId: ObjectId;

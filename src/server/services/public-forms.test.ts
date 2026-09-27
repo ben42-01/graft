@@ -407,6 +407,21 @@ describe("submitPublicForm — the payment block on the response (GRAFT-24)", ()
     );
   });
 
+  it("a checkout form's spam response opens no Stripe session and carries no payment key", async () => {
+    const checkout = { ...overrides(), createCheckout: vi.fn() };
+    checkout.findByPublicSlug.mockResolvedValue(
+      form({ payment: { mode: "checkout", required: true } }),
+    );
+    const result = await submitPublicForm(
+      "req-1",
+      ["acme", "contact"],
+      body({ _hp: "filled" }),
+      checkout,
+    );
+    expect("payment" in result).toBe(false);
+    expect(checkout.createCheckout).not.toHaveBeenCalled();
+  });
+
   it("AC5 — an ordinary form's response has no payment key at all", async () => {
     const plain = overrides();
     plain.findByPublicSlug.mockResolvedValue(form());

@@ -9,10 +9,9 @@
  * unpublished or killed alike (AC1, same collapse GRAFT-09 uses for AC9).
  */
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import type { Metadata } from "next";
 import { FormCarousel } from "@/components/public-form/form-carousel";
-import { PoweredByBadge } from "@/components/public-form/powered-by-badge";
+import { PublicFormShell } from "@/components/public-form/public-form-shell";
 import { PublicFormRenderer } from "@/components/public-form/public-form-renderer";
 import { buildFormOgMetadata, getPublicFormPage } from "@/server/services/public-form-page";
 
@@ -44,37 +43,22 @@ export default async function PublicFormPage({ params }: { params: Promise<Param
   if (!page) notFound();
 
   return (
-    <main
-      className={
-        // A catalogue needs room for a grid of cards; a plain form reads
-        // better narrow. One layout for both would compromise each.
-        `mx-auto flex min-h-screen w-full flex-col justify-center gap-6 px-4 py-12 ${
-          page.catalogue ? "max-w-2xl" : "max-w-lg"
-        }`
-      }
+    <PublicFormShell
+      tenantName={page.tenantName}
+      logoUrl={page.branding.logoUrl}
+      accent={page.branding.primaryColor}
+      title={page.formName}
+      wide={page.catalogue !== null}
+      showBadge={page.showBadge}
     >
-      <header className="flex flex-col items-center gap-3 text-center">
-        {page.branding.logoUrl ? (
-          // A tenant-hosted logo URL, not a project asset next/image's loader
-          // can optimise — next/image would require allow-listing every
-          // possible tenant's image host in next.config.
-          <img
-            src={page.branding.logoUrl}
-            alt={`${page.tenantName} logo`}
-            className="h-12 w-auto"
-          />
-        ) : null}
-        <h1 className="text-2xl font-semibold tracking-tight">{page.formName}</h1>
-      </header>
-
       {/* Above the fields, not below: the hero image is what makes a shared
        * link read as an advert, and a visitor who has to scroll past a form to
        * see what is being offered has already been asked for their details. */}
       <FormCarousel images={page.carousel} />
 
       {/* Only the catalogue's shape is passed; the records themselves are
-       * fetched a page at a time by the client, so a business with four
-       * hundred products does not put four hundred products in this HTML. */}
+       * fetched a page at a time by the client, so a business with ten
+       * thousand products does not put ten thousand products in this HTML. */}
       <PublicFormRenderer
         tenantSlug={page.tenantSlug}
         formSlug={page.formSlug}
@@ -84,17 +68,6 @@ export default async function PublicFormPage({ params }: { params: Promise<Param
         timeFields={page.timeFields}
         content={page.content}
       />
-
-      {/* The badge is Free-only (AC5), so it cannot carry the privacy link:
-       * someone handing over their details to a Premium tenant's form needs
-       * that link just as much. The footer is therefore always rendered,
-       * and the badge is what varies inside it. */}
-      <footer className="flex items-center justify-center gap-3 text-xs text-muted-foreground">
-        {page.showBadge ? <PoweredByBadge /> : null}
-        <Link href="/privacy" className="hover:text-foreground">
-          Privacy
-        </Link>
-      </footer>
-    </main>
+    </PublicFormShell>
   );
 }

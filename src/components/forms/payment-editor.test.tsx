@@ -5,9 +5,9 @@
  * being sent — the same allow-list rule (`isPaymentLinkUrl`), applied here so
  * the builder sees why, inline, rather than as a save that throws.
  */
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PaymentEditor, type PaymentView } from "./payment-editor";
 
 const props = () => ({
@@ -92,5 +92,96 @@ describe("PaymentEditor", () => {
       />,
     );
     expect(screen.getByLabelText(/payment link/i)).toHaveValue("https://buy.stripe.com/abc");
+  });
+});
+
+describe("PaymentEditor — Stripe Checkout", () => {
+  const connectStatus = (value: {
+    connected: boolean;
+    chargesEnabled: boolean;
+    detailsSubmitted: boolean;
+  }) =>
+    vi.fn((_input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(new Response(JSON.stringify({ data: value }), { status: 200 })),
+    );
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const chooseCheckout = async () => {
+    await enable();
+    await userEvent.setup().click(screen.getByRole("radio", { name: /stripe checkout/i }));
+  };
+
+  it("saves checkout mode once the connected account can take payments", async () => {
+    vi.stubGlobal(
+      "fetch",
+      connectStatus({ connected: true, chargesEnabled: true, detailsSubmitted: true }),
+    );
+    const p = props();
+    render(<PaymentEditor {...p} hasBooking />);
+    await chooseCheckout();
+
+    await screen.findByText(/connected and ready/i);
+    await userEvent.setup().click(screen.getByRole("button", { name: /save payment/i }));
+
+    expect(p.onSave).toHaveBeenCalledWith({ mode: "checkout", required: false });
+  });
+
+  it("offers to connect Stripe, and will not save checkout until it is", async () => {
+    vi.stubGlobal(
+      "fetch",
+      connectStatus({ connected: false, chargesEnabled: false, detailsSubmitted: false }),
+    );
+    render(<PaymentEditor {...props()} hasBooking />);
+    await chooseCheckout();
+
+    expect(await screen.findByRole("button", { name: "Connect Stripe" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /save payment/i })).toBeDisabled();
+  });
+
+  it("starts onboarding with a return to this form, never an arbitrary URL", async () => {
+    const fetchMock = connectStatus({
+      connected: false,
+      chargesEnabled: false,
+      detailsSubmitted: false,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const assign = vi.fn();
+    vi.stubGlobal("location", { ...window.location, assign });
+    render(<PaymentEditor {...props()} formId="0123456789abcdef01234567" hasBooking />);
+    await chooseCheckout();
+
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: { url: "https://connect.stripe.com/setup/x" } }), {
+          status: 200,
+        }),
+      ),
+    );
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: "Connect Stripe" }));
+
+    await waitFor(() =>
+      expect(assign).toHaveBeenCalledWith("https://connect.stripe.com/setup/x"),
+    );
+    const [url, init] = fetchMock.mock.calls.at(-1)!;
+    expect(String(url)).toBe("/api/v1/payments/stripe-connect/onboarding");
+    expect(JSON.parse(String(init!.body))).toEqual({
+      returnTo: "/forms/0123456789abcdef01234567",
+    });
+  });
+
+  it("warns that checkout needs bookings to have something to charge", async () => {
+    vi.stubGlobal(
+      "fetch",
+      connectStatus({ connected: true, chargesEnabled: true, detailsSubmitted: true }),
+    );
+    render(<PaymentEditor {...props()} />);
+    await chooseCheckout();
+
+    expect(await screen.findByText(/takes no bookings yet/i)).toBeInTheDocument();
   });
 });

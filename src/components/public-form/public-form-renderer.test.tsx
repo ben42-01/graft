@@ -365,3 +365,104 @@ describe("PublicFormRenderer — what it sends", () => {
     expect(sent().party_size).toBe(4);
   });
 });
+
+describe("PublicFormRenderer — choosing a resource first", () => {
+  const resource = (id: string, name: string) => ({
+    id,
+    image: { url: `/api/v1/public/media/${id}`, alt: name },
+    values: [
+      { key: "name", label: "Name", value: name },
+      { key: "rate", label: "Daily rate", value: "120" },
+    ],
+  });
+
+  const catalogueThenSubmit = (items: unknown[]) =>
+    vi.fn((input: RequestInfo | URL, _init?: RequestInit) =>
+      Promise.resolve(
+        String(input).includes("/catalogue")
+          ? new Response(JSON.stringify({ data: items, meta: { cursor: null } }), {
+              status: 200,
+            })
+          : new Response(JSON.stringify({ data: { submissionId: "s1" } }), { status: 201 }),
+      ),
+    );
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const renderCatalogue = (timeFields: string[] = []) =>
+    render(
+      <PublicFormRenderer
+        tenantSlug="harbour"
+        formSlug="book-a-boat"
+        fields={FIELDS}
+        primaryColor={null}
+        catalogue={{ selectionKey: null }}
+        timeFields={timeFields}
+      />,
+    );
+
+  it("asks for a resource before any question, then shows only the chosen one and the fields", async () => {
+    const user = userEvent.setup();
+    const fetchMock = catalogueThenSubmit([resource("a", "Pontoon"), resource("b", "Kayak")]);
+    vi.stubGlobal("fetch", fetchMock);
+    renderCatalogue();
+
+    await screen.findByRole("button", { name: "Choose Kayak" });
+    expect(screen.getByLabelText(/Name/)).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "Submit", hidden: true })).not.toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "Choose Kayak" }));
+
+    // The rest of the catalogue is out of sight; the chosen one sits above the form.
+    expect(
+      screen.getByRole("button", { name: "Choose Pontoon", hidden: true }),
+    ).not.toBeVisible();
+    expect(screen.getByRole("button", { name: "Change" })).toBeVisible();
+    expect(screen.getByLabelText(/Name/)).toBeVisible();
+
+    await user.type(screen.getByLabelText(/Name/), "Ada");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await screen.findByRole("status");
+    const [, init] = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/submissions"),
+    )!;
+    expect(JSON.parse(String(init!.body))._selection).toBe("b");
+  });
+
+  it("goes back to the same list on 'Change', and hides the fields again", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", catalogueThenSubmit([resource("a", "Pontoon")]));
+    renderCatalogue();
+
+    await user.click(await screen.findByRole("button", { name: "Choose Pontoon" }));
+    await user.click(screen.getByRole("button", { name: "Change" }));
+
+    expect(screen.getByRole("button", { name: "Choose Pontoon" })).toBeVisible();
+    expect(screen.getByLabelText(/Name/)).not.toBeVisible();
+  });
+
+  it("shows the fields straight away when the catalogue has nothing to choose from", async () => {
+    vi.stubGlobal("fetch", catalogueThenSubmit([]));
+    renderCatalogue();
+
+    await waitFor(() => expect(screen.getByLabelText(/Name/)).toBeVisible());
+    expect(screen.queryByRole("list", { name: "Steps" })).not.toBeInTheDocument();
+  });
+
+  it("lets an enquiry go without choosing, but not a booking", async () => {
+    const user = userEvent.setup();
+    vi.stubGlobal("fetch", catalogueThenSubmit([resource("a", "Pontoon")]));
+    const { unmount } = renderCatalogue();
+
+    await user.click(await screen.findByRole("button", { name: /without choosing/ }));
+    expect(screen.getByLabelText(/Name/)).toBeVisible();
+    unmount();
+
+    renderCatalogue(["start"]);
+    await screen.findByRole("button", { name: "Choose Pontoon" });
+    expect(screen.queryByRole("button", { name: /without choosing/ })).not.toBeInTheDocument();
+  });
+});

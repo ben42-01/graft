@@ -18,6 +18,12 @@
  * a NaN. Posting raw values 400s a form whose visitor simply left the
  * optional field alone, which is exactly what they are for.
  *
+ * Catalogue mode is a two-step flow: choose a resource, then answer the
+ * form's questions about it. While choosing, the fields are not shown; once a
+ * resource is chosen the list is hidden (kept mounted, so "Change" returns to
+ * the same place) and the chosen row sits above the fields. A catalogue that
+ * has nothing to show skips straight to the fields.
+ *
  * Catalogue mode lives here rather than one level up because the chosen item
  * is part of the submission: it travels as `_selection`, beside `_hp` and
  * `_t`, never inside `data`. The server treats the selection key as its own
@@ -25,8 +31,8 @@
  * key is not rendered at all, since asking a visitor to type a record id
  * would be offering them a control whose value is discarded.
  */
-import { useRef, useState } from "react";
-import { ExternalLinkIcon } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
+import { CheckIcon, ExternalLinkIcon, LockIcon } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -47,9 +53,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DateField } from "@/components/ui/date-field";
-import { CatalogueBrowser } from "@/components/public-form/catalogue-browser";
+import {
+  CatalogueBrowser,
+  ResourceRow,
+  nameOf,
+  type CatalogueCard,
+} from "@/components/public-form/catalogue-browser";
 import { placeContent, type ContentBlock, type LinkBlock } from "@/lib/content-blocks";
-import { contrastingTextColor } from "@/lib/contrast";
+import { GRAFT_ACCENT, contrastingTextColor } from "@/lib/contrast";
 import {
   toRecordPayload,
   type FormValues as RecordFormValues,
@@ -101,7 +112,26 @@ export function PublicFormRenderer({
   navigate?: (url: string) => void;
 }) {
   const renderedAt = useRef(Date.now());
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<CatalogueCard | null>(null);
+  // "skipped" is a visitor who chose not to choose; "unavailable" is a
+  // catalogue with nothing to show. Either way the fields are what's left.
+  const [catalogueStep, setCatalogueStep] = useState<"choosing" | "skipped" | "unavailable">(
+    "choosing",
+  );
+  const topRef = useRef<HTMLDivElement>(null);
+  const selectedId = selected?.id ?? null;
+  const choosing = catalogue !== null && selected === null && catalogueStep === "choosing";
+  // A booking needs a resource to book; an enquiry form can go without.
+  const canSkip = catalogue !== null && timeFields.length === 0;
+  const markUnavailable = useCallback(() => setCatalogueStep("unavailable"), []);
+
+  function choose(card: CatalogueCard | null) {
+    setSelected(card);
+    if (card === null) setCatalogueStep("choosing");
+    // Back to the top of the form, where the chosen resource now sits — the
+    // visitor may have scrolled a long way down the list to find it.
+    topRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
 
   // The server owns this key's value, so there is nothing to type into it.
   const visibleFields = catalogue?.selectionKey
@@ -123,9 +153,8 @@ export function PublicFormRenderer({
     ),
   });
 
-  const buttonStyle = primaryColor
-    ? { backgroundColor: primaryColor, color: contrastingTextColor(primaryColor) }
-    : undefined;
+  const accent = primaryColor ?? GRAFT_ACCENT;
+  const buttonStyle = { backgroundColor: accent, color: contrastingTextColor(accent) };
 
   async function onSubmit(values: FormValues) {
     // Checked here so the visitor is told at once; the server checks again.
@@ -203,22 +232,30 @@ export function PublicFormRenderer({
 
   if (state.status === "success") {
     return (
-      <div role="status" className="rounded-lg border border-border bg-card p-6 text-center">
-        <p className="text-lg font-medium">Thanks — your submission was received.</p>
-        {state.payment ? (
-          <p className="mt-3 text-sm">
-            {state.payment.required ? (
-              <>Taking you to payment…</>
-            ) : (
-              <a
-                className="underline underline-offset-4"
-                href={state.payment.url}
-                rel="noopener noreferrer"
-              >
-                Pay now
-              </a>
-            )}
+      <div role="status" className="flex flex-col items-center gap-3 py-6 text-center">
+        <span
+          className="flex size-12 items-center justify-center rounded-full"
+          style={buttonStyle}
+          aria-hidden="true"
+        >
+          <CheckIcon className="size-6" />
+        </span>
+        <p className="text-lg font-semibold">Thanks — your submission was received.</p>
+        {selected ? (
+          <p className="text-sm text-muted-foreground">
+            You chose <strong className="text-foreground">{nameOf(selected)}</strong>
           </p>
+        ) : null}
+        {state.payment ? (
+          state.payment.required ? (
+            <p className="text-sm text-muted-foreground">Taking you to secure payment…</p>
+          ) : (
+            <Button asChild size="lg" className="mt-2 rounded-full px-8" style={buttonStyle}>
+              <a href={state.payment.url} rel="noopener noreferrer">
+                <LockIcon /> Pay now
+              </a>
+            </Button>
+          )
         ) : null}
       </div>
     );
@@ -227,19 +264,56 @@ export function PublicFormRenderer({
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-6" noValidate>
-        {/* Above the fields: a visitor who has to scroll past a form to see
-         * what is on offer has already been asked for their details. */}
+        <div ref={topRef} className="scroll-mt-6" />
+        {catalogue && catalogueStep !== "unavailable" ? (
+          <StepIndicator step={choosing ? 1 : 2} accent={accent} />
+        ) : null}
+
+        {/* Hidden rather than unmounted once something is chosen, so "Change"
+         * comes back to the same search and scroll position. */}
         {catalogue ? (
-          <CatalogueBrowser
-            tenantSlug={tenantSlug}
-            formSlug={formSlug}
-            selectedId={selectedId}
-            onSelect={setSelectedId}
-            primaryColor={primaryColor}
+          <div hidden={!choosing}>
+            <CatalogueBrowser
+              tenantSlug={tenantSlug}
+              formSlug={formSlug}
+              accent={accent}
+              onSelect={choose}
+              onUnavailable={markUnavailable}
+            />
+            {canSkip ? (
+              <p className="mt-4 text-center text-sm">
+                <button
+                  type="button"
+                  className="text-muted-foreground underline underline-offset-4 hover:text-foreground"
+                  onClick={() => setCatalogueStep("skipped")}
+                >
+                  Not sure yet? Send an enquiry without choosing
+                </button>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+
+        {selected ? (
+          <ResourceRow
+            card={selected}
+            accent={accent}
+            trailing={
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="self-center"
+                onClick={() => choose(null)}
+              >
+                Change
+              </Button>
+            }
           />
         ) : null}
 
-        <div className="flex flex-col gap-4">
+        {/* The `hidden` attribute, which preflight makes win over `flex`. */}
+        <div hidden={choosing} className="flex flex-col gap-4">
           {/* Honeypot — invisible to a real visitor, never tabbed to. */}
           <div
             aria-hidden="true"
@@ -301,12 +375,56 @@ export function PublicFormRenderer({
             </p>
           ) : null}
 
-          <Button type="submit" disabled={state.status === "submitting"} style={buttonStyle}>
+          <Button
+            type="submit"
+            size="lg"
+            className="mt-2 h-12 rounded-full text-base"
+            disabled={state.status === "submitting"}
+            style={buttonStyle}
+          >
             {state.status === "submitting" ? "Submitting…" : "Submit"}
           </Button>
         </div>
       </form>
     </Form>
+  );
+}
+
+/** Choose → Details. Only shown on a form with a catalogue to choose from. */
+function StepIndicator({ step, accent }: { step: 1 | 2; accent: string }) {
+  const steps = ["Choose", "Your details"];
+  return (
+    <ol
+      aria-label="Steps"
+      className="flex items-center justify-center gap-2 text-xs font-medium"
+    >
+      {steps.map((label, index) => {
+        const n = index + 1;
+        const active = n === step;
+        const done = n < step;
+        return (
+          <li key={label} className="flex items-center gap-2">
+            {index > 0 ? <span className="h-px w-8 bg-border" aria-hidden="true" /> : null}
+            <span
+              aria-current={active ? "step" : undefined}
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1 ${
+                active || done ? "" : "bg-muted text-muted-foreground"
+              }`}
+              style={
+                active
+                  ? { backgroundColor: accent, color: contrastingTextColor(accent) }
+                  : done
+                    ? { color: accent }
+                    : undefined
+              }
+            >
+              {done ? <CheckIcon className="size-3" aria-hidden="true" /> : <span>{n}</span>}
+              {label}
+            </span>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 

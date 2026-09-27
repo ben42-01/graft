@@ -17,6 +17,13 @@ type IndexDef = {
 const INDEXES: IndexDef[] = [
   // Tenancy roots
   { collection: "tenants", keys: { slug: 1 }, options: { unique: true } },
+  // Connect webhooks find a tenant by the account an event came from
+  // (stripe-connect.ts); one account belongs to one workspace.
+  {
+    collection: "tenants",
+    keys: { "stripeConnect.accountId": 1 },
+    options: { unique: true, sparse: true },
+  },
   { collection: "users", keys: { email: 1 }, options: { unique: true } },
   { collection: "users", keys: { "memberships.tenantId": 1 } },
 

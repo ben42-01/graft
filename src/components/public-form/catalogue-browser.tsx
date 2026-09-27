@@ -1,43 +1,40 @@
 "use client";
 
 /**
- * The customer-facing half of catalogue mode — find what a business offers,
- * pick one, then fill in the form about it.
+ * The customer-facing half of catalogue mode — step one of the public form:
+ * find the thing you want, and pick it.
  *
- * Built for a catalogue of five and of five thousand alike:
+ * Built for a catalogue of five and of ten thousand alike:
  *
- *   - **One row, never a wall.** Cards sit in a single swipeable row with
- *     previous and next controls, so the form below is always a short scroll
- *     away however much a business rents out. This used to lay every loaded
- *     card out in a grid, which put five boats — or five hundred — between
- *     the visitor and the form.
- *   - **Pages are fetched, never inlined, and only as the row is used.** The
- *     next page is asked for when the visitor reaches the end of the row, with
- *     the cursor the server issued; the server caps the page size regardless.
+ *   - **Row by row, picture first.** Each resource is one row — its photo, its
+ *     name, its public details — in a list that scrolls with the page, which
+ *     is how people already browse products on a phone. The row *is* the
+ *     button: there is no separate "select" control to miss.
+ *   - **Pages are fetched, never inlined, and only as the list is used.** A
+ *     sentinel below the last row asks for the next page as it nears the
+ *     viewport, with the cursor the server issued; the server caps the page
+ *     size regardless. A "Show more" button does the same for anyone (or any
+ *     browser) the sentinel does not reach. Ten thousand resources cost ten
+ *     thousand rows only for a visitor who scrolls past all of them.
  *   - **Search, when there is something to search.** The server says which
- *     field a search matches (the card's name) and the box appears only then.
- *     A search asks the server again rather than filtering what happens to be
- *     loaded, so it finds item 900 as readily as item 9.
- *   - **Selecting is a real, reversible choice that stays visible.** The
- *     chosen item is named above the row, so it doesn't vanish when the row
- *     scrolls on or a search replaces it, and it can be cleared.
- *   - **It degrades to nothing.** An empty catalogue or a failed first fetch
- *     leaves the form itself working. A catalogue is an enhancement to a
- *     form, never a gate in front of one.
+ *     field a search matches (the row's name) and the box appears only then.
+ *     A search asks the server again rather than filtering what is loaded, so
+ *     it finds item 9,000 as readily as item 9.
+ *   - **Choosing hands off, it does not toggle.** Picking a row reports the
+ *     whole card upward, and the form takes over from there — hiding this
+ *     list, showing the chosen resource and the questions about it. The list
+ *     stays mounted while hidden so "Change" returns to the same search and
+ *     scroll position.
+ *   - **It degrades to the form.** An empty catalogue or a failed first fetch
+ *     calls `onUnavailable`, and the form shows its fields without a step
+ *     one. A catalogue is an enhancement to a form, never a gate in front of
+ *     one.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  CheckIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  ImageIcon,
-  SearchIcon,
-  XIcon,
-} from "lucide-react";
+import { ChevronRightIcon, ImageIcon, SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { contrastingTextColor } from "@/lib/contrast";
-import { cn } from "@/lib/utils";
 
 export type CatalogueCard = {
   id: string;
@@ -65,34 +62,34 @@ type State =
 /** How long typing has to pause before a search is sent. */
 const SEARCH_DEBOUNCE_MS = 300;
 
-const nameOf = (card: CatalogueCard) => card.values[0]?.value ?? "this item";
+/** Start fetching the next page this far before the visitor reaches it. */
+const PREFETCH_MARGIN = "600px";
 
-/** Within half a screen of the end of the row — time to fetch the next page. */
-const nearEnd = (el: HTMLElement) =>
-  el.scrollLeft + el.clientWidth >= el.scrollWidth - el.clientWidth / 2;
+export const nameOf = (card: CatalogueCard) => card.values[0]?.value || "This item";
 
 export function CatalogueBrowser({
   tenantSlug,
   formSlug,
-  selectedId,
+  accent,
   onSelect,
-  primaryColor,
+  onUnavailable,
 }: {
   tenantSlug: string;
   formSlug: string;
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
-  primaryColor: string | null;
+  /** The tenant's brand colour, or Graft's own. */
+  accent: string;
+  onSelect: (card: CatalogueCard) => void;
+  /** Nothing to choose from — empty, or the first page failed. */
+  onUnavailable?: () => void;
 }) {
   const [state, setState] = useState<State>({ status: "loading" });
   const [searchLabel, setSearchLabel] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState("");
   const [loadingMore, setLoadingMore] = useState(false);
-  // The chosen card itself, so its name survives a search that replaces the row.
-  const [chosen, setChosen] = useState<CatalogueCard | null>(null);
   const loadingRef = useRef(false);
-  const rowRef = useRef<HTMLUListElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const reportedRef = useRef(false);
 
   const base = `/api/v1/public/forms/${tenantSlug}/${formSlug}/catalogue`;
 
@@ -144,12 +141,26 @@ export function CatalogueBrowser({
         query,
         failed: false,
       });
-      rowRef.current?.scrollTo?.({ left: 0 });
     });
     return () => {
       cancelled = true;
     };
   }, [fetchPage, query]);
+
+  const unavailable =
+    state.status === "error" ||
+    (state.status === "ready" &&
+      state.cards.length === 0 &&
+      state.query === "" &&
+      search.trim() === "" &&
+      !state.failed);
+
+  useEffect(() => {
+    if (unavailable && !reportedRef.current) {
+      reportedRef.current = true;
+      onUnavailable?.();
+    }
+  }, [unavailable, onUnavailable]);
 
   const loadMore = useCallback(async () => {
     if (state.status !== "ready" || !state.cursor || loadingRef.current) return;
@@ -161,45 +172,46 @@ export function CatalogueBrowser({
     setLoadingMore(false);
     if (!body) return;
     setState((prev) =>
-      // A search that started meanwhile owns the row now.
+      // A search that started meanwhile owns the list now.
       prev.status === "ready" && prev.query === forQuery
         ? { ...prev, cards: [...prev.cards, ...body.data], cursor: body.meta.cursor }
         : prev,
     );
   }, [state, fetchPage]);
 
-  function step(direction: 1 | -1) {
-    const row = rowRef.current;
-    if (!row) return;
-    if (direction === 1 && nearEnd(row)) void loadMore();
-    row.scrollBy?.({ left: direction * row.clientWidth * 0.9, behavior: "smooth" });
-  }
+  // Infinite scroll. Where IntersectionObserver is missing the "Show more"
+  // button below is the whole mechanism, which is also what a keyboard or
+  // screen-reader user is offered.
+  const hasMore = state.status === "ready" && state.cursor !== null;
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel || !hasMore || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) void loadMore();
+      },
+      { rootMargin: PREFETCH_MARGIN },
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMore, loadMore]);
 
-  function choose(card: CatalogueCard) {
-    const clearing = card.id === selectedId;
-    setChosen(clearing ? null : card);
-    onSelect(clearing ? null : card.id);
+  if (unavailable) return null;
+  if (state.status !== "ready") {
+    return (
+      <ul aria-label="Loading items" className="flex flex-col gap-3">
+        {[0, 1, 2].map((i) => (
+          <li key={i} className="flex gap-4 rounded-xl border p-3">
+            <span className="aspect-4/3 w-24 shrink-0 animate-pulse rounded-lg bg-muted sm:w-36" />
+            <span className="flex flex-1 flex-col gap-2 py-1">
+              <span className="h-4 w-2/3 animate-pulse rounded bg-muted" />
+              <span className="h-3 w-1/2 animate-pulse rounded bg-muted" />
+            </span>
+          </li>
+        ))}
+      </ul>
+    );
   }
-
-  // A catalogue that cannot load is not an error the visitor can act on, and
-  // the form below still works — so it says nothing at all.
-  if (state.status === "error") return null;
-  if (state.status === "loading") {
-    return <p className="text-center text-sm text-muted-foreground">Loading…</p>;
-  }
-  if (state.cards.length === 0 && state.query === "" && search.trim() === "" && !state.failed) {
-    return null;
-  }
-
-  const selectedName = selectedId
-    ? chosen?.id === selectedId
-      ? nameOf(chosen)
-      : (state.cards.find((card) => card.id === selectedId) ?? null)?.values[0]?.value
-    : null;
-
-  const selectedStyle = primaryColor
-    ? { borderColor: primaryColor, boxShadow: `0 0 0 1px ${primaryColor}` }
-    : undefined;
 
   const searchName = searchLabel ? `Search by ${searchLabel.toLowerCase()}` : null;
 
@@ -208,7 +220,7 @@ export function CatalogueBrowser({
       {searchName ? (
         <div className="relative">
           <SearchIcon
-            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
             aria-hidden="true"
           />
           <Input
@@ -218,161 +230,127 @@ export function CatalogueBrowser({
             value={search}
             maxLength={60}
             onChange={(event) => setSearch(event.target.value)}
-            className="pl-8"
+            className="h-11 rounded-xl pl-9"
           />
         </div>
       ) : null}
 
-      {selectedId && selectedName ? (
-        <div className="flex items-center justify-between gap-2 rounded-md border px-3 py-1.5 text-sm">
-          <span className="min-w-0 truncate">
-            Selected: <strong>{selectedName}</strong>
-          </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setChosen(null);
-              onSelect(null);
-            }}
-          >
-            <XIcon /> Clear
-          </Button>
-        </div>
-      ) : null}
-
       {state.cards.length === 0 ? (
-        <p className="py-4 text-center text-sm text-muted-foreground">
+        <p className="py-6 text-center text-sm text-muted-foreground">
           {state.failed
             ? "We couldn't search just now. Try again in a moment."
             : `Nothing matches “${state.query}”.`}
         </p>
       ) : (
-        <div className="flex flex-col gap-2">
-          <ul
-            ref={rowRef}
-            aria-label="Items"
-            onScroll={(event) => {
-              if (nearEnd(event.currentTarget)) void loadMore();
-            }}
-            className="flex snap-x snap-mandatory gap-3 overflow-x-auto scroll-smooth pb-2"
-          >
-            {state.cards.map((card) => {
-              const selected = card.id === selectedId;
-              return (
-                <li key={card.id} className="w-[46%] shrink-0 snap-start sm:w-[31%]">
-                  <button
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => choose(card)}
-                    style={selected ? selectedStyle : undefined}
-                    className={cn(
-                      "relative flex h-full w-full flex-col overflow-hidden rounded-lg border text-left transition-colors",
-                      selected
-                        ? "border-foreground"
-                        : "border-border hover:border-foreground/40",
-                    )}
-                  >
-                    <span className="flex aspect-4/3 w-full items-center justify-center bg-muted">
-                      {card.image ? (
-                        // eslint-disable-next-line @next/next/no-img-element -- the byte route 307s to a presigned URL; next/image cannot follow that
-                        <img
-                          src={card.image.url}
-                          alt={card.image.alt}
-                          loading="lazy"
-                          className="size-full object-cover"
-                        />
-                      ) : (
-                        <ImageIcon
-                          className="size-6 text-muted-foreground"
-                          aria-hidden="true"
-                        />
-                      )}
-                    </span>
-
-                    <span className="flex flex-col gap-0.5 p-3">
-                      {card.values.map((value, index) => (
-                        <span
-                          key={value.key}
-                          className={cn(
-                            "truncate",
-                            index === 0
-                              ? "text-sm font-medium"
-                              : "text-xs text-muted-foreground",
-                          )}
-                        >
-                          {/* The first value is the name; the rest are details,
-                           * and their labels earn their space from the second
-                           * row down where "£120" alone would be ambiguous. */}
-                          {index === 0 ? value.value : `${value.label}: ${value.value}`}
-                        </span>
-                      ))}
-                    </span>
-
-                    {selected ? (
-                      <span
-                        // The ring is load-bearing, not decoration: the badge
-                        // sits on a photo nobody here controls, and a brand
-                        // colour that matches it would hide the selection.
-                        className="absolute top-2 right-2 flex size-5 items-center justify-center rounded-full bg-foreground text-background shadow-sm ring-2 ring-white"
-                        style={
-                          primaryColor
-                            ? {
-                                backgroundColor: primaryColor,
-                                color: contrastingTextColor(primaryColor),
-                              }
-                            : undefined
-                        }
-                        aria-hidden="true"
-                      >
-                        <CheckIcon className="size-3" />
-                      </span>
-                    ) : null}
-                  </button>
-                </li>
-              );
-            })}
-            {loadingMore ? (
-              <li className="flex w-24 shrink-0 items-center justify-center text-xs text-muted-foreground">
-                Loading…
-              </li>
-            ) : null}
-          </ul>
-
-          <div className="flex items-center justify-between gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-label="Previous items"
-              onClick={() => step(-1)}
-            >
-              <ChevronLeftIcon />
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              {state.cards.length.toLocaleString()} shown
-              {state.cursor ? " · swipe for more" : ""}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              aria-label="Next items"
-              disabled={loadingMore}
-              onClick={() => step(1)}
-            >
-              <ChevronRightIcon />
-            </Button>
-          </div>
-        </div>
+        <ul aria-label="Items" className="flex flex-col gap-3">
+          {state.cards.map((card) => (
+            <li key={card.id}>
+              <ResourceRow card={card} accent={accent} onChoose={() => onSelect(card)} />
+            </li>
+          ))}
+        </ul>
       )}
 
+      <div ref={sentinelRef} aria-hidden="true" />
+
+      {hasMore ? (
+        <Button
+          type="button"
+          variant="outline"
+          className="self-center rounded-full"
+          disabled={loadingMore}
+          onClick={() => void loadMore()}
+        >
+          {loadingMore ? "Loading…" : "Show more"}
+        </Button>
+      ) : null}
+
       <p aria-live="polite" className="text-center text-xs text-muted-foreground">
-        {selectedId
-          ? "Selected — now fill in your details below."
-          : "Pick one to enquire about it, or just fill in the form below."}
+        {state.cards.length.toLocaleString()} shown{hasMore ? " · scroll for more" : ""}
       </p>
     </section>
+  );
+}
+
+/**
+ * One resource. Also used, without `onChoose`, as the summary of the chosen
+ * one above the form fields — the same row, so the visitor recognises it.
+ */
+export function ResourceRow({
+  card,
+  accent,
+  onChoose,
+  trailing,
+}: {
+  card: CatalogueCard;
+  accent: string;
+  onChoose?: () => void;
+  /** Replaces the chevron — the chosen row puts its "Change" button here. */
+  trailing?: React.ReactNode;
+}) {
+  const [name, ...details] = card.values;
+  const body = (
+    <>
+      <span className="flex aspect-4/3 w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted sm:w-36">
+        {card.image ? (
+          // eslint-disable-next-line @next/next/no-img-element -- the byte route 307s to a presigned URL; next/image cannot follow that
+          <img
+            src={card.image.url}
+            alt={card.image.alt}
+            loading="lazy"
+            className="size-full object-cover transition-transform duration-300 group-hover:scale-105"
+          />
+        ) : (
+          <ImageIcon className="size-6 text-muted-foreground" aria-hidden="true" />
+        )}
+      </span>
+
+      <span className="flex min-w-0 flex-1 flex-col gap-1.5 py-0.5">
+        <span className="line-clamp-2 text-base leading-snug font-semibold">
+          {name?.value || "Untitled"}
+        </span>
+        {details.length > 0 ? (
+          <span className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            {details
+              .filter((value) => value.value !== "")
+              .map((value) => (
+                <span key={value.key} className="min-w-0">
+                  <span className="text-muted-foreground/80">{value.label}</span>{" "}
+                  <span className="font-medium text-foreground">{value.value}</span>
+                </span>
+              ))}
+          </span>
+        ) : null}
+      </span>
+
+      {trailing ?? (
+        <span
+          className="flex size-8 shrink-0 items-center justify-center self-center rounded-full border border-(--accent) text-(--accent) transition-colors group-hover:bg-(--accent) group-hover:text-(--accent-fg)"
+          style={
+            {
+              "--accent": accent,
+              "--accent-fg": contrastingTextColor(accent),
+            } as React.CSSProperties
+          }
+          aria-hidden="true"
+        >
+          <ChevronRightIcon className="size-4" />
+        </span>
+      )}
+    </>
+  );
+
+  const shell =
+    "group flex w-full items-start gap-3 rounded-xl border bg-card p-3 text-left sm:gap-4";
+  if (!onChoose) return <div className={shell}>{body}</div>;
+  return (
+    <button
+      type="button"
+      onClick={onChoose}
+      aria-label={`Choose ${name?.value || "this item"}`}
+      className={`${shell} transition-all hover:-translate-y-0.5 hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none`}
+    >
+      {body}
+    </button>
   );
 }
