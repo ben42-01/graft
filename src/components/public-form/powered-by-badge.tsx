@@ -1,3 +1,5 @@
+import { GraftMark } from "@/components/brand/graft-logo";
+
 /**
  * AC5 — present on Free, absent on Premium, decided server-side by
  * `shouldShowBadge` (public-form-page.ts) before this ever renders. No prop
@@ -10,8 +12,9 @@ export function PoweredByBadge() {
       href="https://graft.app"
       target="_blank"
       rel="noopener noreferrer"
-      className="inline-block text-xs text-muted-foreground hover:text-foreground"
+      className="inline-flex items-center gap-1.5 rounded-full border bg-background/70 px-3 py-1 text-xs text-muted-foreground backdrop-blur hover:text-foreground"
     >
+      <GraftMark className="size-4" />
       Powered by Graft
     </a>
   );

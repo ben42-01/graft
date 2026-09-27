@@ -3,11 +3,10 @@
  *
  * The rules worth pinning are the ones that keep a catalogue an *enhancement*
  * to a form rather than a gate in front of one: a failed or empty catalogue
- * renders nothing and leaves the form below working, selecting is a reversible
- * choice the visitor can see they made, and a large catalogue is browsed a
- * page at a time — in one row, or by search — never laid out all at once.
+ * renders nothing and says so, so the form can show its fields; choosing a
+ * row hands the whole card up to the form; and a large catalogue is browsed a
+ * page at a time — by scrolling, "Show more", or search — never all at once.
  */
-import { useState } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -51,16 +50,9 @@ const urls = (fetchMock: ReturnType<typeof stubFetch>) =>
 const props = {
   tenantSlug: "harbour",
   formSlug: "book-a-boat",
-  selectedId: null,
+  accent: "#16a34a",
   onSelect: vi.fn(),
-  primaryColor: null,
 };
-
-/** The browser with its selection actually held, the way the form holds it. */
-function Selectable() {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  return <CatalogueBrowser {...props} selectedId={selectedId} onSelect={setSelectedId} />;
-}
 
 describe("CatalogueBrowser", () => {
   afterEach(() => {
@@ -68,16 +60,18 @@ describe("CatalogueBrowser", () => {
     vi.clearAllMocks();
   });
 
-  it("renders a page of cards in one row, naming each item and labelling its details", async () => {
+  it("renders a page of resources row by row, naming each and labelling its details", async () => {
     stubFetch([{ data: [card("a", "Pontoon"), card("b", "Kayak")], meta: { cursor: null } }]);
 
     render(<CatalogueBrowser {...props} />);
 
     await waitFor(() => expect(screen.getByText("Pontoon")).toBeInTheDocument());
     expect(screen.getByRole("list", { name: "Items" }).children).toHaveLength(2);
+    expect(screen.getAllByRole("img")).toHaveLength(2);
     // The first value stands alone as the name; the rest carry their label,
     // because "120" on its own says nothing.
-    expect(screen.getAllByText("Price: 120")).toHaveLength(2);
+    expect(screen.getAllByText("Price")).toHaveLength(2);
+    expect(screen.getAllByText("120")).toHaveLength(2);
   });
 
   it("never sends cookies to the public endpoint", async () => {
@@ -92,9 +86,11 @@ describe("CatalogueBrowser", () => {
   it("renders nothing when the catalogue is empty — the form below still works", async () => {
     stubFetch([{ data: [], meta: { cursor: null } }]);
 
-    const { container } = render(<CatalogueBrowser {...props} />);
+    const onUnavailable = vi.fn();
+    const { container } = render(<CatalogueBrowser {...props} onUnavailable={onUnavailable} />);
 
     await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(onUnavailable).toHaveBeenCalledTimes(1);
   });
 
   it("renders nothing when the fetch fails, rather than an error the visitor can't act on", async () => {
@@ -103,43 +99,26 @@ describe("CatalogueBrowser", () => {
       vi.fn(() => Promise.resolve(new Response(null, { status: 500 }))),
     );
 
-    const { container } = render(<CatalogueBrowser {...props} />);
+    const onUnavailable = vi.fn();
+    const { container } = render(<CatalogueBrowser {...props} onUnavailable={onUnavailable} />);
 
     await waitFor(() => expect(container).toBeEmptyDOMElement());
+    expect(onUnavailable).toHaveBeenCalledTimes(1);
   });
 
-  it("reports a selection, and reports clearing it when the same card is clicked again", async () => {
+  it("hands the whole chosen card to the form", async () => {
     const user = userEvent.setup();
-    stubFetch([{ data: [card("a", "Pontoon")], meta: { cursor: null } }]);
+    stubFetch([{ data: [card("a", "Pontoon"), card("b", "Kayak")], meta: { cursor: null } }]);
     const onSelect = vi.fn();
 
-    const { rerender } = render(<CatalogueBrowser {...props} onSelect={onSelect} />);
-    await waitFor(() => expect(screen.getByText("Pontoon")).toBeInTheDocument());
+    render(<CatalogueBrowser {...props} onSelect={onSelect} />);
+    await waitFor(() => expect(screen.getByText("Kayak")).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: /Pontoon/ }));
-    expect(onSelect).toHaveBeenCalledWith("a");
-
-    rerender(<CatalogueBrowser {...props} selectedId="a" onSelect={onSelect} />);
-    expect(screen.getByRole("button", { name: /Pontoon/ })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-
-    await user.click(screen.getByRole("button", { name: /Pontoon/ }));
-    expect(onSelect).toHaveBeenLastCalledWith(null);
+    await user.click(screen.getByRole("button", { name: "Choose Kayak" }));
+    expect(onSelect).toHaveBeenCalledWith(card("b", "Kayak"));
   });
 
-  it("tells the visitor what a selection means for the form below", async () => {
-    stubFetch([{ data: [card("a", "Pontoon")], meta: { cursor: null } }]);
-
-    const { rerender } = render(<CatalogueBrowser {...props} />);
-    await waitFor(() => expect(screen.getByText(/Pick one to enquire/)).toBeInTheDocument());
-
-    rerender(<CatalogueBrowser {...props} selectedId="a" />);
-    expect(screen.getByText(/now fill in your details below/)).toBeInTheDocument();
-  });
-
-  it("fetches the next page only when the visitor moves on, with the server's cursor, appending", async () => {
+  it("fetches the next page on 'Show more', with the server's cursor, appending", async () => {
     const user = userEvent.setup();
     const fetchMock = stubFetch([
       { data: [card("a", "Pontoon")], meta: { cursor: "CURSOR_1" } },
@@ -150,15 +129,46 @@ describe("CatalogueBrowser", () => {
     await waitFor(() => expect(screen.getByText("Pontoon")).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
-    await user.click(screen.getByRole("button", { name: "Next items" }));
+    await user.click(screen.getByRole("button", { name: "Show more" }));
 
     await waitFor(() => expect(screen.getByText("Kayak")).toBeInTheDocument());
     expect(screen.getByText("Pontoon")).toBeInTheDocument();
     expect(urls(fetchMock)[1]).toContain("cursor=CURSOR_1");
 
-    // Exhausted: no cursor came back, so moving on asks for nothing more.
-    await user.click(screen.getByRole("button", { name: "Next items" }));
+    // Exhausted: no cursor came back, so there is nothing more to offer.
+    expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("fetches the next page as the end of the list scrolls into view", async () => {
+    let trigger: (() => void) | null = null;
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(callback: IntersectionObserverCallback) {
+          trigger = () =>
+            callback(
+              [{ isIntersecting: true } as IntersectionObserverEntry],
+              this as unknown as IntersectionObserver,
+            );
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const fetchMock = stubFetch([
+      { data: [card("a", "Pontoon")], meta: { cursor: "CURSOR_1" } },
+      { data: [card("b", "Kayak")], meta: { cursor: null } },
+    ]);
+
+    render(<CatalogueBrowser {...props} />);
+    await waitFor(() => expect(screen.getByText("Pontoon")).toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    trigger!();
+
+    await waitFor(() => expect(screen.getByText("Kayak")).toBeInTheDocument());
+    expect(urls(fetchMock)[1]).toContain("cursor=CURSOR_1");
   });
 
   it("offers search only when the server says there is a field to search", async () => {
@@ -203,27 +213,6 @@ describe("CatalogueBrowser", () => {
 
     expect(await screen.findByText("Nothing matches “zzz”.")).toBeInTheDocument();
     expect(screen.getByRole("searchbox")).toHaveValue("zzz");
-  });
-
-  it("keeps the chosen item named after a search replaces the row, and lets it be cleared", async () => {
-    const user = userEvent.setup();
-    stubFetch([
-      { data: [card("a", "Pontoon")], meta: { cursor: null, searchLabel: "Name" } },
-      { data: [card("z", "Kayak 900")], meta: { cursor: null, searchLabel: "Name" } },
-    ]);
-
-    render(<Selectable />);
-    await waitFor(() => expect(screen.getByText("Pontoon")).toBeInTheDocument());
-    await user.click(screen.getByRole("button", { name: /Pontoon/ }));
-
-    await user.type(screen.getByRole("searchbox"), "kayak");
-    await waitFor(() => expect(screen.getByText("Kayak 900")).toBeInTheDocument());
-    expect(screen.getByText("Pontoon")).toBeInTheDocument();
-    expect(screen.getByText(/Selected:/)).toHaveTextContent("Selected: Pontoon");
-
-    await user.click(screen.getByRole("button", { name: "Clear" }));
-    expect(screen.queryByText(/Selected:/)).not.toBeInTheDocument();
-    expect(screen.getByText(/Pick one to enquire/)).toBeInTheDocument();
   });
 
   it("shows a placeholder instead of a broken image for a record with no photo", async () => {

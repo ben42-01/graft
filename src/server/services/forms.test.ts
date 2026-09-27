@@ -761,6 +761,17 @@ describe("paymentSchema (GRAFT-24 AC1, AC2, AC3)", () => {
     });
     expect(parsed.required).toBe(false);
   });
+  it("accepts checkout mode, which carries no URL and no amount", () => {
+    expect(paymentSchema.parse({ mode: "checkout", required: true })).toEqual({
+      mode: "checkout",
+      required: true,
+    });
+  });
+
+  it("drops an amount a caller tries to store on checkout mode — the order prices it", () => {
+    const parsed = paymentSchema.parse({ mode: "checkout", amountMinor: 1 });
+    expect(parsed).toEqual({ mode: "checkout", required: false });
+  });
 });
 
 describe("createForm / updateForm — the payment block (GRAFT-24 AC1)", () => {

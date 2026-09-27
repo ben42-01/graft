@@ -34,3 +34,9 @@ function relativeLuminance({ r, g, b }: { r: number; g: number; b: number }): nu
   };
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
+
+/**
+ * Graft's own green (`--color-graft-green` in globals.css), the accent a public
+ * page uses for a tenant that has not set a brand colour of its own.
+ */
+export const GRAFT_ACCENT = "#16a34a";

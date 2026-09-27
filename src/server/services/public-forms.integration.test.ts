@@ -15,7 +15,7 @@
  */
 import { ObjectId } from "mongodb";
 import { MongoMemoryReplSet } from "mongodb-memory-server";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { createContext } from "@/server/context";
 import { getDb, getMongoClient } from "@/server/db/mongo";
 import { createRepository } from "@/server/repositories/base";
@@ -421,5 +421,73 @@ describe("submitPublicForm — a payment-enabled form whose bridge raised an ord
       .collection("form_submissions")
       .findOne({ _id: new ObjectId(result.submissionId) });
     expect(submission?.orderId).toEqual(ORDER_ID);
+  });
+});
+
+describe("submitPublicForm — a Stripe Checkout form", () => {
+  const ORDER_ID = new ObjectId("0000000000000000000000b1");
+  const CHECKOUT_URL = "https://checkout.stripe.com/c/pay/cs_test_1";
+
+  beforeEach(async () => {
+    const db = await getDb();
+    await db
+      .collection("forms")
+      .updateOne({ _id: FORM_A }, { $set: { payment: { mode: "checkout", required: true } } });
+  });
+
+  it("opens a session for the bridged order only after the submission has committed", async () => {
+    let committedFirst = false;
+    const createCheckout = vi.fn(async (input: { submissionId: string }) => {
+      const db = await getDb();
+      committedFirst =
+        (await db
+          .collection("form_submissions")
+          .findOne({ _id: new ObjectId(input.submissionId) })) !== null;
+      return { url: CHECKOUT_URL };
+    });
+
+    const result = await submitPublicForm("req-1", ["acme", "contact"], validBody(), {
+      ...deps(),
+      bridgeBooking: async () => ({ orderId: ORDER_ID, allocationId: null }),
+      createCheckout,
+    });
+
+    expect(result.payment).toEqual({ url: CHECKOUT_URL, required: true });
+    expect(committedFirst).toBe(true);
+    expect(createCheckout).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderId: ORDER_ID.toHexString(),
+        submissionId: result.submissionId,
+        formPath: "/f/acme/contact",
+      }),
+    );
+  });
+
+  it("offers no payment without an order to charge, and still keeps the submission", async () => {
+    const createCheckout = vi.fn();
+    const result = await submitPublicForm("req-1", ["acme", "contact"], validBody(), {
+      ...deps(),
+      bridgeBooking: async () => null,
+      createCheckout,
+    });
+
+    expect("payment" in result).toBe(false);
+    expect(createCheckout).not.toHaveBeenCalled();
+    const db = await getDb();
+    expect(
+      await db
+        .collection("form_submissions")
+        .findOne({ _id: new ObjectId(result.submissionId) }),
+    ).not.toBeNull();
+  });
+
+  it("answers as a form without payment when Stripe cannot open a session", async () => {
+    const result = await submitPublicForm("req-1", ["acme", "contact"], validBody(), {
+      ...deps(),
+      bridgeBooking: async () => ({ orderId: ORDER_ID, allocationId: null }),
+      createCheckout: async () => null,
+    });
+    expect("payment" in result).toBe(false);
+    expect(result.submissionId).toMatch(/^[0-9a-f]{24}$/);
   });
 });

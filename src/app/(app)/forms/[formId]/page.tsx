@@ -359,6 +359,8 @@ export default function FormPage() {
       {form.visibility === "public" ? (
         <PaymentEditor
           payment={form.payment}
+          formId={formId}
+          hasBooking={form.booking != null}
           busy={busy}
           onSave={(payment) => void patch({ payment }, () => void load())}
         />
