@@ -24,9 +24,11 @@ import {
   formSlugSchema,
   toCarouselView,
   toCatalogueView,
+  publicCartPricing,
   type CarouselItemView,
   type CatalogueView,
   type FormDoc,
+  type PublicCartPricing,
 } from "./forms";
 import type { FieldDef } from "./entities";
 import { isFormServable } from "./forms";
@@ -53,12 +55,21 @@ export type PublicFormPageData = {
   catalogue: CatalogueView | null;
   /**
    * The fields that carry a booking's start and end, if this form takes
-   * bookings. Only the keys travel — the rate basis and the deposit are
-   * pricing, and a public page has no business knowing them. The renderer
+   * bookings. Only the keys travel — the deposit and the rest of the
+   * booking's pricing stay server-side (cart mode's rate hint, `booking`
+   * below, is the one narrow exception). The renderer
    * uses this to ask for a date *and a time*, because "the 20th" cannot
    * express a four-hour hire.
    */
   timeFields: string[];
+  /**
+   * Cart mode's pricing hint (GRAFT-30.1 AC7), or `null`: the rate basis and
+   * the rate key, so the page can show an estimated total. Set only for a
+   * `multiple` form whose rate key is already one of the catalogue's public
+   * fields (`publicCartPricing`); every other form, and every other part of
+   * the booking config (deposit, labels, date keys), stays server-side.
+   */
+  booking: PublicCartPricing | null;
   /** Notes and links for customers, in order. */
   content: ContentBlock[];
   tenantName: string;
@@ -136,6 +147,7 @@ export async function getPublicFormPage(
     carousel: toCarouselView(form.carousel),
     catalogue: toCatalogueView(form.catalogue),
     timeFields: bookingTimeFields(form.booking),
+    booking: publicCartPricing(form.catalogue, form.booking),
     // Re-checked on read, like the payment link: a document written before the
     // rule, or by any path around the schema, must not put a script URL here.
     content: (form.content ?? []).filter(

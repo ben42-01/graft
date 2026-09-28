@@ -117,6 +117,13 @@ export const catalogueSchema = z.object({
     .max(MAX_CATALOGUE_PAGE_SIZE)
     .default(DEFAULT_CATALOGUE_PAGE_SIZE),
   selectionKey: fieldKey.nullable().default(null),
+  /**
+   * Cart mode (GRAFT-30.1): a visitor may pick several records in one
+   * submission instead of exactly one. Off by default, and absent on every
+   * form stored before it existed, which reads as `false` (`toCatalogueView`).
+   * Turning it on is only legal alongside the rules in `cartConfigErrors`.
+   */
+  multiple: z.boolean().default(false),
 });
 
 export type CatalogueInput = z.input<typeof catalogueSchema>;
@@ -499,6 +506,8 @@ export type CatalogueConfig = {
   imageField: string | null;
   pageSize: number;
   selectionKey: string | null;
+  /** Absent on documents stored before cart mode existed — read as `false`. */
+  multiple?: boolean;
 };
 
 export type CatalogueView = {
@@ -507,6 +516,7 @@ export type CatalogueView = {
   imageField: string | null;
   pageSize: number;
   selectionKey: string | null;
+  multiple: boolean;
 };
 
 export function toCatalogueView(
@@ -519,7 +529,79 @@ export function toCatalogueView(
     imageField: catalogue.imageField,
     pageSize: catalogue.pageSize,
     selectionKey: catalogue.selectionKey,
+    // No migration: a document written before cart mode simply lacks the key.
+    multiple: catalogue.multiple ?? false,
   };
+}
+
+/**
+ * The three rules cart mode (`catalogue.multiple: true`) carries, as field
+ * errors keyed the way the builder renders them. Empty means the combination
+ * is legal. Pure, so the create path and the update path check exactly the
+ * same thing — the update path against the state the form will be in *after*
+ * the write, which is how a PATCH touching only `booking` or `payment` on a
+ * form already in cart mode is still held to them.
+ *
+ *   - **A cart needs a booking config.** A cart exists only to raise a priced
+ *     order, and the price comes from the booking's rate basis and rate key.
+ *   - **No form-level quantity.** Each cart line carries its own quantity; a
+ *     single `quantityKey` would be a second, disagreeing answer.
+ *   - **No payment link.** A link charges a fixed price set in Stripe, which
+ *     cannot equal a computed cart total. Checkout (priced server-side from
+ *     the order) or no payment at all are both fine.
+ */
+export function cartConfigErrors(
+  catalogue: Pick<CatalogueConfig, "multiple"> | null,
+  booking: Pick<BookingConfig, "quantityKey"> | null,
+  payment: PaymentConfig | null,
+): Record<string, string> {
+  if (!catalogue?.multiple) return {};
+  const errors: Record<string, string> = {};
+  if (!booking) {
+    errors["catalogue.multiple"] =
+      "Letting customers pick several items needs booking mode — that is what prices the order";
+  } else if (booking.quantityKey !== null) {
+    errors["booking.quantityKey"] =
+      "When customers pick several items, each one carries its own quantity — remove the quantity field";
+  }
+  if (payment?.mode === "link") {
+    errors.payment =
+      "A payment link charges a fixed price, which cannot match a cart total — use Checkout instead";
+  }
+  return errors;
+}
+
+function assertCartConfig(
+  catalogue: CatalogueConfig | null,
+  booking: BookingConfig | null,
+  payment: PaymentConfig | null,
+): void {
+  const fields = cartConfigErrors(catalogue, booking, payment);
+  if (Object.keys(fields).length > 0) {
+    throw new AppError("VALIDATION_FAILED", "Invalid request body", { source: "body", fields });
+  }
+}
+
+/**
+ * The only part of a booking config a public cart page may see (GRAFT-30.1
+ * AC7): the rate basis and the rate key, so the page can show an estimated
+ * total. Set only in cart mode, and only when the rate key is already one of
+ * the catalogue's public `fields` — the rate then already travels with every
+ * card, so naming it discloses nothing new. Everything else (deposit, labels,
+ * date keys) stays server-side, and every other form gets `null`.
+ */
+export type PublicCartPricing = {
+  rateBasis: BookingConfig["rateBasis"];
+  rateKey: string;
+};
+
+export function publicCartPricing(
+  catalogue: Pick<CatalogueConfig, "fields" | "multiple"> | null | undefined,
+  booking: Pick<BookingConfig, "rateBasis" | "rateKey"> | null | undefined,
+): PublicCartPricing | null {
+  if (!catalogue?.multiple || !booking || booking.rateKey === null) return null;
+  if (!catalogue.fields.includes(booking.rateKey)) return null;
+  return { rateBasis: booking.rateBasis, rateKey: booking.rateKey };
 }
 
 const isDuplicateKey = (error: unknown): boolean =>
@@ -689,6 +771,7 @@ export function resolveCatalogue(
     imageField: input.imageField,
     pageSize: input.pageSize,
     selectionKey: input.selectionKey,
+    multiple: input.multiple,
   };
 }
 
@@ -855,6 +938,7 @@ export async function createForm(
     ? resolveBooking(parsed.booking, fields, catalogue, catalogueEntityFields)
     : null;
   const payment = parsed.payment ?? null;
+  assertCartConfig(catalogue, booking, payment);
   const content = resolveContent(parsed.content ?? [], fields);
 
   if (await deps.repo.findOne(ctx, { slug: parsed.slug } as Filter<FormDoc>)) {
@@ -995,6 +1079,15 @@ export async function updateForm(
       resourceFields,
     );
   }
+
+  // Cart mode's rules hold for the state this update leaves behind, so a
+  // PATCH that touches only `booking` or only `payment` on a form already in
+  // cart mode is checked too — before anything is written.
+  assertCartConfig(
+    effectiveCatalogue,
+    booking !== undefined ? booking : (existing.booking ?? null),
+    parsed.payment !== undefined ? (parsed.payment ?? null) : (existing.payment ?? null),
+  );
 
   // Placement is checked against the field list this update leaves behind.
   const content =

@@ -1,0 +1,49 @@
+meta {
+  name: Cart mode with a fixed-price payment link is refused
+  type: http
+  seq: 26
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000027
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumAccessToken}}
+}
+
+body:json {
+  {
+    "catalogue": {
+      "entityId": "00000000000000000000001c",
+      "fields": ["name", "price"],
+      "selectionKey": "item",
+      "multiple": true
+    },
+    "payment": {
+      "mode": "link",
+      "link": { "url": "https://buy.stripe.com/qa-cart-fixed-price" },
+      "required": true
+    }
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.details.fields.payment: isString
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+docs {
+  GRAFT-30.1 AC5. A payment link charges a fixed price set in Stripe, which
+  cannot equal a computed cart total, so cart mode refuses `payment.mode:
+  "link"` with a field error on `payment`. Checkout and no payment are both
+  accepted — proven in src/server/services/forms.test.ts. Against
+  formPremiumCart (000000000000000000000027, scripts/seed-qa.ts), reusing the premium owner's
+  `premiumAccessToken` that cart-config.bru (seq 24) logs in for — every extra
+  login spends the suite's shared global-ip budget.
+}

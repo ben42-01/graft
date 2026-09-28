@@ -82,12 +82,66 @@ describe("getPublicFormPage", () => {
       // Same convention again: a form that takes no bookings reports no time
       // fields rather than omitting the key.
       timeFields: [],
+      // GRAFT-30.1 AC7 — no cart pricing hint on an ordinary form.
+      booking: null,
       content: [],
       tenantName: "Acme",
       tenantSlug: "acme",
       formSlug: "contact",
       branding: tenant.branding,
       showBadge: true,
+    });
+  });
+
+  describe("cart mode (GRAFT-30.1)", () => {
+    const cartForm = (over: { multiple?: boolean; rateKey?: string | null } = {}) =>
+      form({
+        catalogue: {
+          entityDefId: new ObjectId("000000000000000000000022"),
+          fields: ["item_name", "price"],
+          imageField: null,
+          pageSize: 12,
+          selectionKey: "chosen_item",
+          ...(over.multiple === undefined ? { multiple: true } : { multiple: over.multiple }),
+        },
+        booking: {
+          startKey: "starts_at",
+          endKey: "ends_at",
+          durationMinutes: null,
+          quantityKey: null,
+          rateBasis: "daily",
+          rateKey: over.rateKey === undefined ? "price" : over.rateKey,
+          labelKey: "item_name",
+          depositPercent: 25,
+        },
+      });
+    const pageFor = (doc: ReturnType<typeof form>) =>
+      getPublicFormPage("acme", "contact", {
+        findByPublicSlug: async () => doc,
+        accounts: { findTenantById: async () => tenant } as never,
+      });
+
+    it("AC2 — reports catalogue.multiple: true for a cart form", async () => {
+      const page = await pageFor(cartForm());
+      expect(page?.catalogue?.multiple).toBe(true);
+    });
+
+    it("AC7 — exposes only the rate basis and a rate key that is already public", async () => {
+      const page = await pageFor(cartForm());
+      // Exactly these two keys: the deposit, label and date keys stay private.
+      expect(page?.booking).toEqual({ rateBasis: "daily", rateKey: "price" });
+    });
+
+    it("AC7 — null when the rate key is not one of the catalogue's public fields", async () => {
+      const page = await pageFor(cartForm({ rateKey: "cost" }));
+      expect(page?.booking).toBeNull();
+      expect(JSON.stringify(page)).not.toContain("cost");
+    });
+
+    it("AC7 — null on a booking form that is not in cart mode", async () => {
+      const page = await pageFor(cartForm({ multiple: false }));
+      expect(page?.catalogue?.multiple).toBe(false);
+      expect(page?.booking).toBeNull();
     });
   });
 

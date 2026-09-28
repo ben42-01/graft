@@ -1092,6 +1092,24 @@
       "source": "src/app/api/v1/forms/[formId]/route.ts",
       "examples": [
         {
+          "name": "Another tenant cannot switch cart mode on, and the form is unchanged",
+          "file": "bruno/forms/cart-config-tenant-isolation.bru",
+          "pathParams": {
+            "formId": "000000000000000000000027"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Cart mode can be switched on for a catalogue form that takes bookings",
+          "file": "bruno/forms/cart-config.bru",
+          "pathParams": {
+            "formId": "000000000000000000000027"
+          },
+          "query": {},
+          "body": null
+        },
+        {
           "name": "Another tenant's form is not found, not forbidden",
           "file": "bruno/forms/tenant-isolation.bru",
           "pathParams": {
@@ -1114,6 +1132,24 @@
       "summary": "(GRAFT-08).",
       "source": "src/app/api/v1/forms/[formId]/route.ts",
       "examples": [
+        {
+          "name": "Cart mode with a fixed-price payment link is refused",
+          "file": "bruno/forms/cart-config-rejects-link-payment.bru",
+          "pathParams": {
+            "formId": "000000000000000000000027"
+          },
+          "query": {},
+          "body": "{\n  \"catalogue\": {\n    \"entityId\": \"00000000000000000000001c\",\n    \"fields\": [\"name\", \"price\"],\n    \"selectionKey\": \"item\",\n    \"multiple\": true\n  },\n  \"payment\": {\n    \"mode\": \"link\",\n    \"link\": { \"url\": \"https://buy.stripe.com/qa-cart-fixed-price\" },\n    \"required\": true\n  }\n}"
+        },
+        {
+          "name": "Cart mode without a booking config is refused",
+          "file": "bruno/forms/cart-config-requires-booking.bru",
+          "pathParams": {
+            "formId": "000000000000000000000027"
+          },
+          "query": {},
+          "body": "{\n  \"catalogue\": {\n    \"entityId\": \"00000000000000000000001c\",\n    \"fields\": [\"name\", \"price\"],\n    \"selectionKey\": \"item\",\n    \"multiple\": true\n  },\n  \"booking\": null\n}"
+        },
         {
           "name": "Notes and links for customers can be set on a form",
           "file": "bruno/forms/content-blocks-config.bru",

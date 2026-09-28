@@ -1,0 +1,52 @@
+meta {
+  name: Cart mode without a booking config is refused
+  type: http
+  seq: 25
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000027
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumAccessToken}}
+}
+
+body:json {
+  {
+    "catalogue": {
+      "entityId": "00000000000000000000001c",
+      "fields": ["name", "price"],
+      "selectionKey": "item",
+      "multiple": true
+    },
+    "booking": null
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC3 — the field error is keyed on catalogue.multiple", function () {
+    const fields = res.getBody().error.details.fields;
+    expect(fields).to.have.property("catalogue.multiple");
+    expect(fields["catalogue.multiple"]).to.be.a("string");
+  });
+}
+
+docs {
+  GRAFT-30.1 AC3. A cart exists only to raise a priced order, and the price
+  comes from the booking config, so `multiple: true` with `booking: null` is a
+  400 on `catalogue.multiple`. Against formPremiumCart
+  (000000000000000000000027, scripts/seed-qa.ts), reusing the premium owner's
+  `premiumAccessToken` that cart-config.bru (seq 24) logs in for — every extra
+  login spends the suite's shared global-ip budget. That nothing is written on a
+  refusal (AC6) is proven in src/server/services/forms.test.ts.
+}
