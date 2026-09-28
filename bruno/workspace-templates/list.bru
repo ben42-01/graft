@@ -1,5 +1,5 @@
 meta {
-  name: The template gallery lists the ten business templates
+  name: The template gallery lists the fifteen business templates
   type: http
   seq: 1
 }
@@ -31,7 +31,7 @@ script:pre-request {
 
 assert {
   res.status: eq 200
-  res.body.data.length: eq 10
+  res.body.data.length: eq 15
   res.body.data[0].id: eq hotel
   res.body.data[0].name: eq Graft Hotel
   res.body.data[0].entities: isUndefined

@@ -266,7 +266,7 @@ API/webhooks, SSO/SAML, white-labeling, custom domains, dedicated infrastructure
 - **Plugin SDK:** internal-only plugins first, or design for third-party developers from day one?
 - **tRPC vs REST:** internal type-safety vs. easier future public API.
 - **Record validation:** enforce with MongoDB JSON Schema per collection, or purely at the API layer?
-- ~~**Onboarding templates:** how many industry templates at launch? (Suggest 5–8.)~~ Ten business templates shipped at `/templates` (§3, step 4).
+- ~~**Onboarding templates:** how many industry templates at launch? (Suggest 5–8.)~~ Fifteen business templates shipped at `/templates` (five added 2026-09-28: shop, clinic, garage, school, tours) (§3, step 4).
 - **Pricing:** exact price points per tier and regional pricing.
 - **Name/branding:** "Graft" — check trademark availability and domain options.
 

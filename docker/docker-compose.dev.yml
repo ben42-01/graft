@@ -75,12 +75,20 @@ services:
   # a signed-URL bug cannot be a production-only surprise. Credentials come from
   # .env.dev like every other password in this file.
   minio:
-    # quay.io, not Docker Hub: MinIO withdrew the community images from
-    # Docker Hub, and `minio/minio` now answers every pull with "repository
-    # does not exist or may require docker login". A developer whose machine
-    # still had the layers cached saw nothing wrong; CI, which always pulls
-    # fresh, failed on every run. Same tag, same digest, different registry.
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # Chainguard, pinned by digest. MinIO has now closed both its public
+    # registries: Docker Hub (`minio/minio` answers "repository does not exist
+    # or may require docker login") and then quay.io (`quay.io/minio/minio`
+    # answers "unauthorized"). Both failures were invisible on any machine that
+    # still had the layers cached, and broke every CI run, which always pulls
+    # fresh. cgr.dev/chainguard/minio pulls anonymously; its free tier only
+    # publishes `:latest`, so the digest is what keeps this reproducible. It
+    # ships `mc`, so the healthcheck below is unchanged. If the digest stops
+    # resolving, the fallback is mirroring the image to a registry we control
+    # (a human decision, GRAFT-32).
+    # It runs as uid 65532, not root. A dev volume created by the old image is
+    # root-owned and MinIO cannot write to it: chown its contents to
+    # 65532:65532 once, or drop all dev volumes with `npm run dev:db:nuke`.
+    image: cgr.dev/chainguard/minio@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
     container_name: graft-dev-minio
     command: ["server", "/data", "--console-address", ":9001"]
     restart: unless-stopped

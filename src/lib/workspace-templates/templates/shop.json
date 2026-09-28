@@ -1,0 +1,416 @@
+{
+  "id": "shop",
+  "name": "Graft Shop",
+  "tagline": "Farm shops, makers, boutiques and small online stores",
+  "description": "Your products with photos and prices, a public shop page where customers pick a product, how many and when to collect or receive it, and orders that land priced and ready to pay — never more than you can supply that day.",
+  "icon": "🛍️",
+  "industry": "Retail",
+  "highlights": [
+    "Products with photos, prices and units",
+    "A public shop page customers order from",
+    "Orders priced automatically, card payment ready",
+    "Set how many of each you can supply per day",
+    "Optional delivery, customer list and restock log"
+  ],
+  "nouns": [
+    {
+      "id": "product",
+      "singular": "Product",
+      "plural": "Products",
+      "question": "What do you sell? (Products, Boxes, Pieces…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Take priced orders online",
+      "help": "On: each order is priced from the product, checked against what you can supply that day, and can be paid by card. Off: customers send an order request and you confirm by hand.",
+      "default": true
+    },
+    {
+      "id": "shop_kind",
+      "kind": "choice",
+      "label": "What kind of shop is it?",
+      "help": "Sets the product categories and the example products. You can change both later.",
+      "options": [
+        { "value": "fresh_food", "label": "Fresh food, fruit & veg, bakery" },
+        { "value": "jewellery", "label": "Jewellery & accessories" },
+        { "value": "crafts", "label": "Crafts, art & gifts" },
+        { "value": "general", "label": "Something else" }
+      ],
+      "default": "general"
+    },
+    {
+      "id": "delivery",
+      "kind": "boolean",
+      "label": "Do you deliver or post orders?",
+      "help": "Adds a delivery choice and address to the order form. Off: orders are collected.",
+      "default": true
+    }
+  ],
+  "modules": [
+    {
+      "id": "customers",
+      "name": "Customers",
+      "description": "Your customers and their contact details, for repeat orders and newsletters."
+    },
+    {
+      "id": "restocks",
+      "name": "Restock log",
+      "description": "Record deliveries from your suppliers and makers, with a form for your team."
+    }
+  ],
+  "policy": {
+    "title": "Order terms",
+    "body": "Orders are confirmed once paid. Fresh and made-to-order {product.plural} cannot be returned unless faulty; anything else can be returned unused within 14 days for a refund."
+  },
+  "entities": [
+    {
+      "ref": "products",
+      "key": "products",
+      "name": "Products",
+      "noun": "product",
+      "fields": [
+        { "key": "name", "label": "{Product}", "type": "text", "required": true },
+        { "key": "description", "label": "Description", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": [
+            "Fruit",
+            "Vegetables",
+            "Boxes & bundles",
+            "Bakery",
+            "Dairy & eggs",
+            "Pantry"
+          ],
+          "optional": true,
+          "when": [{ "toggle": "shop_kind", "equals": "fresh_food" }]
+        },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": ["Rings", "Necklaces", "Earrings", "Bracelets", "Watches", "Accessories"],
+          "optional": true,
+          "when": [{ "toggle": "shop_kind", "equals": "jewellery" }]
+        },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": [
+            "Prints & art",
+            "Ceramics",
+            "Textiles",
+            "Candles & home",
+            "Cards",
+            "Gift sets"
+          ],
+          "optional": true,
+          "when": [{ "toggle": "shop_kind", "equals": "crafts" }]
+        },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": ["Bestsellers", "New in", "Gifts", "Sale", "Other"],
+          "optional": true,
+          "when": [{ "toggle": "shop_kind", "equals": "general" }]
+        },
+        { "key": "price", "label": "Price", "type": "number", "required": true },
+        {
+          "key": "unit",
+          "label": "Sold per",
+          "type": "select",
+          "options": ["Each", "kg", "500 g", "Box", "Pack", "Set"],
+          "optional": true
+        }
+      ]
+    },
+    {
+      "ref": "orders",
+      "key": "shop_orders",
+      "name": "Orders",
+      "fields": [
+        { "key": "name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "required": true },
+        { "key": "selected_item", "label": "{Product}", "type": "text" },
+        { "key": "quantity", "label": "How many?", "type": "number", "required": true },
+        {
+          "key": "wanted_on",
+          "label": "Collection or delivery date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "delivery_needed",
+          "label": "Deliver to me",
+          "type": "checkbox",
+          "when": [{ "toggle": "delivery", "equals": true }]
+        },
+        {
+          "key": "delivery_address",
+          "label": "Delivery address",
+          "type": "text",
+          "when": [{ "toggle": "delivery", "equals": true }]
+        },
+        {
+          "key": "notes",
+          "label": "Anything we should know?",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["New", "Paid", "Packed", "Sent", "Collected", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "customers",
+      "key": "customers",
+      "name": "Customers",
+      "module": "customers",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email" },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        { "key": "address", "label": "Address", "type": "text", "optional": true },
+        {
+          "key": "newsletter",
+          "label": "Happy to get news and offers",
+          "type": "checkbox",
+          "optional": true
+        },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    },
+    {
+      "ref": "restocks",
+      "key": "restock_log",
+      "name": "Restock log",
+      "module": "restocks",
+      "fields": [
+        { "key": "product", "label": "{Product}", "type": "text", "required": true },
+        { "key": "supplier", "label": "Supplier or maker", "type": "text", "required": true },
+        { "key": "received_on", "label": "Received on", "type": "date", "required": true },
+        { "key": "quantity", "label": "Quantity received", "type": "number", "required": true },
+        { "key": "cost", "label": "Total cost", "type": "number", "optional": true },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "products",
+      "when": [{ "toggle": "shop_kind", "equals": "fresh_food" }],
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Seasonal veg box",
+            "description": "Eight to ten organic vegetables, picked this week.",
+            "category": "Boxes & bundles",
+            "price": 22,
+            "unit": "Box"
+          },
+          "quantity": 30
+        },
+        {
+          "data": {
+            "name": "Organic apples",
+            "category": "Fruit",
+            "price": 3.5,
+            "unit": "kg"
+          },
+          "quantity": 40
+        },
+        {
+          "data": {
+            "name": "Sourdough loaf",
+            "description": "Baked the morning you collect.",
+            "category": "Bakery",
+            "price": 5,
+            "unit": "Each"
+          },
+          "quantity": 25
+        },
+        {
+          "data": {
+            "name": "Free-range eggs (12)",
+            "category": "Dairy & eggs",
+            "price": 4.2,
+            "unit": "Box"
+          },
+          "quantity": 20
+        }
+      ]
+    },
+    {
+      "entityRef": "products",
+      "when": [{ "toggle": "shop_kind", "equals": "jewellery" }],
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Sterling silver stacking ring",
+            "description": "Hand-finished, made to your size.",
+            "category": "Rings",
+            "price": 45,
+            "unit": "Each"
+          },
+          "quantity": 5
+        },
+        {
+          "data": {
+            "name": "Freshwater pearl necklace",
+            "category": "Necklaces",
+            "price": 89,
+            "unit": "Each"
+          },
+          "quantity": 3
+        },
+        {
+          "data": {
+            "name": "Gold-plated hoop earrings",
+            "category": "Earrings",
+            "price": 35,
+            "unit": "Set"
+          },
+          "quantity": 8
+        }
+      ]
+    },
+    {
+      "entityRef": "products",
+      "when": [{ "toggle": "shop_kind", "equals": "crafts" }],
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Hand-thrown mug",
+            "description": "Stoneware, glazed in small batches.",
+            "category": "Ceramics",
+            "price": 24,
+            "unit": "Each"
+          },
+          "quantity": 10
+        },
+        {
+          "data": {
+            "name": "A4 botanical print",
+            "category": "Prints & art",
+            "price": 18,
+            "unit": "Each"
+          },
+          "quantity": 20
+        },
+        {
+          "data": {
+            "name": "Soy candle gift set",
+            "category": "Gift sets",
+            "price": 32,
+            "unit": "Set"
+          },
+          "quantity": 8
+        }
+      ]
+    },
+    {
+      "entityRef": "products",
+      "when": [{ "toggle": "shop_kind", "equals": "general" }],
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Bestselling {product}",
+            "description": "Replace with one of your own.",
+            "category": "Bestsellers",
+            "price": 25,
+            "unit": "Each"
+          },
+          "quantity": 10
+        },
+        {
+          "data": {
+            "name": "Gift bundle",
+            "category": "Gifts",
+            "price": 40,
+            "unit": "Set"
+          },
+          "quantity": 5
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "order",
+      "entityRef": "orders",
+      "name": "Order online",
+      "slug": "shop",
+      "visibility": "public",
+      "fields": [
+        "name",
+        "email",
+        "phone",
+        "selected_item",
+        "quantity",
+        "wanted_on",
+        "delivery_needed",
+        "delivery_address",
+        "notes"
+      ],
+      "catalogue": {
+        "entityRef": "products",
+        "fields": ["name", "description", "category", "price", "unit"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "wanted_on",
+        "durationMinutes": 1440,
+        "quantityKey": "quantity",
+        "rateBasis": "flat",
+        "rateKey": "price",
+        "labelKey": "name"
+      },
+      "payment": true,
+      "terms": true,
+      "notices": [
+        {
+          "body": "Choose a {product}, then tell us how many and when you'd like it."
+        }
+      ]
+    },
+    {
+      "ref": "restock_entry",
+      "entityRef": "restocks",
+      "module": "restocks",
+      "name": "Log a restock",
+      "slug": "log-restock",
+      "visibility": "internal",
+      "fields": ["product", "supplier", "received_on", "quantity", "cost", "notes"]
+    }
+  ]
+}
