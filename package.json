@@ -37,7 +37,7 @@
     "db:indexes": "tsx scripts/create-indexes.ts",
     "storage:bucket": "tsx scripts/ensure-bucket.ts",
     "api:catalogue": "tsx scripts/generate-api-catalogue.ts",
-    "admin:grant": "tsx scripts/grant-platform-admin.ts",
+    "admin:grant": "dotenv -e .env.dev --  tsx scripts/grant-platform-admin.ts",
     "db:migrate": "tsx scripts/migrate.ts up",
     "db:migrate:status": "tsx scripts/migrate.ts status",
     "build": "next build",
