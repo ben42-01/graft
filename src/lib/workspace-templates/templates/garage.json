@@ -1,0 +1,281 @@
+{
+  "id": "garage",
+  "name": "Graft Garage",
+  "tagline": "Car servicing, repairs, inspections, tyres and bodywork",
+  "description": "Your service menu with prices, a public booking page where drivers choose a service and a drop-off time, and a workshop diary that never takes on more jobs than you have bays for.",
+  "icon": "🔧",
+  "industry": "Automotive",
+  "highlights": [
+    "Service menu with prices and how many at once",
+    "Drivers book a service and a drop-off time",
+    "Full workshop slots refused automatically",
+    "Registration and mileage captured up front",
+    "Optional vehicle records and job cards"
+  ],
+  "nouns": [
+    {
+      "id": "service",
+      "singular": "Service",
+      "plural": "Services",
+      "question": "What do drivers book? (Services, Jobs, Packages…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Let drivers book a slot online",
+      "help": "On: each booking takes a workshop slot and full slots are refused. Off: drivers send a request and you call back with a time.",
+      "default": true
+    },
+    {
+      "id": "slot_length",
+      "kind": "choice",
+      "label": "How long does a booking hold the workshop?",
+      "help": "How long each booking blocks one of your slots. You can change it later on the form.",
+      "options": [
+        { "value": "min_60", "label": "1 hour" },
+        { "value": "min_120", "label": "2 hours" },
+        { "value": "min_240", "label": "Half a day" },
+        { "value": "min_480", "label": "All day" }
+      ],
+      "default": "min_120"
+    },
+    {
+      "id": "courtesy_car",
+      "kind": "boolean",
+      "label": "Do you offer a courtesy car?",
+      "help": "Adds a courtesy car request to the booking form.",
+      "default": false
+    }
+  ],
+  "modules": [
+    {
+      "id": "vehicles",
+      "name": "Vehicles",
+      "description": "Your customers' vehicles with registration, owner and when the next service or inspection is due."
+    },
+    {
+      "id": "job_cards",
+      "name": "Job cards",
+      "description": "Record the work done, parts and labour on each job, with a form for your mechanics."
+    }
+  ],
+  "policy": {
+    "title": "Workshop terms",
+    "body": "Prices are for standard vehicles and exclude parts unless stated. We will always call for your approval before doing extra work. Vehicles left more than 3 days after completion may be charged storage."
+  },
+  "entities": [
+    {
+      "ref": "services",
+      "key": "services",
+      "name": "Services",
+      "noun": "service",
+      "fields": [
+        { "key": "name", "label": "{Service}", "type": "text", "required": true },
+        { "key": "description", "label": "What's included", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        {
+          "key": "category",
+          "label": "Category",
+          "type": "select",
+          "options": ["Servicing", "Inspection", "Repairs", "Tyres", "Bodywork", "Diagnostics"],
+          "optional": true
+        },
+        { "key": "price", "label": "Price (from)", "type": "number", "required": true }
+      ]
+    },
+    {
+      "ref": "bookings",
+      "key": "workshop_bookings",
+      "name": "Workshop bookings",
+      "fields": [
+        { "key": "name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "required": true },
+        { "key": "registration", "label": "Registration", "type": "text", "required": true },
+        { "key": "make_model", "label": "Make and model", "type": "text", "required": true },
+        { "key": "mileage", "label": "Mileage", "type": "number", "optional": true },
+        {
+          "key": "dropoff_at",
+          "label": "Drop-off date and time",
+          "type": "date",
+          "required": true
+        },
+        { "key": "selected_item", "label": "{Service}", "type": "text" },
+        {
+          "key": "courtesy_car",
+          "label": "I'd like a courtesy car",
+          "type": "checkbox",
+          "when": [{ "toggle": "courtesy_car", "equals": true }]
+        },
+        {
+          "key": "details",
+          "label": "Anything we should know? (noises, warning lights…)",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": [
+            "Booked",
+            "In workshop",
+            "Awaiting parts",
+            "Ready",
+            "Collected",
+            "Cancelled"
+          ]
+        }
+      ]
+    },
+    {
+      "ref": "vehicles",
+      "key": "vehicles",
+      "name": "Vehicles",
+      "module": "vehicles",
+      "fields": [
+        { "key": "registration", "label": "Registration", "type": "text", "required": true },
+        { "key": "make_model", "label": "Make and model", "type": "text" },
+        { "key": "owner", "label": "Owner", "type": "text", "required": true },
+        { "key": "phone", "label": "Owner's phone", "type": "phone" },
+        {
+          "key": "next_service_due",
+          "label": "Next service due",
+          "type": "date",
+          "optional": true
+        },
+        {
+          "key": "next_inspection_due",
+          "label": "Next inspection due",
+          "type": "date",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "ref": "job_cards",
+      "key": "job_cards",
+      "name": "Job cards",
+      "module": "job_cards",
+      "fields": [
+        { "key": "registration", "label": "Registration", "type": "text", "required": true },
+        { "key": "date", "label": "Date", "type": "date", "required": true },
+        { "key": "work_done", "label": "Work done", "type": "text", "required": true },
+        { "key": "parts_cost", "label": "Parts cost", "type": "number", "optional": true },
+        { "key": "labour_hours", "label": "Labour hours", "type": "number", "optional": true },
+        { "key": "mechanic", "label": "Mechanic", "type": "text", "optional": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Open", "Waiting approval", "Done", "Invoiced"]
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "services",
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Full service",
+            "description": "Oil and filters, fluids, brakes and a 60-point check.",
+            "category": "Servicing",
+            "price": 189
+          },
+          "quantity": 2
+        },
+        {
+          "data": {
+            "name": "Annual inspection",
+            "category": "Inspection",
+            "price": 55
+          },
+          "quantity": 1
+        },
+        {
+          "data": {
+            "name": "Brake pads (front)",
+            "category": "Repairs",
+            "price": 120
+          },
+          "quantity": 2
+        },
+        {
+          "data": {
+            "name": "Diagnostic check",
+            "description": "Warning light read-out and road test.",
+            "category": "Diagnostics",
+            "price": 45
+          },
+          "quantity": 1
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "workshop_booking",
+      "entityRef": "bookings",
+      "name": "Book your car in",
+      "slug": "book-your-car-in",
+      "visibility": "public",
+      "fields": [
+        "name",
+        "email",
+        "phone",
+        "registration",
+        "make_model",
+        "mileage",
+        "selected_item",
+        "dropoff_at",
+        "courtesy_car",
+        "details"
+      ],
+      "catalogue": {
+        "entityRef": "services",
+        "fields": ["name", "description", "category", "price"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "dropoff_at",
+        "durationMinutes": { "toggle": "slot_length" },
+        "rateBasis": "flat",
+        "rateKey": "price",
+        "labelKey": "name"
+      },
+      "terms": true,
+      "notices": [
+        {
+          "body": "Prices are a starting point — we'll confirm the final price before starting any extra work."
+        }
+      ]
+    },
+    {
+      "ref": "job_card",
+      "entityRef": "job_cards",
+      "module": "job_cards",
+      "name": "New job card",
+      "slug": "job-card",
+      "visibility": "internal",
+      "fields": [
+        "registration",
+        "date",
+        "work_done",
+        "parts_cost",
+        "labour_hours",
+        "mechanic",
+        "status"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,238 @@
+{
+  "id": "clinic",
+  "name": "Graft Clinic",
+  "tagline": "Physio, dental, chiropractic, osteopathy and health clinics",
+  "description": "Your practitioners and what each charges, a public booking page where patients choose who to see and a time that is actually free, and appointments that never double-book a practitioner.",
+  "icon": "🩺",
+  "industry": "Health",
+  "highlights": [
+    "Practitioners with specialties and fees",
+    "Patients book a free slot with who they choose",
+    "Double-bookings refused automatically",
+    "New-patient and follow-up appointment types",
+    "Optional patient list and recall reminders"
+  ],
+  "nouns": [
+    {
+      "id": "practitioner",
+      "singular": "Practitioner",
+      "plural": "Practitioners",
+      "question": "Who do patients book with? (Practitioners, Therapists, Dentists…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Let patients book a time online",
+      "help": "On: patients pick a free time and clashes are refused. Off: patients send a request and you call to arrange.",
+      "default": true
+    },
+    {
+      "id": "appointment_length",
+      "kind": "choice",
+      "label": "How long is a standard appointment?",
+      "help": "Every online booking blocks this long in the diary. You can change it later on the form.",
+      "options": [
+        { "value": "min_20", "label": "20 minutes" },
+        { "value": "min_30", "label": "30 minutes" },
+        { "value": "min_45", "label": "45 minutes" },
+        { "value": "min_60", "label": "1 hour" }
+      ],
+      "default": "min_30"
+    }
+  ],
+  "modules": [
+    {
+      "id": "patients",
+      "name": "Patients",
+      "description": "Your patient list with contact details and who they usually see."
+    },
+    {
+      "id": "recalls",
+      "name": "Recalls",
+      "description": "Who is due back for a check-up or review, and when — with a form for your team."
+    }
+  ],
+  "policy": {
+    "title": "Appointment policy",
+    "body": "Please give at least 24 hours' notice to cancel or move an appointment. Missed appointments or late cancellations may be charged in full."
+  },
+  "entities": [
+    {
+      "ref": "practitioners",
+      "key": "practitioners",
+      "name": "Practitioners",
+      "noun": "practitioner",
+      "fields": [
+        { "key": "name", "label": "{Practitioner}", "type": "text", "required": true },
+        { "key": "specialty", "label": "Specialty", "type": "text", "required": true },
+        { "key": "bio", "label": "About", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        { "key": "price", "label": "Appointment fee", "type": "number", "required": true }
+      ]
+    },
+    {
+      "ref": "appointments",
+      "key": "appointments",
+      "name": "Appointments",
+      "fields": [
+        { "key": "patient_name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "required": true },
+        {
+          "key": "date_of_birth",
+          "label": "Date of birth",
+          "type": "date",
+          "optional": true
+        },
+        {
+          "key": "appointment_type",
+          "label": "Appointment type",
+          "type": "select",
+          "options": ["New patient", "Follow-up", "Check-up", "Other"],
+          "required": true
+        },
+        { "key": "appointment_at", "label": "Date and time", "type": "date", "required": true },
+        { "key": "selected_item", "label": "{Practitioner}", "type": "text" },
+        {
+          "key": "reason",
+          "label": "What would you like help with?",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Booked", "Arrived", "Completed", "No-show", "Cancelled"]
+        }
+      ]
+    },
+    {
+      "ref": "patients",
+      "key": "patients",
+      "name": "Patients",
+      "module": "patients",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email" },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        { "key": "date_of_birth", "label": "Date of birth", "type": "date", "optional": true },
+        {
+          "key": "usual_practitioner",
+          "label": "Usually sees",
+          "type": "text",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "ref": "recalls",
+      "key": "recalls",
+      "name": "Recalls",
+      "module": "recalls",
+      "fields": [
+        { "key": "patient", "label": "Patient", "type": "text", "required": true },
+        { "key": "due_on", "label": "Due on", "type": "date", "required": true },
+        {
+          "key": "recall_type",
+          "label": "For",
+          "type": "select",
+          "options": ["Check-up", "Review", "Hygiene", "Other"]
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Due", "Contacted", "Booked", "Declined"]
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "practitioners",
+      "pool": {
+        "strategy": "individual_asset",
+        "bufferMinutes": 10,
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Dr. Lena Weber",
+            "specialty": "Sports injuries",
+            "bio": "Back, knee and shoulder rehab.",
+            "price": 65
+          }
+        },
+        {
+          "data": {
+            "name": "Tom Byrne",
+            "specialty": "Musculoskeletal physio",
+            "price": 55
+          }
+        },
+        {
+          "data": {
+            "name": "Aisha Khan",
+            "specialty": "Pre- and post-natal care",
+            "price": 60
+          }
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "appointment",
+      "entityRef": "appointments",
+      "name": "Book an appointment",
+      "slug": "book-an-appointment",
+      "visibility": "public",
+      "fields": [
+        "patient_name",
+        "email",
+        "phone",
+        "date_of_birth",
+        "appointment_type",
+        "appointment_at",
+        "selected_item",
+        "reason"
+      ],
+      "catalogue": {
+        "entityRef": "practitioners",
+        "fields": ["name", "specialty", "bio", "price"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "appointment_at",
+        "durationMinutes": { "toggle": "appointment_length" },
+        "rateBasis": "flat",
+        "rateKey": "price",
+        "labelKey": "name",
+        "deposit": true
+      },
+      "payment": true,
+      "terms": true,
+      "notices": [
+        {
+          "title": "In an emergency",
+          "body": "This form is not monitored around the clock. If you need urgent medical help, call your local emergency number."
+        }
+      ]
+    },
+    {
+      "ref": "recall_entry",
+      "entityRef": "recalls",
+      "module": "recalls",
+      "name": "Add a recall",
+      "slug": "add-recall",
+      "visibility": "internal",
+      "fields": ["patient", "due_on", "recall_type", "status"]
+    }
+  ]
+}

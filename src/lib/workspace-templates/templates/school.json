@@ -1,0 +1,255 @@
+{
+  "id": "school",
+  "name": "Graft School",
+  "tagline": "Music, language, driving, art and tutoring schools",
+  "description": "Your courses with teachers, levels and fees, a public enrolment page where students choose a course and a start date, and classes that stop taking students once they are full.",
+  "icon": "🎓",
+  "industry": "Education",
+  "highlights": [
+    "Courses with teacher, level, fee and class size",
+    "Students enrol online for a start date",
+    "Full classes refuse more students",
+    "Optional deposit and enrolment terms",
+    "Optional student list and attendance register"
+  ],
+  "nouns": [
+    {
+      "id": "course",
+      "singular": "Course",
+      "plural": "Courses",
+      "question": "What do students sign up for? (Courses, Classes, Lessons…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "bookable",
+      "kind": "boolean",
+      "label": "Let students enrol online",
+      "help": "On: each enrolment takes a place and full classes are refused. Off: students register interest and you confirm.",
+      "default": true
+    },
+    {
+      "id": "lesson_length",
+      "kind": "choice",
+      "label": "How long is a lesson?",
+      "options": [
+        { "value": "min_45", "label": "45 minutes" },
+        { "value": "min_60", "label": "1 hour" },
+        { "value": "min_90", "label": "1½ hours" },
+        { "value": "min_120", "label": "2 hours" }
+      ],
+      "default": "min_60"
+    },
+    {
+      "id": "minors",
+      "kind": "boolean",
+      "label": "Do you teach children?",
+      "help": "Adds the student's age and a parent or guardian contact to the enrolment form.",
+      "default": false
+    }
+  ],
+  "modules": [
+    {
+      "id": "students",
+      "name": "Students",
+      "description": "Your students with contact details, level and which course they are on."
+    },
+    {
+      "id": "attendance",
+      "name": "Attendance register",
+      "description": "Mark who came to each lesson, with a form for your teachers."
+    }
+  ],
+  "policy": {
+    "title": "Enrolment terms",
+    "body": "Your place is confirmed once the fee or deposit is paid. Fees are refundable up to 7 days before the {course} starts; after that we can move you to a later start date instead."
+  },
+  "entities": [
+    {
+      "ref": "courses",
+      "key": "courses",
+      "name": "Courses",
+      "noun": "course",
+      "fields": [
+        { "key": "name", "label": "{Course}", "type": "text", "required": true },
+        { "key": "description", "label": "Description", "type": "text", "optional": true },
+        { "key": "photo", "label": "Photo", "type": "image", "optional": true },
+        { "key": "teacher", "label": "Teacher", "type": "text", "optional": true },
+        {
+          "key": "level",
+          "label": "Level",
+          "type": "select",
+          "options": ["Beginner", "Intermediate", "Advanced", "All levels"],
+          "optional": true
+        },
+        { "key": "lessons", "label": "Number of lessons", "type": "number", "optional": true },
+        { "key": "price", "label": "Fee", "type": "number", "required": true }
+      ]
+    },
+    {
+      "ref": "enrolments",
+      "key": "enrolments",
+      "name": "Enrolments",
+      "fields": [
+        { "key": "student_name", "label": "Student's name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "phone", "label": "Phone", "type": "phone", "required": true },
+        {
+          "key": "student_age",
+          "label": "Student's age",
+          "type": "number",
+          "when": [{ "toggle": "minors", "equals": true }]
+        },
+        {
+          "key": "guardian_name",
+          "label": "Parent or guardian",
+          "type": "text",
+          "when": [{ "toggle": "minors", "equals": true }]
+        },
+        { "key": "start_at", "label": "First lesson", "type": "date", "required": true },
+        { "key": "selected_item", "label": "{Course}", "type": "text" },
+        {
+          "key": "experience",
+          "label": "Experience so far",
+          "type": "select",
+          "options": ["None", "A little", "Some", "A lot"],
+          "optional": true
+        },
+        {
+          "key": "notes",
+          "label": "Anything we should know?",
+          "type": "text",
+          "optional": true
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["Enrolled", "Paid", "Waitlist", "Completed", "Withdrawn"]
+        }
+      ]
+    },
+    {
+      "ref": "students",
+      "key": "students",
+      "name": "Students",
+      "module": "students",
+      "fields": [
+        { "key": "name", "label": "Name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email" },
+        { "key": "phone", "label": "Phone", "type": "phone" },
+        { "key": "course", "label": "{Course}", "type": "text", "optional": true },
+        {
+          "key": "level",
+          "label": "Level",
+          "type": "select",
+          "options": ["Beginner", "Intermediate", "Advanced"],
+          "optional": true
+        },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    },
+    {
+      "ref": "attendance",
+      "key": "attendance",
+      "name": "Attendance",
+      "module": "attendance",
+      "fields": [
+        { "key": "student", "label": "Student", "type": "text", "required": true },
+        { "key": "course", "label": "{Course}", "type": "text", "required": true },
+        { "key": "date", "label": "Date", "type": "date", "required": true },
+        { "key": "present", "label": "Present", "type": "checkbox" },
+        { "key": "notes", "label": "Notes", "type": "text", "optional": true }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "courses",
+      "pool": {
+        "strategy": "pooled_quantity",
+        "when": [{ "toggle": "bookable", "equals": true }]
+      },
+      "records": [
+        {
+          "data": {
+            "name": "Guitar for beginners",
+            "description": "Chords, strumming and your first songs.",
+            "teacher": "Marco",
+            "level": "Beginner",
+            "lessons": 8,
+            "price": 160
+          },
+          "quantity": 6
+        },
+        {
+          "data": {
+            "name": "Spanish conversation",
+            "description": "Speak from week one in a small group.",
+            "teacher": "Lucía",
+            "level": "Intermediate",
+            "lessons": 10,
+            "price": 190
+          },
+          "quantity": 8
+        },
+        {
+          "data": {
+            "name": "Life drawing",
+            "teacher": "Hannah",
+            "level": "All levels",
+            "lessons": 6,
+            "price": 120
+          },
+          "quantity": 10
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "enrolment",
+      "entityRef": "enrolments",
+      "name": "Enrol on a {course}",
+      "slug": "enrol",
+      "visibility": "public",
+      "fields": [
+        "student_name",
+        "email",
+        "phone",
+        "student_age",
+        "guardian_name",
+        "selected_item",
+        "start_at",
+        "experience",
+        "notes"
+      ],
+      "catalogue": {
+        "entityRef": "courses",
+        "fields": ["name", "description", "teacher", "level", "lessons", "price"],
+        "imageField": "photo",
+        "selectionKey": "selected_item"
+      },
+      "booking": {
+        "when": [{ "toggle": "bookable", "equals": true }],
+        "startKey": "start_at",
+        "durationMinutes": { "toggle": "lesson_length" },
+        "rateBasis": "flat",
+        "rateKey": "price",
+        "labelKey": "name",
+        "deposit": true
+      },
+      "payment": true,
+      "terms": true
+    },
+    {
+      "ref": "attendance_entry",
+      "entityRef": "attendance",
+      "module": "attendance",
+      "name": "Mark attendance",
+      "slug": "mark-attendance",
+      "visibility": "internal",
+      "fields": ["student", "course", "date", "present", "notes"]
+    }
+  ]
+}

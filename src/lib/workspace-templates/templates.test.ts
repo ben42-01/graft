@@ -186,8 +186,8 @@ function allText(plan: WorkspacePlan): string[] {
 }
 
 describe("WORKSPACE_TEMPLATES", () => {
-  it("ships the ten business templates", () => {
-    expect(WORKSPACE_TEMPLATES).toHaveLength(10);
+  it("ships the fifteen business templates", () => {
+    expect(WORKSPACE_TEMPLATES).toHaveLength(15);
     const ids = WORKSPACE_TEMPLATES.map((template) => template.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
