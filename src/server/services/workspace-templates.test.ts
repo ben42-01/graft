@@ -327,3 +327,49 @@ describe("applyWorkspaceTemplate", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("applyWorkspaceTemplate — form-write roles (GRAFT-31 AC7)", () => {
+  const withRoles = (roles: Ctx["roles"]): Ctx =>
+    createContext({
+      requestId: "req-templates-roles",
+      tenantId: TENANT,
+      userId: "00000000000000000000000b",
+      roles,
+      tier: "free",
+    });
+
+  it("refuses a member before any quota read, run, name, entity, record, pool or form", async () => {
+    const { deps, calls, runs } = harness();
+    await expect(
+      applyWorkspaceTemplate(withRoles(["member"]), "hotel", {}, deps),
+    ).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: "Only an owner or admin can change forms",
+    });
+    expect(calls).toEqual([]);
+    expect(runs.docs).toEqual([]);
+    expect(deps.peekQuota).not.toHaveBeenCalled();
+    expect(deps.getEntityByKey).not.toHaveBeenCalled();
+    expect(deps.formSlugTaken).not.toHaveBeenCalled();
+  });
+
+  it("refuses a member resuming a run, too", async () => {
+    const { deps, calls } = harness();
+    await expect(
+      applyWorkspaceTemplate(
+        withRoles(["member"]),
+        "hotel",
+        { runId: "0000000000000000000000ff" },
+        deps,
+      ),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(calls).toEqual([]);
+  });
+
+  it("lets an admin apply a template exactly as an owner does", async () => {
+    const { deps, count } = harness();
+    const result = await applyWorkspaceTemplate(withRoles(["admin"]), "hotel", {}, deps);
+    expect(result.status).toBe("completed");
+    expect(count("createForm")).toBe(1);
+  });
+});

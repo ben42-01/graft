@@ -50,6 +50,7 @@ import {
   type EntityView,
 } from "./entities";
 import {
+  assertCanWriteForms,
   createForm as createFormDefault,
   publishForm as publishFormDefault,
   type FormDoc,
@@ -366,6 +367,9 @@ export async function applyWorkspaceTemplate(
   body: z.infer<typeof applyBodySchema>,
   overrides: Partial<WorkspaceTemplateDeps> = {},
 ): Promise<ApplyView> {
+  // GRAFT-31 AC7 — every template builds and publishes forms, so applying one
+  // is a form write. Refused before the run, a name or an entity exists.
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const template = templateOrThrow(templateId);
 

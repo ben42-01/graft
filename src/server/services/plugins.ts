@@ -36,7 +36,7 @@ import {
   getEntityByKey as getEntityByKeyDefault,
   type EntityView,
 } from "./entities";
-import { createForm as createFormDefault } from "./forms";
+import { assertCanWriteForms, createForm as createFormDefault } from "./forms";
 import { loadEntitlements as loadEntitlementsDefault, type Entitlements } from "./entitlements";
 import { consumeQuota as consumeQuotaDefault, type Meter, type QuotaResult } from "./meters";
 import { createRepository, type Repository } from "@/server/repositories/base";
@@ -192,6 +192,10 @@ export async function enablePlugin(
   const deps = resolveDeps(overrides);
   const manifest = findPlugin(pluginId);
   if (!manifest) throw new AppError("NOT_FOUND", "Plugin not found");
+  // GRAFT-31 AC7 — a plugin that provisions forms is a form write. Refused
+  // here, before its entities exist, rather than at `createForm` halfway
+  // through provisioning, which would leave a member's half-built plugin.
+  if (manifest.forms.length > 0) assertCanWriteForms(ctx);
 
   const existing = await deps.repo.findOne(ctx, { pluginId } as Filter<PluginEnabledDoc>);
   const entitlements = await deps.entitlements(ctx);

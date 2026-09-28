@@ -2409,6 +2409,15 @@
       "source": "src/app/api/v1/workspace-templates/[templateId]/apply/route.ts",
       "examples": [
         {
+          "name": "A member cannot apply a template, and nothing is built",
+          "file": "bruno/workspace-templates/apply-member-forbidden.bru",
+          "pathParams": {
+            "templateId": "hotel"
+          },
+          "query": {},
+          "body": "{\n  \"answers\": {}\n}"
+        },
+        {
           "name": "Applying again with a finished run's id changes nothing",
           "file": "bruno/workspace-templates/apply-resume-completed.bru",
           "pathParams": {
