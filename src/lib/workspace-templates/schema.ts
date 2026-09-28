@@ -237,6 +237,12 @@ const blueprintFormSchema = z
         fields: z.array(identifier(64)).max(6),
         imageField: identifier(64).nullable().default(null),
         selectionKey: identifier(64),
+        /**
+         * Cart mode wanted (GRAFT-30.5). Only a wish: `resolve.ts` turns it on
+         * only where GRAFT-30.1's cart rules allow it, and takes the booking's
+         * quantity field off the form when it does.
+         */
+        multiple: z.boolean().default(false),
       })
       .strict()
       .optional(),

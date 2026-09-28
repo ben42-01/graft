@@ -1,0 +1,68 @@
+meta {
+  name: Applying Graft Shop with no payment link builds its order form in cart mode
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{baseUrl}}/api/v1/forms/{{shopCartFormId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{templatesAccessToken}}
+}
+
+script:pre-request {
+  // The apply happens here so that the request this file *asserts on* is the
+  // form read (GET), synchronously — an async `test()` body would not count
+  // towards the gate. The apply's own outcome is carried across in vars and
+  // asserted in synchronous tests below. Premium tenant, token minted by
+  // list.bru (seq 1) — the free fixture tenant's `api` budget is spent.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const apply = await axios.post(
+    `${baseUrl}/api/v1/workspace-templates/shop/apply`,
+    { answers: {} },
+    {
+      headers: { Authorization: `Bearer ${bru.getVar("templatesAccessToken")}` },
+      validateStatus: () => true,
+    },
+  );
+  const data = apply.data?.data;
+  bru.setVar("shopApplyStatus", apply.status);
+  bru.setVar("shopApplyRunStatus", data?.status);
+  bru.setVar("shopApplyFormCount", data?.forms?.length);
+  bru.setVar("shopCartFormId", data?.forms?.[0]?.id ?? "000000000000000000000000");
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.visibility: eq public
+  res.body.data.catalogue.multiple: eq true
+  res.body.data.booking.quantityKey: isNull
+  res.body.error: isUndefined
+}
+
+tests {
+  test("the apply itself succeeds and builds the one public order form", function () {
+    expect(String(bru.getVar("shopApplyStatus"))).to.equal("201");
+    expect(bru.getVar("shopApplyRunStatus")).to.equal("completed");
+    expect(String(bru.getVar("shopApplyFormCount"))).to.equal("1");
+    expect(res.getBody().data.id).to.equal(bru.getVar("shopCartFormId"));
+  });
+
+  test("the quantity field is off the form: each cart line carries its own", function () {
+    const keys = res.getBody().data.fields.map((field) => field.key);
+    expect(keys).to.not.include("quantity");
+    expect(keys).to.include("selected_item");
+  });
+}
+
+docs {
+  GRAFT-30.5 AC7. Graft Shop applied through the real apply endpoint with its
+  default answers — bookable on, no payment link — so `resolve.ts` turns the
+  blueprint's `catalogue.multiple` on, and the created form's read (GET)
+  reports it. There is no public JSON form endpoint to read instead.
+}

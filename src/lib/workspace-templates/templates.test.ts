@@ -5,6 +5,7 @@
  * template that 400s halfway through "Set up my business" is worse than no
  * template, and it would leave half a workspace behind.
  */
+import { createHash } from "node:crypto";
 import { ObjectId } from "mongodb";
 import { describe, expect, it } from "vitest";
 import {
@@ -13,6 +14,7 @@ import {
   fieldDefSchema,
 } from "@/server/services/entities";
 import {
+  cartConfigErrors,
   createFormSchema,
   formSlugSchema,
   resolveBooking,
@@ -224,6 +226,18 @@ describe("WORKSPACE_TEMPLATES", () => {
         }
       });
 
+      it("satisfies every cart-mode rule under every combination of answers", () => {
+        // GRAFT-30.5 AC4: the server's own rules (GRAFT-30.1), not a copy.
+        for (const answers of answerCombinations(template)) {
+          for (const form of resolveTemplate(template, answers).forms) {
+            expect(
+              cartConfigErrors(form.catalogue, form.booking, form.payment),
+              `${template.id} ${form.ref} ${JSON.stringify(answers)}`,
+            ).toEqual({});
+          }
+        }
+      });
+
       it("leaves no unfilled {placeholder} anywhere", () => {
         for (const answers of answerCombinations(template)) {
           for (const text of allText(resolveTemplate(template, answers))) {
@@ -392,6 +406,146 @@ describe("resolveTemplate", () => {
       resolveTemplate(hotel, answers as TemplateAnswersInput);
     } catch (error) {
       expect((error as TemplateAnswerError).field).toBe(field);
+    }
+  });
+});
+
+describe("cart mode (GRAFT-30.5)", () => {
+  const CART_TEMPLATES = [
+    ["shop", "order"],
+    ["equipment_hire", "hire_request"],
+  ] as const;
+
+  /** The same template with the blueprint's cart switch forced off. */
+  function withoutCart(template: WorkspaceTemplate): WorkspaceTemplate {
+    return {
+      ...template,
+      forms: template.forms.map((form) =>
+        form.catalogue ? { ...form, catalogue: { ...form.catalogue, multiple: false } } : form,
+      ),
+    };
+  }
+
+  describe.each(CART_TEMPLATES)("%s", (id, formRef) => {
+    const template = findWorkspaceTemplate(id)!;
+    const formOf = (plan: WorkspacePlan) => plan.forms.find((form) => form.ref === formRef)!;
+
+    it("asks for cart mode in its blueprint, keeping the quantity field", () => {
+      const blueprint = template.forms.find((form) => form.ref === formRef)!;
+      expect(blueprint.catalogue!.multiple).toBe(true);
+      expect(blueprint.fields).toContain("quantity");
+      expect(blueprint.booking!.quantityKey).toBe("quantity");
+    });
+
+    it("AC3: resolves with default answers to a cart form with no quantity field", () => {
+      const form = formOf(resolveTemplate(template));
+      expect(form.catalogue!.multiple).toBe(true);
+      expect(form.booking!.quantityKey).toBeNull();
+      expect(form.fields).not.toContain("quantity");
+      expect(form.payment).toBeNull();
+    });
+
+    it("AC5: stays single-product with bookable off", () => {
+      const form = formOf(resolveTemplate(template, { toggles: { bookable: false } }));
+      expect(form.catalogue!.multiple).toBe(false);
+      expect(form.booking).toBeNull();
+      expect(form.fields).toContain("quantity");
+    });
+
+    it("AC5: stays single-product with a payment link, and keeps the link", () => {
+      const form = formOf(resolveTemplate(template, { paymentLink: PAYMENT_LINK }));
+      expect(form.catalogue!.multiple).toBe(false);
+      expect(form.booking!.quantityKey).toBe("quantity");
+      expect(form.fields).toContain("quantity");
+      expect(form.payment).toEqual({
+        mode: "link",
+        link: { url: PAYMENT_LINK },
+        required: false,
+      });
+    });
+
+    it("AC1 + AC2: cart only with booking and no link; otherwise exactly the single-product form", () => {
+      for (const answers of answerCombinations(template)) {
+        const plan = resolveTemplate(template, answers);
+        const single = resolveTemplate(withoutCart(template), answers);
+        const form = formOf(plan);
+        const legal = form.booking !== null && !answers.paymentLink;
+        expect(form.catalogue!.multiple, JSON.stringify(answers)).toBe(legal);
+        if (!legal) {
+          expect(plan, JSON.stringify(answers)).toEqual(single);
+          continue;
+        }
+        // The only differences: the switch, the quantity key and the field.
+        const before = formOf(single);
+        expect(form).toEqual({
+          ...before,
+          fields: before.fields.filter((key) => key !== "quantity"),
+          catalogue: { ...before.catalogue!, multiple: true },
+          booking: { ...before.booking!, quantityKey: null },
+        });
+        expect(before.booking!.quantityKey).toBe("quantity");
+        expect(plan.forms.filter((other) => other.ref !== formRef)).toEqual(
+          single.forms.filter((other) => other.ref !== formRef),
+        );
+      }
+    });
+  });
+
+  /**
+   * AC6: every other template resolves exactly as it did before GRAFT-30.5.
+   * Each digest is of the template's plans under every answer combination,
+   * with the new `catalogue.multiple` key taken out, computed on develop at
+   * f8dbc28 — before cart mode existed in `resolve.ts`. A digest that moves
+   * means a template's output changed.
+   */
+  const DIGEST_BEFORE_CART: Record<string, string> = {
+    clinic: "3e417fd338819a56",
+    fitness_studio: "aeb4ff251374bc75",
+    garage: "cdaa9125e8a2211e",
+    hotel: "40d7b8983c0c8f6e",
+    pet_care: "86586749bfa7c239",
+    professional_services: "80d4f36483f11baf",
+    restaurant: "782423f94d201d82",
+    salon: "258eb673e5d2c727",
+    school: "4404da710aecdb97",
+    tours: "0e0cf13dcc6d9297",
+    trades: "e6cb2b16bc3dbd62",
+    vehicle_rental: "a11c91ecd396e5b2",
+    venue: "60757f1565c7f0c3",
+  };
+
+  function digest(template: WorkspaceTemplate): string {
+    const plans = answerCombinations(template).map((answers) => {
+      const plan = resolveTemplate(template, answers);
+      return {
+        ...plan,
+        forms: plan.forms.map((form) => {
+          if (!form.catalogue) return form;
+          const catalogue: Partial<typeof form.catalogue> = { ...form.catalogue };
+          delete catalogue.multiple;
+          return { ...form, catalogue };
+        }),
+      };
+    });
+    return createHash("sha256").update(JSON.stringify(plans)).digest("hex").slice(0, 16);
+  }
+
+  const others = WORKSPACE_TEMPLATES.filter(
+    (template) => !CART_TEMPLATES.some(([id]) => id === template.id),
+  );
+
+  it("leaves the thirteen other templates exactly as they were (AC6)", () => {
+    expect(others).toHaveLength(13);
+    const digests = Object.fromEntries(
+      others.map((template) => [template.id, digest(template)]),
+    );
+    expect(digests).toEqual(DIGEST_BEFORE_CART);
+    for (const template of others) {
+      for (const answers of answerCombinations(template)) {
+        for (const form of resolveTemplate(template, answers).forms) {
+          if (form.catalogue) expect(form.catalogue.multiple, template.id).toBe(false);
+        }
+      }
     }
   });
 });

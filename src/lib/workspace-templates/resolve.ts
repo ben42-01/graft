@@ -88,6 +88,8 @@ export type PlannedForm = {
     fields: string[];
     imageField: string | null;
     selectionKey: string;
+    /** Cart mode — on only where GRAFT-30.1's rules allow it (see `resolveTemplate`). */
+    multiple: boolean;
   } | null;
   booking: PlannedBooking | null;
   payment: { mode: "link"; link: { url: string }; required: boolean } | null;
@@ -315,7 +317,7 @@ export function resolveTemplate(
     if (!inModule(form.module) || !holds(form.when) || !entityByRef.has(form.entityRef))
       continue;
     const keys = fieldKeys(form.entityRef);
-    const fields = form.fields.filter((key) => keys.has(key));
+    let fields = form.fields.filter((key) => keys.has(key));
     if (fields.length === 0) {
       throw new Error(`${template.id}: form "${form.ref}" has no fields left`);
     }
@@ -332,6 +334,7 @@ export function resolveTemplate(
                   ? form.catalogue.imageField
                   : null,
               selectionKey: form.catalogue.selectionKey,
+              multiple: false,
             };
           })()
         : null;
@@ -370,6 +373,21 @@ export function resolveTemplate(
             : null,
         depositPercent: form.booking.deposit ? answers.depositPercent : null,
       };
+    }
+
+    // Cart mode (GRAFT-30.5). The blueprint only asks for it; it is turned on
+    // only where GRAFT-30.1's rules (`cartConfigErrors`) allow it — a booking
+    // to price the order, and no payment link, whose fixed price cannot match
+    // a cart total. A link keeps the form single-product rather than being
+    // dropped. In a cart each line carries its own quantity, so the booking's
+    // quantity field comes off the form; otherwise the form is untouched.
+    if (catalogue !== null && booking !== null && form.catalogue?.multiple && !payment) {
+      catalogue.multiple = true;
+      const quantityKey = booking.quantityKey;
+      if (quantityKey !== null) {
+        fields = fields.filter((key) => key !== quantityKey);
+        booking.quantityKey = null;
+      }
     }
 
     const last = fields[fields.length - 1] ?? null;
