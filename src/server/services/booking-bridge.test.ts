@@ -16,6 +16,7 @@
  */
 import { ObjectId, type ClientSession } from "mongodb";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { AppError } from "@/server/http/envelope";
 import type { BookingConfig } from "./forms";
 import type { InventoryPoolDoc } from "./inventory";
 import type { RecordDoc } from "./records";
@@ -316,5 +317,235 @@ describe("bridgeBooking", () => {
 
     const [, order] = (deps.insertOrder as ReturnType<typeof vi.fn>).mock.calls[0];
     expect(order.totalMinor).toBe(0);
+  });
+});
+
+/**
+ * GRAFT-30.2 — cart mode: one order, one line per item, every line priced off
+ * its own record and held against its own pool, all in the one session.
+ */
+describe("bridgeBooking — cart mode", () => {
+  const LOAF = new ObjectId("0000000000000000000000a1");
+  const VEG_BOX = new ObjectId("0000000000000000000000a2");
+  const LOAF_POOL = new ObjectId("0000000000000000000000b1");
+  const VEG_POOL = new ObjectId("0000000000000000000000b2");
+  const LOAF_ALLOCATION = new ObjectId("0000000000000000000000c1");
+  const VEG_ALLOCATION = new ObjectId("0000000000000000000000c2");
+
+  const flat = (over: Partial<BookingConfig> = {}) =>
+    booking({ rateBasis: "flat", rateKey: "price", labelKey: "name", ...over });
+
+  const records: Record<string, Record<string, unknown>> = {
+    [LOAF.toHexString()]: { name: "Sourdough loaf", price: 5 },
+    [VEG_BOX.toHexString()]: { name: "Veg box", price: 22 },
+  };
+  const pools: Record<string, ObjectId> = {
+    [LOAF.toHexString()]: LOAF_POOL,
+    [VEG_BOX.toHexString()]: VEG_POOL,
+  };
+
+  const cartStore = (over: Partial<BookingBridgeStore> = {}) =>
+    store({
+      findRecord: vi.fn(async (_s, _t, id: ObjectId) => {
+        const data = records[id.toHexString()];
+        return data ? { ...resource(), _id: id, data } : null;
+      }),
+      findPoolByRecord: vi.fn(async (_s, _t, id: ObjectId) => {
+        const poolId = pools[id.toHexString()];
+        return poolId ? { ...pool({ recordId: id, totalQuantity: 50 }), _id: poolId } : null;
+      }),
+      ...over,
+    });
+
+  const cart = [
+    { recordId: LOAF, quantity: 2 },
+    { recordId: VEG_BOX, quantity: 1 },
+  ];
+
+  beforeEach(() => {
+    allocateInSession.mockImplementation(async (_s, input: { pool: { _id: ObjectId } }) => ({
+      _id: input.pool._id.equals(LOAF_POOL) ? LOAF_ALLOCATION : VEG_ALLOCATION,
+    }));
+  });
+
+  const insertedOrder = (deps: BookingBridgeStore) => {
+    expect(deps.insertOrder).toHaveBeenCalledTimes(1);
+    return (deps.insertOrder as ReturnType<typeof vi.fn>).mock.calls[0][1];
+  };
+
+  it("AC1 — raises exactly one order with a line per item, each priced off its own record", async () => {
+    const deps = cartStore();
+    const result = await bridge({ store: deps, booking: flat(), selectedRecordId: null, cart });
+
+    const order = insertedOrder(deps);
+    expect(order.lineItems).toEqual([
+      expect.objectContaining({
+        description: "Sourdough loaf",
+        quantity: 2,
+        unitAmountMinor: 500,
+        amountMinor: 1_000,
+        recordId: LOAF.toHexString(),
+        poolId: LOAF_POOL.toHexString(),
+        allocationId: LOAF_ALLOCATION.toHexString(),
+      }),
+      expect.objectContaining({
+        description: "Veg box",
+        quantity: 1,
+        unitAmountMinor: 2_200,
+        amountMinor: 2_200,
+        recordId: VEG_BOX.toHexString(),
+        allocationId: VEG_ALLOCATION.toHexString(),
+      }),
+    ]);
+    expect(order.totalMinor).toBe(3_200);
+    expect(order.allocationIds).toEqual([LOAF_ALLOCATION, VEG_ALLOCATION]);
+    expect(result).toEqual({ orderId: expect.any(ObjectId), allocationId: LOAF_ALLOCATION });
+  });
+
+  it("AC1 — holds each pooled line for its own quantity, in the one shared window", async () => {
+    await bridge({ store: cartStore(), booking: flat(), selectedRecordId: null, cart });
+
+    expect(allocateInSession).toHaveBeenCalledTimes(2);
+    expect(allocateInSession).toHaveBeenNthCalledWith(
+      1,
+      SESSION,
+      expect.objectContaining({ quantity: 2, startAt: START, endAt: END, expiresAt: null }),
+    );
+    expect(allocateInSession).toHaveBeenNthCalledWith(
+      2,
+      SESSION,
+      expect.objectContaining({ quantity: 1, startAt: START, endAt: END, expiresAt: null }),
+    );
+  });
+
+  it("AC7 — a percentage deposit applies to the order total, rounded down", async () => {
+    const deps = cartStore();
+    await bridge({
+      store: deps,
+      booking: flat({ depositPercent: 30 }),
+      selectedRecordId: null,
+      cart,
+    });
+    expect(insertedOrder(deps).depositMinor).toBe(960);
+  });
+
+  it("AC7 — the deposit rounds down on a total that does not divide evenly", async () => {
+    records[LOAF.toHexString()].price = 0.07;
+    try {
+      const deps = cartStore();
+      await bridge({
+        store: deps,
+        booking: flat({ depositPercent: 30 }),
+        selectedRecordId: null,
+        cart,
+      });
+      // 2 × 7 + 2200 = 2214; 30% is 664.2, which `depositFor` floors to 664.
+      const order = insertedOrder(deps);
+      expect(order.totalMinor).toBe(2_214);
+      expect(order.depositMinor).toBe(664);
+    } finally {
+      records[LOAF.toHexString()].price = 5;
+    }
+  });
+
+  it("prices a time-based cart by the shared window, per line", async () => {
+    const deps = cartStore();
+    await bridge({
+      store: deps,
+      booking: flat({ rateBasis: "hourly" }),
+      selectedRecordId: null,
+      cart,
+    });
+    // 4 hours × €5 per loaf, twice; 4 hours × €22 for the box.
+    expect(insertedOrder(deps).totalMinor).toBe(2 * 2_000 + 8_800);
+  });
+
+  it("raises an unpooled line with no allocation, and still one order", async () => {
+    const deps = cartStore({
+      findPoolByRecord: vi.fn(async (_s, _t, id: ObjectId) =>
+        id.equals(LOAF) ? { ...pool({ recordId: LOAF }), _id: LOAF_POOL } : null,
+      ),
+    });
+    const result = await bridge({ store: deps, booking: flat(), selectedRecordId: null, cart });
+
+    const order = insertedOrder(deps);
+    expect(allocateInSession).toHaveBeenCalledTimes(1);
+    expect(order.allocationIds).toEqual([LOAF_ALLOCATION]);
+    expect(order.lineItems[1].allocationId).toBeUndefined();
+    expect(result?.allocationId).toEqual(LOAF_ALLOCATION);
+  });
+
+  it("AC3 — a line the pool cannot hold refuses the whole cart, naming that line", async () => {
+    allocateInSession.mockImplementation(async (_s, input: { pool: { _id: ObjectId } }) => {
+      if (input.pool._id.equals(VEG_POOL)) {
+        throw new AppError("CONFLICT", "That resource is not available", {
+          capacity: 1,
+          used: 1,
+          requested: 1,
+        });
+      }
+      return { _id: LOAF_ALLOCATION };
+    });
+    const deps = cartStore();
+
+    await expect(
+      bridge({ store: deps, booking: flat(), selectedRecordId: null, cart }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: expect.objectContaining({
+        fields: { "_cart.1": expect.stringMatching(/not enough/i) },
+        capacity: 1,
+      }),
+    });
+    expect(deps.insertOrder).not.toHaveBeenCalled();
+  });
+
+  it("propagates an error that is not a capacity conflict unchanged", async () => {
+    const boom = new Error("socket closed");
+    allocateInSession.mockRejectedValue(boom);
+    await expect(
+      bridge({ store: cartStore(), booking: flat(), selectedRecordId: null, cart }),
+    ).rejects.toBe(boom);
+  });
+
+  it("AC4 — a line whose record vanished inside the transaction is named and nothing is ordered", async () => {
+    const deps = cartStore({
+      findRecord: vi.fn(async (_s, _t, id: ObjectId) =>
+        id.equals(LOAF)
+          ? { ...resource(), _id: LOAF, data: records[LOAF.toHexString()] }
+          : null,
+      ),
+    });
+    await expect(
+      bridge({ store: deps, booking: flat(), selectedRecordId: null, cart }),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      details: { fields: { "_cart.1": "That item is no longer available" } },
+    });
+    expect(deps.insertOrder).not.toHaveBeenCalled();
+  });
+
+  it("AC2 — the order stores its amounts, so a later rate change cannot re-price it", async () => {
+    const deps = cartStore();
+    await bridge({ store: deps, booking: flat(), selectedRecordId: null, cart });
+    const order = insertedOrder(deps);
+    records[LOAF.toHexString()].price = 999;
+    try {
+      expect(order.lineItems[0].amountMinor).toBe(1_000);
+      expect(order.totalMinor).toBe(3_200);
+    } finally {
+      records[LOAF.toHexString()].price = 5;
+    }
+  });
+
+  it("does nothing on a cart form without booking mode, or with an empty cart", async () => {
+    const deps = cartStore();
+    expect(
+      await bridge({ store: deps, booking: null, selectedRecordId: null, cart }),
+    ).toBeNull();
+    expect(
+      await bridge({ store: deps, booking: flat(), selectedRecordId: null, cart: [] }),
+    ).toBeNull();
+    expect(deps.insertOrder).not.toHaveBeenCalled();
   });
 });

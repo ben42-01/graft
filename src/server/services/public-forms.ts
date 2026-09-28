@@ -48,7 +48,9 @@ import { MAX_CONTENT_BLOCKS, type LinkBlock } from "@/lib/content-blocks";
 import {
   bridgeBooking as bridgeBookingDefault,
   mongoBookingBridgeStore,
+  resourceName,
   type BridgeResult,
+  type CartLine,
 } from "./booking-bridge";
 import { isReadOnly, loadEntitlements, type Entitlements } from "./entitlements";
 import { periodFor, type Meter } from "./meters";
@@ -73,6 +75,48 @@ const METER: Meter = "form_submissions";
  */
 export const MIN_FILL_MS = 1_500;
 
+/** GRAFT-30.2 AC5 — how big a cart may be. */
+export const MAX_CART_LINES = 20;
+export const MAX_CART_QUANTITY = 100_000;
+
+/**
+ * One cart line: a record and how many. `.strict()` so a line carrying a
+ * `price`, `amount` or anything else is refused rather than stripped — the
+ * visitor never gets to say what something costs, and silently dropping the
+ * attempt would hide a client that thinks it can (GRAFT-30.2 AC2).
+ */
+const cartLineSchema = z
+  .object({
+    recordId: z.string().regex(/^[0-9a-f]{24}$/i, "Not a valid item"),
+    quantity: z
+      .number()
+      .int("Quantity must be a whole number")
+      .min(1, "Quantity must be at least 1")
+      .max(MAX_CART_QUANTITY, `Quantity must be at most ${MAX_CART_QUANTITY}`),
+  })
+  .strict();
+
+const cartSchema = z
+  .array(cartLineSchema)
+  .min(1, "The cart is empty")
+  .max(MAX_CART_LINES, `A cart holds at most ${MAX_CART_LINES} items`)
+  .superRefine((lines, issue) => {
+    // One line per record: two lines for the same thing would hold its
+    // capacity twice and price it twice under one name.
+    const seen = new Set<string>();
+    lines.forEach((line, index) => {
+      const id = line.recordId.toLowerCase();
+      if (seen.has(id)) {
+        issue.addIssue({
+          code: "custom",
+          path: [index],
+          message: "That item is already in the cart",
+        });
+      }
+      seen.add(id);
+    });
+  });
+
 export const submitFormSchema = z.object({
   data: z.record(z.string(), z.unknown()),
   /** Honeypot — a real browser never fills this (AC3). */
@@ -96,6 +140,13 @@ export const submitFormSchema = z.object({
    * visitor types into the record, it is a fact about the submission.
    */
   _agreed: z.array(z.string().max(24)).max(MAX_CONTENT_BLOCKS).optional(),
+  /**
+   * Cart mode (GRAFT-30.2): every catalogue record the visitor picked, with a
+   * quantity each. Out of band like `_selection`, and only on a form whose
+   * catalogue is `multiple`. No price, rate or total — those come off the
+   * records, server-side, inside the transaction.
+   */
+  _cart: cartSchema.optional(),
 });
 
 export type SubmitFormInput = z.input<typeof submitFormSchema>;
@@ -181,6 +232,14 @@ export type PublicFormDeps = {
     entityDefId: ObjectId,
     recordId: string,
   ) => Promise<boolean>;
+  /** The cart counterpart of `findCatalogueRecord`: the live records of this
+   * form's catalogue entity, in this tenant, among `recordIds` — with their
+   * data, which is what the submission's readable summary is written from. */
+  findCatalogueRecords: (
+    tenantId: ObjectId,
+    entityDefId: ObjectId,
+    recordIds: string[],
+  ) => Promise<Array<{ id: string; data: Record<string, unknown> }>>;
   loadEntitlements: (ctx: Ctx) => Promise<Entitlements>;
   store: PublicFormWriteStore;
   /** The order-and-allocation half of a booking form (booking-bridge.ts),
@@ -193,6 +252,7 @@ export type PublicFormDeps = {
       tenantId: ObjectId;
       booking: FormDoc["booking"];
       selectedRecordId: ObjectId | null;
+      cart: CartLine[] | null;
       submissionRecordId: ObjectId;
       data: Record<string, unknown>;
       now: Date;
@@ -231,6 +291,26 @@ function resolveDeps(overrides: Partial<PublicFormDeps> = {}): PublicFormDeps {
           { projection: { _id: 1 } },
         );
         return found !== null;
+      }),
+    findCatalogueRecords:
+      overrides.findCatalogueRecords ??
+      (async (tenantId, entityDefId, recordIds) => {
+        const ids = recordIds
+          .filter((id) => ObjectId.isValid(id))
+          .map((id) => new ObjectId(id));
+        if (ids.length === 0) return [];
+        const db = await getDb();
+        // Scoped by tenant *and* the form's catalogue entity: an id from
+        // another tenant, another entity or a deleted record simply is not
+        // found, and the resolver reports that line.
+        const rows = await db
+          .collection<RecordDoc>("records")
+          .find(
+            { _id: { $in: ids }, tenantId, entityDefId, deletedAt: null },
+            { projection: { _id: 1, data: 1 } },
+          )
+          .toArray();
+        return rows.map((row) => ({ id: row._id.toHexString(), data: row.data }));
       }),
     loadEntitlements: overrides.loadEntitlements ?? ((ctx) => loadEntitlements(ctx)),
     store: overrides.store ?? mongoPublicFormWriteStore(),
@@ -438,6 +518,102 @@ export async function resolveSelection(
 }
 
 /**
+ * GRAFT-30.2 AC6 — a form takes one shape of choice, and the other is refused
+ * rather than ignored: `_cart` only on a `multiple` catalogue, `_selection`
+ * only on one that is not. Silently dropping either would accept a submission
+ * that says something different from what the visitor sent.
+ */
+export function assertChoiceShape(
+  form: Pick<FormDoc, "catalogue">,
+  input: { _cart?: unknown; _selection?: unknown },
+): void {
+  const multiple = form.catalogue?.multiple === true;
+  if (!multiple && input._cart !== undefined) {
+    throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+      source: "body",
+      fields: { _cart: "This form takes one item at a time" },
+    });
+  }
+  if (multiple && input._selection !== undefined) {
+    throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+      source: "body",
+      fields: { _selection: "This form takes a cart of items, not a single selection" },
+    });
+  }
+}
+
+/** When the selection field sets no maximum of its own. */
+export const MAX_CART_SUMMARY_LENGTH = 500;
+
+/** Clip to `max` characters, marking the cut so a reader knows there is more. */
+function clip(text: string, max: number): string {
+  if (text.length <= max) return text;
+  if (max <= 1) return text.slice(0, max);
+  return `${text.slice(0, max - 1)}…`;
+}
+
+/**
+ * Cart resolution (GRAFT-30.2), the cart-mode counterpart of
+ * `resolveSelection` and held to the same rules.
+ *
+ *   - **Every line must name a live record of this form's catalogue, in this
+ *     tenant** — one scoped read for the whole cart. The first line that does
+ *     not is refused as `_cart.<i>` (AC4); nothing is written.
+ *   - **The selection key is the server's.** In cart mode it holds a readable
+ *     summary — "2 × Sourdough loaf, 1 × Veg box" — clipped to the field's
+ *     maximum length, overwriting whatever the visitor put there (AC8). The
+ *     order's lines, not this string, are the authoritative link to records.
+ *
+ * Returns the cart as the bridge takes it: ids and quantities, no prices.
+ */
+export async function resolveCart(
+  form: Pick<FormDoc, "catalogue" | "tenantId" | "fields" | "booking">,
+  data: Record<string, unknown>,
+  cart: ReadonlyArray<{ recordId: string; quantity: number }> | undefined,
+  findCatalogueRecords: PublicFormDeps["findCatalogueRecords"],
+): Promise<{ data: Record<string, unknown>; cart: CartLine[] | null }> {
+  const selectionKey = form.catalogue?.selectionKey ?? null;
+  const resolved: Record<string, unknown> = { ...data };
+  if (selectionKey) delete resolved[selectionKey];
+  if (!form.catalogue || !cart) return { data: resolved, cart: null };
+
+  const found = await findCatalogueRecords(
+    form.tenantId,
+    form.catalogue.entityDefId,
+    cart.map((line) => line.recordId.toLowerCase()),
+  );
+  const byId = new Map(found.map((row) => [row.id.toLowerCase(), row.data]));
+
+  const missing = cart.findIndex((line) => !byId.has(line.recordId.toLowerCase()));
+  if (missing !== -1) {
+    throw new AppError("VALIDATION_FAILED", "Invalid request body", {
+      source: "body",
+      fields: { [`_cart.${missing}`]: "That item is no longer available" },
+    });
+  }
+
+  if (selectionKey) {
+    const labelKey = form.booking?.labelKey ?? null;
+    const summary = cart
+      .map(
+        (line) =>
+          `${line.quantity} × ${resourceName(byId.get(line.recordId.toLowerCase())!, labelKey)}`,
+      )
+      .join(", ");
+    const field = form.fields.find((candidate) => candidate.key === selectionKey);
+    resolved[selectionKey] = clip(summary, field?.max ?? MAX_CART_SUMMARY_LENGTH);
+  }
+
+  return {
+    data: resolved,
+    cart: cart.map((line) => ({
+      recordId: new ObjectId(line.recordId),
+      quantity: line.quantity,
+    })),
+  };
+}
+
+/**
  * AC1, AC2, AC7 — the guarded increment first (reserve before write, the same
  * convention as entities.ts and forms.ts), then the record, then the
  * submission. `session.withTransaction` aborts and retries the whole
@@ -454,6 +630,7 @@ async function writeSubmissionTransactionally(
   entitlements: Entitlements,
   data: Record<string, unknown>,
   selectedRecordId: ObjectId | null,
+  cart: CartLine[] | null,
   now: Date,
   agreements: AgreementRecord[],
 ): Promise<CommittedSubmission> {
@@ -501,6 +678,7 @@ async function writeSubmissionTransactionally(
     tenantId,
     booking: form.booking,
     selectedRecordId,
+    cart,
     submissionRecordId: recordId,
     data,
     now,
@@ -589,12 +767,27 @@ export async function submitPublicForm(
 
   const parsed = parse(submitFormSchema, input, "body");
 
-  const { data: rawData, selectedRecordId } = await resolveSelection(
-    form,
-    parsed.data,
-    parsed._selection,
-    deps.findCatalogueRecord,
-  );
+  // GRAFT-30.2 — a `multiple` form takes `_cart`, every other form
+  // `_selection`, and the wrong one is a 400 rather than ignored (AC6).
+  assertChoiceShape(form, parsed);
+  const {
+    data: rawData,
+    selectedRecordId,
+    cart,
+  } = form.catalogue?.multiple === true
+    ? {
+        ...(await resolveCart(form, parsed.data, parsed._cart, deps.findCatalogueRecords)),
+        selectedRecordId: null,
+      }
+    : {
+        ...(await resolveSelection(
+          form,
+          parsed.data,
+          parsed._selection,
+          deps.findCatalogueRecord,
+        )),
+        cart: null,
+      };
 
   // AC6 — validated against the *form's* field list (a real subset of the
   // entity's), not the entity's own schema: a public submitter only ever
@@ -640,6 +833,7 @@ export async function submitPublicForm(
         entitlements,
         data,
         selectedRecordId,
+        cart,
         now,
         agreements,
       ),

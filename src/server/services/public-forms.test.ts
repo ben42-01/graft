@@ -15,8 +15,13 @@ import type { FormDoc } from "@/server/services/forms";
 import type { Entitlements } from "@/server/services/entitlements";
 import { TIER_LIMITS } from "@/server/tiers";
 import {
+  MAX_CART_LINES,
+  MAX_CART_SUMMARY_LENGTH,
   MIN_FILL_MS,
+  assertChoiceShape,
   isSpamSubmission,
+  resolveCart,
+  submitFormSchema,
   resolveAgreements,
   resolvePaymentHandoff,
   resolveSelection,
@@ -498,5 +503,322 @@ describe("resolveAgreements — links a customer must agree to", () => {
       ),
     ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
     expect(getEntity).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * GRAFT-30.2 — cart submissions. Everything decided before the transaction:
+ * the shape of `_cart` (AC2, AC5), which forms take which shape (AC6), and
+ * cart resolution against the form's own catalogue (AC4, AC8). The priced
+ * order and its all-or-nothing write are booking-bridge.test.ts and
+ * booking-bridge.integration.test.ts.
+ */
+describe("submitFormSchema — _cart", () => {
+  const A = "0000000000000000000000a1";
+  const B = "0000000000000000000000a2";
+  const body = (cart: unknown) => ({ data: {}, _t: 1, _cart: cart });
+  const errors = (cart: unknown) => {
+    const result = submitFormSchema.safeParse(body(cart));
+    return result.success ? null : result.error.issues.map((issue) => issue.path.join("."));
+  };
+
+  it("accepts a cart of record ids and quantities", () => {
+    expect(
+      errors([
+        { recordId: A, quantity: 2 },
+        { recordId: B, quantity: 1 },
+      ]),
+    ).toBeNull();
+  });
+
+  it.each(["price", "amount", "unitAmountMinor", "amountMinor", "total", "rate"])(
+    "AC2 — refuses a line carrying `%s` rather than stripping it",
+    (key) => {
+      expect(errors([{ recordId: A, quantity: 1, [key]: 1 }])).toEqual(["_cart.0"]);
+    },
+  );
+
+  it("AC5 — refuses an empty cart", () => {
+    expect(errors([])).toEqual(["_cart"]);
+  });
+
+  it("AC5 — refuses more than 20 lines", () => {
+    const lines = Array.from({ length: MAX_CART_LINES + 1 }, (_, i) => ({
+      recordId: i.toString(16).padStart(24, "0"),
+      quantity: 1,
+    }));
+    expect(errors(lines)).toEqual(["_cart"]);
+    expect(errors(lines.slice(0, MAX_CART_LINES))).toBeNull();
+  });
+
+  it("AC5 — refuses the same record twice, naming the repeat, whatever its case", () => {
+    expect(
+      errors([
+        { recordId: A, quantity: 1 },
+        { recordId: B, quantity: 1 },
+        { recordId: A.toUpperCase(), quantity: 3 },
+      ]),
+    ).toEqual(["_cart.2"]);
+  });
+
+  it.each([0, -1, 100_001, 1.5])("AC5 — refuses a quantity of %s", (quantity) => {
+    expect(errors([{ recordId: A, quantity }])).toEqual(["_cart.0.quantity"]);
+  });
+
+  it("AC5 — accepts the quantity bounds themselves", () => {
+    expect(errors([{ recordId: A, quantity: 1 }])).toBeNull();
+    expect(errors([{ recordId: A, quantity: 100_000 }])).toBeNull();
+  });
+
+  it("refuses a record id that is not an object id", () => {
+    expect(errors([{ recordId: "not-an-id", quantity: 1 }])).toEqual(["_cart.0.recordId"]);
+  });
+});
+
+describe("assertChoiceShape", () => {
+  const CATALOGUE_ENTITY = new ObjectId("000000000000000000000022");
+  const catalogue = (multiple: boolean) => ({
+    entityDefId: CATALOGUE_ENTITY,
+    fields: ["name"],
+    imageField: null,
+    pageSize: 12,
+    selectionKey: "chosen_item",
+    multiple,
+  });
+
+  it("AC6 — refuses a cart on a single-selection form", () => {
+    expect(() => assertChoiceShape({ catalogue: catalogue(false) }, { _cart: [] })).toThrow(
+      expect.objectContaining({
+        code: "VALIDATION_FAILED",
+        details: { source: "body", fields: { _cart: expect.any(String) } },
+      }),
+    );
+  });
+
+  it("AC6 — refuses a cart on a form with no catalogue at all", () => {
+    expect(() => assertChoiceShape({ catalogue: null }, { _cart: [] })).toThrow(
+      expect.objectContaining({ code: "VALIDATION_FAILED" }),
+    );
+  });
+
+  it("AC6 — refuses a single selection on a cart form", () => {
+    expect(() =>
+      assertChoiceShape({ catalogue: catalogue(true) }, { _selection: "a".repeat(24) }),
+    ).toThrow(
+      expect.objectContaining({
+        details: { source: "body", fields: { _selection: expect.any(String) } },
+      }),
+    );
+  });
+
+  it("lets each form's own shape through, and a form with neither", () => {
+    expect(() =>
+      assertChoiceShape({ catalogue: catalogue(true) }, { _cart: [] }),
+    ).not.toThrow();
+    expect(() =>
+      assertChoiceShape({ catalogue: catalogue(false) }, { _selection: "a".repeat(24) }),
+    ).not.toThrow();
+    expect(() => assertChoiceShape({ catalogue: catalogue(true) }, {})).not.toThrow();
+  });
+});
+
+describe("resolveCart", () => {
+  const CATALOGUE_ENTITY = new ObjectId("000000000000000000000022");
+  const LOAF = "0000000000000000000000a1";
+  const VEG_BOX = "0000000000000000000000a2";
+
+  const cartForm = (over: { max?: number; labelKey?: string | null } = {}) =>
+    form({
+      fields: [
+        field("name"),
+        { ...field("chosen_item"), required: false, ...(over.max ? { max: over.max } : {}) },
+      ],
+      catalogue: {
+        entityDefId: CATALOGUE_ENTITY,
+        fields: ["name"],
+        imageField: null,
+        pageSize: 12,
+        selectionKey: "chosen_item",
+        multiple: true,
+      },
+      booking: {
+        startKey: "starts_at",
+        endKey: "ends_at",
+        durationMinutes: null,
+        quantityKey: null,
+        rateBasis: "flat",
+        rateKey: "price",
+        labelKey: over.labelKey === undefined ? "name" : over.labelKey,
+        depositPercent: null,
+      },
+    });
+
+  const catalogueRows = [
+    { id: LOAF, data: { name: "Sourdough loaf", title: "Loaf", price: 5 } },
+    { id: VEG_BOX, data: { name: "Veg box", title: "Box", price: 22 } },
+  ];
+  const lookup = () => vi.fn(async () => catalogueRows);
+
+  const cart = [
+    { recordId: LOAF, quantity: 2 },
+    { recordId: VEG_BOX, quantity: 1 },
+  ];
+
+  it("looks the whole cart up in this form's catalogue entity and tenant, in one read", async () => {
+    const find = lookup();
+    await resolveCart(cartForm(), { name: "Ada" }, cart, find);
+    expect(find).toHaveBeenCalledTimes(1);
+    expect(find).toHaveBeenCalledWith(TENANT, CATALOGUE_ENTITY, [LOAF, VEG_BOX]);
+  });
+
+  it("returns the lines as ids and quantities only — no price travels", async () => {
+    const result = await resolveCart(cartForm(), { name: "Ada" }, cart, lookup());
+    expect(result.cart).toEqual([
+      { recordId: new ObjectId(LOAF), quantity: 2 },
+      { recordId: new ObjectId(VEG_BOX), quantity: 1 },
+    ]);
+  });
+
+  it("AC4 — refuses a line the scoped lookup did not find, naming its index", async () => {
+    // Another tenant's record, another entity's record and a deleted record
+    // all look the same from here: the scoped read simply does not return it.
+    const find = vi.fn(async () => [catalogueRows[0]]);
+    await expect(resolveCart(cartForm(), { name: "Ada" }, cart, find)).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      details: { source: "body", fields: { "_cart.1": "That item is no longer available" } },
+    });
+  });
+
+  it("AC8 — writes a readable summary under the selection key, overwriting the visitor's", async () => {
+    const result = await resolveCart(
+      cartForm(),
+      { name: "Ada", chosen_item: "forged-value" },
+      cart,
+      lookup(),
+    );
+    expect(result.data).toEqual({
+      name: "Ada",
+      chosen_item: "2 × Sourdough loaf, 1 × Veg box",
+    });
+  });
+
+  it("AC8 — names items by the form's configured label field", async () => {
+    const result = await resolveCart(
+      cartForm({ labelKey: "title" }),
+      { name: "Ada" },
+      cart,
+      lookup(),
+    );
+    expect(result.data.chosen_item).toBe("2 × Loaf, 1 × Box");
+  });
+
+  it("AC8 — clips the summary to the selection field's maximum length", async () => {
+    const result = await resolveCart(cartForm({ max: 12 }), { name: "Ada" }, cart, lookup());
+    expect(result.data.chosen_item).toBe("2 × Sourdou…");
+    expect(String(result.data.chosen_item)).toHaveLength(12);
+  });
+
+  it("AC8 — clips to a fixed ceiling when the field sets no maximum", async () => {
+    const long = Array.from({ length: 20 }, (_, i) => ({
+      id: i.toString(16).padStart(24, "0"),
+      data: { name: "An item with a rather long descriptive name" },
+    }));
+    const result = await resolveCart(
+      cartForm(),
+      { name: "Ada" },
+      long.map((row) => ({ recordId: row.id, quantity: 100_000 })),
+      vi.fn(async () => long),
+    );
+    expect(String(result.data.chosen_item)).toHaveLength(MAX_CART_SUMMARY_LENGTH);
+  });
+
+  it("drops a forged selection value and raises no cart when none was sent", async () => {
+    const find = lookup();
+    const result = await resolveCart(
+      cartForm(),
+      { name: "Ada", chosen_item: "forged-value" },
+      undefined,
+      find,
+    );
+    expect(result).toEqual({ data: { name: "Ada" }, cart: null });
+    expect(find).not.toHaveBeenCalled();
+  });
+});
+
+describe("submitPublicForm — cart shape (GRAFT-30.2)", () => {
+  const overrides = (catalogueMultiple: boolean) => ({
+    findByPublicSlug: vi.fn().mockResolvedValue(
+      form({
+        fields: [field("name"), { ...field("chosen_item"), required: false }],
+        catalogue: {
+          entityDefId: new ObjectId("000000000000000000000022"),
+          fields: ["name"],
+          imageField: null,
+          pageSize: 12,
+          selectionKey: "chosen_item",
+          multiple: catalogueMultiple,
+        },
+      }),
+    ),
+    getEntity: vi.fn().mockResolvedValue(entity()),
+    loadEntitlements: vi.fn().mockResolvedValue(entitlements()),
+    findCatalogueRecords: vi.fn(async () => []),
+    findCatalogueRecord: vi.fn(async () => true),
+    now: () => new Date("2026-03-01T12:00:00.000Z"),
+  });
+  const body = (extra: Record<string, unknown>) => ({
+    data: { name: "Ada" },
+    _t: new Date("2026-03-01T12:00:00.000Z").getTime() - 5_000,
+    ...extra,
+  });
+
+  it("AC6 — `_cart` on a single-selection form is a 400 before anything loads", async () => {
+    const deps = overrides(false);
+    await expect(
+      submitPublicForm(
+        "req-1",
+        ["acme", "contact"],
+        body({ _cart: [{ recordId: "0000000000000000000000a1", quantity: 1 }] }),
+        deps,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      details: { fields: { _cart: expect.any(String) } },
+    });
+    expect(deps.getEntity).not.toHaveBeenCalled();
+    expect(deps.findCatalogueRecords).not.toHaveBeenCalled();
+  });
+
+  it("AC6 — `_selection` on a cart form is a 400 before anything loads", async () => {
+    const deps = overrides(true);
+    await expect(
+      submitPublicForm(
+        "req-1",
+        ["acme", "contact"],
+        body({ _selection: "0000000000000000000000a1" }),
+        deps,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      details: { fields: { _selection: expect.any(String) } },
+    });
+    expect(deps.findCatalogueRecord).not.toHaveBeenCalled();
+    expect(deps.getEntity).not.toHaveBeenCalled();
+  });
+
+  it("AC4 — an unknown cart line is a 400 on `_cart.<i>` before anything is written", async () => {
+    const deps = overrides(true);
+    await expect(
+      submitPublicForm(
+        "req-1",
+        ["acme", "contact"],
+        body({ _cart: [{ recordId: "0000000000000000000000a1", quantity: 1 }] }),
+        deps,
+      ),
+    ).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      details: { fields: { "_cart.0": "That item is no longer available" } },
+    });
+    expect(deps.getEntity).not.toHaveBeenCalled();
   });
 });

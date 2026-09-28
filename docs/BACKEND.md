@@ -163,6 +163,11 @@ Layered, Redis-backed (sliding window or token bucket via `rate-limiter-flexible
 - Server-side validation against the form's compiled Zod schema; reject unknown fields.
 - Spam scoring before counting toward quota.
 - Per-form kill switch and per-tenant emergency unpublish.
+- Catalogue choices travel out of band, never inside `data`: `_selection` (one record id) on an ordinary catalogue form, `_cart` on one with `catalogue.multiple: true` (GRAFT-30.2). The wrong one for the form is a 400, never ignored.
+  - `_cart` is `[{ recordId, quantity }]`: 1–20 lines, no `recordId` twice, each quantity a whole number from 1 to 100,000. Lines are `.strict()`, so a line carrying `price`, `amount` or any other key is a 400 on `_cart.<i>`. The client never sends a price, rate or total.
+  - Every `recordId` must be a live record of this form's catalogue entity in this tenant. Otherwise the submission is a 400 on `_cart.<i>` ("That item is no longer available").
+  - The submission raises **one** draft order with a line per item. Each line is priced from its own record's rate and snapshotted, and all lines share the booking window. Each pooled line holds its own allocation. The form's deposit applies to the order total. If any line exceeds its pool's remaining capacity, the whole submission is a 409 `CONFLICT` naming `_cart.<i>`, and nothing is written for any line.
+  - The selection field stores a readable summary ("2 × Sourdough loaf, 1 × Veg box"), clipped to the field's `max` (500 characters when it sets none). The order lines, not this string, are the authoritative link to records. A cart consumes one `form_submissions` unit, however many lines it has.
 - Uploaded files scanned (ClamAV or provider scanning), stored in quarantine bucket until clean, served via signed URLs only.
 
 ## 6. Data Layer Practices
