@@ -800,6 +800,28 @@ function resolveDeps(overrides: Partial<FormDeps> = {}): FormDeps {
   };
 }
 
+/**
+ * GRAFT-31 — the one role check every form write goes through: `owner` and
+ * `admin` may create, change, publish, unpublish, delete and re-illustrate a
+ * form; `member` may only read. The same rule as stripe-connect.ts's
+ * `assertCanManage`, and for the same reason — a form carries the business's
+ * prices, payment and booking config.
+ *
+ * Every caller runs it *first*, before the body is resolved, quota is
+ * reserved or the form is even looked up. So a refused call costs nothing,
+ * and a member probing an id learns nothing: 403 whether or not the form
+ * exists. Another tenant's owner still passes this check and then gets the
+ * repository's 404, exactly as before.
+ */
+export function assertCanWriteForms(ctx: Ctx): void {
+  if (ctx.roles.includes("owner") || ctx.roles.includes("admin")) return;
+  createLogger({ requestId: ctx.requestId }).warn("forms.write.forbidden", {
+    tenantId: ctx.tenantId,
+    userId: ctx.userId,
+  });
+  throw new AppError("FORBIDDEN", "Only an owner or admin can change forms");
+}
+
 async function findFormOrThrow(deps: FormDeps, ctx: Ctx, formId: string) {
   const doc = await deps.repo.findById(ctx, formId);
   if (!doc) throw new AppError("NOT_FOUND", "Form not found");
@@ -923,6 +945,7 @@ export async function createForm(
   input: unknown,
   overrides: Partial<FormDeps> = {},
 ): Promise<FormView> {
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const parsed = parse(createFormSchema, input, "body");
 
@@ -1009,6 +1032,7 @@ export async function updateForm(
   input: unknown,
   overrides: Partial<FormDeps> = {},
 ): Promise<FormView> {
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const parsed = parse(updateFormSchema, input, "body");
   const existing = await findFormOrThrow(deps, ctx, formId);
@@ -1128,6 +1152,7 @@ export async function deleteForm(
   formId: string,
   overrides: Partial<FormDeps> = {},
 ): Promise<void> {
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const deleted = await deps.repo.softDelete(ctx, formId);
   if (!deleted) throw new AppError("NOT_FOUND", "Form not found");
@@ -1145,6 +1170,7 @@ export async function publishForm(
   formId: string,
   overrides: Partial<FormDeps> = {},
 ): Promise<FormView> {
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const existing = await findFormOrThrow(deps, ctx, formId);
 
@@ -1179,6 +1205,7 @@ export async function unpublishForm(
   formId: string,
   overrides: Partial<FormDeps> = {},
 ): Promise<FormView> {
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const existing = await findFormOrThrow(deps, ctx, formId);
   if (!existing.published) return toView(existing);

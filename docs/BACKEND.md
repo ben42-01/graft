@@ -59,6 +59,7 @@
 ### 3.2 Authorization
 
 - RBAC: roles per tenant (`owner`, `admin`, `member`, plugin-defined roles). Enforced in the service layer via `assertPermission(ctx, "records:write", entityDefId)`.
+- **Form writes are owner/admin only (GRAFT-31).** Creating, changing, publishing, unpublishing and deleting a form, and changing its carousel or media, require the `owner` or `admin` role; a `member` can read forms but gets `403 FORBIDDEN` ("Only an owner or admin can change forms") on every write. One shared check, `assertCanWriteForms(ctx)` in `src/server/services/forms.ts`, runs first in every write service function, before quota is reserved or anything is read or written. That makes a refused call free, and a member gets the same 403 whether or not the form exists. Another tenant's form is still `404` (the caller passes the role check, then the repository finds nothing). Public submission is unaffected.
 - Entitlements (tier gating) checked alongside permissions: `can(ctx, "csv_import")`.
 - Public form endpoints (`POST /api/v1/public/forms/:slug/submissions`) are the **only** unauthenticated write surface — see §5.
 

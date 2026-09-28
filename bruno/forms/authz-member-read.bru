@@ -1,0 +1,58 @@
+meta {
+  name: A member can still list and read forms
+  type: http
+  seq: 37
+}
+
+get {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000026
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{memberFormsToken}}
+}
+
+script:pre-request {
+  // The list read is made here and carried across in vars so that both reads
+  // are asserted synchronously.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "member@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const token = login.data.data.accessToken;
+  bru.setVar("memberFormsToken", token);
+
+  const list = await axios.get(`${baseUrl}/api/v1/forms?limit=100`, {
+    headers: { Authorization: `Bearer ${token}` },
+    validateStatus: () => true,
+  });
+  bru.setVar("memberListStatus", list.status);
+  bru.setVar(
+    "memberListHasFixture",
+    Array.isArray(list.data?.data) &&
+      list.data.data.some((form) => form.id === "000000000000000000000026"),
+  );
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.id: eq "000000000000000000000026"
+  res.body.data.name: eq "QA Premium Payment Form"
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC3 — GET /api/v1/forms is 200 for a member and lists the tenant's forms", function () {
+    expect(String(bru.getVar("memberListStatus"))).to.equal("200");
+    expect(String(bru.getVar("memberListHasFixture"))).to.equal("true");
+  });
+}
+
+docs {
+  GRAFT-31 AC3. Reads stay open to every role; only writes go through
+  `assertCanWriteForms` (src/server/services/forms.ts).
+}
