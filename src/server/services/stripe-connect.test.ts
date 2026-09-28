@@ -227,9 +227,8 @@ describe("createFormCheckout", () => {
     });
     expect(deps.stripe.createCheckoutSession).toHaveBeenCalledWith({
       accountId: "acct_tenant",
-      amountMinor: 10_000,
       currency: "EUR",
-      productName: "Deposit — Pontoon boat",
+      lineItems: [{ name: "Deposit — Book a boat", unitAmountMinor: 10_000, quantity: 1 }],
       metadata: {
         graftTenantId: TENANT,
         graftOrderId: ORDER,
@@ -239,6 +238,219 @@ describe("createFormCheckout", () => {
       cancelUrl: "https://app.graft.test/f/harbour/book-a-boat",
       idempotencyKey: `graft-form-checkout-${ORDER}`,
     });
+  });
+
+  /** What the fake Stripe client was asked to charge, line by line. */
+  const sentLines = (deps: ConnectDeps) =>
+    vi.mocked(deps.stripe.createCheckoutSession).mock.calls[0]![0].lineItems;
+  const sumOf = (lines: { unitAmountMinor: number; quantity: number }[]) =>
+    lines.reduce((sum, l) => sum + l.unitAmountMinor * l.quantity, 0);
+  const line = (description: string, quantity: number, unitAmountMinor: number) => ({
+    kind: "resource",
+    description,
+    quantity,
+    unitAmountMinor,
+    amountMinor: quantity * unitAmountMinor,
+  });
+
+  it("AC1: itemises a cart charged in full, one Stripe line per order line", async () => {
+    const { deps } = harness({
+      connect: { [TENANT]: connected() },
+      order: order({
+        lineItems: [line("A", 2, 500), line("B", 1, 2_200)] as OrderDoc["lineItems"],
+        totalMinor: 3_200,
+        depositMinor: 0,
+      }),
+    });
+    await createFormCheckout(input, deps);
+    const lines = sentLines(deps);
+    expect(lines).toEqual([
+      { name: "A", unitAmountMinor: 500, quantity: 2 },
+      { name: "B", unitAmountMinor: 2_200, quantity: 1 },
+    ]);
+    expect(sumOf(lines)).toBe(3_200);
+  });
+
+  it("AC2: a deposit is one line for the amount due, never itemised", async () => {
+    const { deps } = harness({
+      connect: { [TENANT]: connected() },
+      order: order({
+        lineItems: [line("A", 2, 500), line("B", 1, 2_200)] as OrderDoc["lineItems"],
+        totalMinor: 3_200,
+        depositMinor: 1_000,
+      }),
+    });
+    await createFormCheckout(input, deps);
+    expect(sentLines(deps)).toEqual([
+      { name: "Deposit — Book a boat", unitAmountMinor: 1_000, quantity: 1 },
+    ]);
+  });
+
+  it("AC2: after a partial payment the balance is one line, never itemised", async () => {
+    const { deps } = harness({
+      connect: { [TENANT]: connected() },
+      order: order({
+        lineItems: [line("A", 2, 500), line("B", 1, 2_200)] as OrderDoc["lineItems"],
+        totalMinor: 3_200,
+        depositMinor: 0,
+        amountPaidMinor: 700,
+      }),
+    });
+    await createFormCheckout(input, deps);
+    expect(sentLines(deps)).toEqual([
+      { name: "Balance — Book a boat", unitAmountMinor: 2_500, quantity: 1 },
+    ]);
+  });
+
+  it("AC3: a line whose unit × quantity does not make its amount goes as 1 × its amount", async () => {
+    const hire = { ...line("Kayak — 3 days", 2, 1_000), amountMinor: 5_000 };
+    const { deps } = harness({
+      connect: { [TENANT]: connected() },
+      order: order({
+        lineItems: [hire, line("Paddle", 2, 250)] as OrderDoc["lineItems"],
+        totalMinor: 5_500,
+        depositMinor: 0,
+      }),
+    });
+    await createFormCheckout(input, deps);
+    const lines = sentLines(deps);
+    expect(lines).toEqual([
+      { name: "Kayak — 3 days", unitAmountMinor: 5_000, quantity: 1 },
+      { name: "Paddle", unitAmountMinor: 250, quantity: 2 },
+    ]);
+    expect(sumOf(lines)).toBe(5_500);
+  });
+
+  it("AC3: the session always sums to the amount due, over randomised orders", async () => {
+    // A seeded generator, so a failure reproduces.
+    let seed = 0x9e3779b9;
+    const rand = (n: number) => {
+      seed = (Math.imul(seed ^ (seed >>> 15), 0x2c1b3c6d) + 0x6d2b79f5) >>> 0;
+      return seed % n;
+    };
+    for (let run = 0; run < 300; run++) {
+      const count = 1 + rand(run % 25 === 0 ? 130 : 8);
+      const lineItems = Array.from({ length: count }, (_, i) => {
+        const l = line(`Item ${i}`, 1 + rand(5), rand(5_000));
+        const roll = rand(10);
+        // Duration-priced lines whose amount is not unit × quantity.
+        if (roll === 0) return { ...l, amountMinor: l.amountMinor + 1 + rand(900) };
+        // A discount: negative, which Stripe cannot take as a line.
+        if (roll === 1)
+          return { ...l, kind: "discount", unitAmountMinor: -1, amountMinor: -l.quantity };
+        return l;
+      });
+      const totalMinor = Math.max(
+        0,
+        lineItems.reduce((sum, l) => sum + l.amountMinor, 0),
+      );
+      const depositMinor = rand(3) === 0 ? Math.floor(totalMinor / 4) : 0;
+      const amountPaidMinor = rand(4) === 0 ? rand(Math.max(1, totalMinor)) : 0;
+      const o = order({
+        lineItems: lineItems as OrderDoc["lineItems"],
+        totalMinor,
+        depositMinor,
+        amountPaidMinor,
+      });
+      const due = amountDueMinor(o);
+
+      const { deps } = harness({ connect: { [TENANT]: connected() }, order: o });
+      await createFormCheckout(input, deps);
+      if (due <= 0) {
+        expect(deps.stripe.createCheckoutSession).not.toHaveBeenCalled();
+        continue;
+      }
+      const lines = sentLines(deps);
+      expect(sumOf(lines)).toBe(due);
+      expect(lines.length).toBeLessThanOrEqual(100);
+      for (const l of lines) {
+        expect(Number.isInteger(l.unitAmountMinor) && l.unitAmountMinor >= 0).toBe(true);
+        expect(Number.isInteger(l.quantity) && l.quantity >= 1).toBe(true);
+      }
+    }
+  });
+
+  it("AC4: a single-line order charged in full is one line named after the item", async () => {
+    const { deps } = harness({
+      connect: { [TENANT]: connected() },
+      order: order({ depositMinor: 0 }),
+    });
+    await createFormCheckout(input, deps);
+    expect(sentLines(deps)).toEqual([
+      { name: "Pontoon boat", unitAmountMinor: 40_000, quantity: 1 },
+    ]);
+  });
+
+  it("AC5: more lines than Stripe allows collapse to one line for the full amount", async () => {
+    const lineItems = Array.from({ length: 101 }, (_, i) => line(`Item ${i}`, 1, 100));
+    const { deps } = harness({
+      connect: { [TENANT]: connected() },
+      order: order({
+        lineItems: lineItems as OrderDoc["lineItems"],
+        totalMinor: 10_100,
+        depositMinor: 0,
+      }),
+    });
+    await createFormCheckout(input, deps);
+    expect(sentLines(deps)).toEqual([
+      { name: "Order — Book a boat", unitAmountMinor: 10_100, quantity: 1 },
+    ]);
+  });
+
+  it("AC5: exactly 100 lines are still itemised", async () => {
+    const lineItems = Array.from({ length: 100 }, (_, i) => line(`Item ${i}`, 1, 100));
+    const { deps } = harness({
+      connect: { [TENANT]: connected() },
+      order: order({
+        lineItems: lineItems as OrderDoc["lineItems"],
+        totalMinor: 10_000,
+        depositMinor: 0,
+      }),
+    });
+    await createFormCheckout(input, deps);
+    expect(sentLines(deps)).toHaveLength(100);
+  });
+
+  it("collapses to one order line when a discount makes itemised lines unsendable", async () => {
+    const discount = { ...line("Spring offer", 1, -500), kind: "discount" };
+    const { deps } = harness({
+      connect: { [TENANT]: connected() },
+      order: order({
+        lineItems: [line("A", 2, 500), line("B", 1, 2_200), discount] as OrderDoc["lineItems"],
+        totalMinor: 2_700,
+        depositMinor: 0,
+      }),
+    });
+    await createFormCheckout(input, deps);
+    expect(sentLines(deps)).toEqual([
+      { name: "Order — Book a boat", unitAmountMinor: 2_700, quantity: 1 },
+    ]);
+  });
+
+  it("AC6: an itemised session keeps the account, metadata, URLs and idempotency key", async () => {
+    const { deps } = harness({
+      connect: { [TENANT]: connected() },
+      order: order({
+        lineItems: [line("A", 2, 500), line("B", 1, 2_200)] as OrderDoc["lineItems"],
+        totalMinor: 3_200,
+        depositMinor: 0,
+      }),
+    });
+    await createFormCheckout(input, deps);
+    expect(deps.stripe.createCheckoutSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acct_tenant",
+        currency: "EUR",
+        metadata: {
+          graftTenantId: TENANT,
+          graftOrderId: ORDER,
+          graftSubmissionId: input.submissionId,
+        },
+        successUrl: "https://app.graft.test/f/harbour/book-a-boat/paid",
+        cancelUrl: "https://app.graft.test/f/harbour/book-a-boat",
+        idempotencyKey: `graft-form-checkout-${ORDER}`,
+      }),
+    );
   });
 
   it("offers nothing while the account cannot take payments", async () => {

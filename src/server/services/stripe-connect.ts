@@ -95,6 +95,13 @@ export type ConnectEvent = {
   data: { object: Record<string, unknown> };
 };
 
+/** One line on a Checkout Session. Its name is an item name or the form's
+ * name — never anything the customer typed. */
+export type CheckoutLine = { name: string; unitAmountMinor: number; quantity: number };
+
+/** Stripe refuses a Checkout Session with more line items than this. */
+export const STRIPE_MAX_LINE_ITEMS = 100;
+
 export type ConnectStripeClient = {
   createAccount(input: { tenantId: string }): Promise<{ id: string }>;
   createAccountLink(input: {
@@ -107,9 +114,9 @@ export type ConnectStripeClient = {
   ): Promise<{ chargesEnabled: boolean; detailsSubmitted: boolean }>;
   createCheckoutSession(input: {
     accountId: string;
-    amountMinor: number;
     currency: string;
-    productName: string;
+    /** Never empty; always sums to the amount due on the order. */
+    lineItems: CheckoutLine[];
     metadata: Record<string, string>;
     successUrl: string;
     cancelUrl: string;
@@ -239,16 +246,14 @@ export function realConnectStripeClient(
       const session = await sdk(getEnv().STRIPE_SECRET_KEY).checkout.sessions.create(
         {
           mode: "payment",
-          line_items: [
-            {
-              quantity: 1,
-              price_data: {
-                currency: input.currency.toLowerCase(),
-                unit_amount: input.amountMinor,
-                product_data: { name: input.productName },
-              },
+          line_items: input.lineItems.map((line) => ({
+            quantity: line.quantity,
+            price_data: {
+              currency: input.currency.toLowerCase(),
+              unit_amount: line.unitAmountMinor,
+              product_data: { name: line.name },
             },
-          ],
+          })),
           client_reference_id: input.metadata.graftOrderId,
           metadata: input.metadata,
           payment_intent_data: { metadata: input.metadata },
@@ -377,6 +382,50 @@ export function amountDueMinor(
   return Math.max(0, threshold - order.amountPaidMinor);
 }
 
+const clipName = (name: string) => name.slice(0, 250);
+
+/**
+ * What the Checkout Session shows the customer, line by line.
+ *
+ * Itemised only when the whole order is being charged at once — then each
+ * order line becomes a Stripe line and the receipt reads like the cart. A
+ * deposit or a balance after a partial payment is one line for the amount due,
+ * because the order's lines would not add up to it. Whatever the shape, the
+ * lines **always** sum to `amountDueMinor(order)`: any itemisation that would
+ * not (a discount, which Stripe cannot take as a negative line, or data that
+ * does not add up) collapses to a single "Order — <form>" line instead.
+ */
+export function checkoutLines(
+  order: Pick<OrderDoc, "lineItems" | "depositMinor" | "totalMinor" | "amountPaidMinor">,
+  formName: string,
+): CheckoutLine[] {
+  const due = amountDueMinor(order);
+  const single = (name: string): CheckoutLine[] => [
+    { name: clipName(name), unitAmountMinor: due, quantity: 1 },
+  ];
+
+  if (order.amountPaidMinor > 0) return single(`Balance — ${formName}`);
+  if (order.depositMinor > 0 && order.depositMinor < order.totalMinor) {
+    return single(`Deposit — ${formName}`);
+  }
+  if (order.lineItems.length === 0) return single(formName);
+  if (order.lineItems.length > STRIPE_MAX_LINE_ITEMS) return single(`Order — ${formName}`);
+
+  const lines = order.lineItems.map((item): CheckoutLine => {
+    const name = clipName(item.description || formName);
+    // Duration-priced lines can carry an amount that is not unit × quantity;
+    // Stripe multiplies, so such a line goes as one of its whole amount.
+    return item.unitAmountMinor * item.quantity === item.amountMinor
+      ? { name, unitAmountMinor: item.unitAmountMinor, quantity: item.quantity }
+      : { name, unitAmountMinor: item.amountMinor, quantity: 1 };
+  });
+  const sum = lines.reduce((total, line) => total + line.unitAmountMinor * line.quantity, 0);
+  if (sum !== due || lines.some((line) => line.unitAmountMinor < 0)) {
+    return single(`Order — ${formName}`);
+  }
+  return lines;
+}
+
 /**
  * Opens a Checkout Session for a just-submitted order. `null` whenever card
  * payment cannot honestly be offered — no connected account, onboarding not
@@ -405,19 +454,13 @@ export async function createFormCheckout(
 
     const order = await deps.store.findOrder(input.tenantId, input.orderId);
     if (!order) return null;
-    const amountMinor = amountDueMinor(order);
-    if (amountMinor <= 0) return null;
-
-    const isDeposit = order.depositMinor > 0 && order.depositMinor < order.totalMinor;
-    const itemName = order.lineItems[0]?.description;
-    const productName = `${isDeposit ? "Deposit — " : ""}${itemName || input.formName}`;
+    if (amountDueMinor(order) <= 0) return null;
 
     const base = `${deps.appUrl()}${input.formPath}`;
     const session = await deps.stripe.createCheckoutSession({
       accountId: connect.accountId,
-      amountMinor,
       currency: order.currency,
-      productName: productName.slice(0, 250),
+      lineItems: checkoutLines(order, input.formName),
       metadata: {
         graftTenantId: input.tenantId,
         graftOrderId: input.orderId,
