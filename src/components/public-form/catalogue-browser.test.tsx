@@ -7,10 +7,18 @@
  * row hands the whole card up to the form; and a large catalogue is browsed a
  * page at a time — by scrolling, "Show more", or search — never all at once.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CatalogueBrowser, type CatalogueCard } from "./catalogue-browser";
+import {
+  CatalogueBrowser,
+  MAX_CART_LINES,
+  MAX_CART_QUANTITY,
+  type CatalogueCard,
+} from "./catalogue-browser";
+import type { CartPricing } from "./cart";
+import { PublicFormRenderer } from "./public-form-renderer";
+import type { FieldDef } from "@/server/services/entities";
 
 const card = (id: string, name: string): CatalogueCard => ({
   id,
@@ -222,5 +230,191 @@ describe("CatalogueBrowser", () => {
 
     await waitFor(() => expect(screen.getByText("Pontoon")).toBeInTheDocument());
     expect(screen.queryByRole("img")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Cart mode (GRAFT-30.3). Rendered through the form, because the cart lives
+ * with the form — that is what lets it survive paging this list — and because
+ * what matters most is what the form finally sends.
+ */
+describe("CatalogueBrowser — cart mode", () => {
+  const FIELDS: FieldDef[] = [
+    { key: "customer", label: "Customer", type: "text", required: true },
+  ];
+
+  function cartServer(pages: Page[]) {
+    let call = 0;
+    const fetchMock = vi.fn((input: RequestInfo | URL, _init?: RequestInit) => {
+      if (String(input).includes("/submissions")) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ data: { submissionId: "s1" } }), { status: 201 }),
+        );
+      }
+      const page = pages[Math.min(call, pages.length - 1)]!;
+      call += 1;
+      return Promise.resolve(new Response(JSON.stringify(page), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    return fetchMock;
+  }
+
+  const renderCart = (cartPricing: CartPricing = null, multiple = true) =>
+    render(
+      <PublicFormRenderer
+        tenantSlug="bakery"
+        formSlug="shop"
+        fields={FIELDS}
+        primaryColor={null}
+        catalogue={{ selectionKey: null, multiple }}
+        cartPricing={cartPricing}
+      />,
+    );
+
+  const cartList = () => within(screen.getByRole("list", { name: "Cart items" }));
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("AC1 — keeps a cart across pages and sends exactly { recordId, quantity } per line, no money", async () => {
+    const user = userEvent.setup();
+    const fetchMock = cartServer([
+      { data: [card("a", "Loaf")], meta: { cursor: "CURSOR_1" } },
+      { data: [card("b", "Veg box")], meta: { cursor: null } },
+    ]);
+    renderCart({ rateBasis: "flat", rateKey: "price" });
+
+    await user.click(await screen.findByRole("button", { name: "Add Loaf" }));
+    await user.click(cartList().getByRole("button", { name: "Increase quantity of Loaf" }));
+
+    // Page two: the cart does not care which page an item came from.
+    await user.click(screen.getByRole("button", { name: "Show more" }));
+    await user.click(await screen.findByRole("button", { name: "Add Veg box" }));
+
+    expect(cartList().getAllByRole("listitem")).toHaveLength(2);
+    expect(cartList().getByRole("spinbutton", { name: "Quantity of Loaf" })).toHaveValue(2);
+    expect(cartList().getByRole("spinbutton", { name: "Quantity of Veg box" })).toHaveValue(1);
+
+    await user.click(screen.getByRole("button", { name: "Continue to your details" }));
+    await user.type(screen.getByLabelText(/Customer/), "Ada");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+    await screen.findByText(/your submission was received/);
+
+    const [, init] = fetchMock.mock.calls.find(([url]) =>
+      String(url).includes("/submissions"),
+    )!;
+    const body = JSON.parse(String(init!.body));
+    expect(body._cart).toEqual([
+      { recordId: "a", quantity: 2 },
+      { recordId: "b", quantity: 1 },
+    ]);
+    expect(body._selection).toBeUndefined();
+    expect(body.data).toEqual({ customer: "Ada" });
+    // The estimate was on screen (360.00), and it goes nowhere.
+    expect(String(init!.body)).not.toMatch(/price|total|amount|rate|120|360/i);
+  });
+
+  it("AC2 — shows an estimated total only for flat pricing with a public rate", async () => {
+    const user = userEvent.setup();
+    cartServer([{ data: [card("a", "Loaf")], meta: { cursor: null } }]);
+    const { unmount } = renderCart({ rateBasis: "flat", rateKey: "price" });
+
+    await user.click(await screen.findByRole("button", { name: "Add Loaf" }));
+    await user.click(cartList().getByRole("button", { name: "Increase quantity of Loaf" }));
+    expect(screen.getByText("Estimated total, confirmed at checkout")).toBeInTheDocument();
+    expect(screen.getByTestId("cart-estimate")).toHaveTextContent("240.00");
+    unmount();
+
+    for (const pricing of [{ rateBasis: "daily", rateKey: "price" }, null]) {
+      const view = renderCart(pricing);
+      await user.click(await screen.findByRole("button", { name: "Add Loaf" }));
+      expect(screen.queryByText(/Estimated total/)).not.toBeInTheDocument();
+      expect(screen.queryByTestId("cart-estimate")).not.toBeInTheDocument();
+      expect(
+        within(screen.getByRole("region", { name: "Your cart" })).getByText(
+          "1 item in your cart",
+        ),
+      ).toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("AC3 — continue needs an item; quantity stays between 1 and the server's bound", async () => {
+    const user = userEvent.setup();
+    cartServer([{ data: [card("a", "Loaf")], meta: { cursor: null } }]);
+    renderCart();
+
+    const next = await screen.findByRole("button", { name: "Continue to your details" });
+    expect(next).toBeDisabled();
+
+    await user.click(await screen.findByRole("button", { name: "Add Loaf" }));
+    expect(next).toBeEnabled();
+
+    expect(
+      cartList().getByRole("button", { name: "Decrease quantity of Loaf" }),
+    ).toBeDisabled();
+
+    const quantity = cartList().getByRole("spinbutton", { name: "Quantity of Loaf" });
+    fireEvent.change(quantity, { target: { value: String(MAX_CART_QUANTITY + 5) } });
+    expect(quantity).toHaveValue(MAX_CART_QUANTITY);
+    expect(
+      cartList().getByRole("button", { name: "Increase quantity of Loaf" }),
+    ).toBeDisabled();
+
+    fireEvent.change(quantity, { target: { value: "0" } });
+    expect(quantity).toHaveValue(1);
+
+    // Removing the only line empties the cart and disables continue again.
+    await user.click(cartList().getByRole("button", { name: "Remove Loaf" }));
+    expect(next).toBeDisabled();
+  });
+
+  it(`AC3 — at ${MAX_CART_LINES} lines further adds are disabled, with a message`, async () => {
+    const cards = Array.from({ length: MAX_CART_LINES + 1 }, (_, i) =>
+      card(`r${i}`, `Item ${i}`),
+    );
+    cartServer([{ data: cards, meta: { cursor: null } }]);
+    renderCart();
+
+    await screen.findByRole("button", { name: "Add Item 0" });
+    for (let i = 0; i < MAX_CART_LINES; i += 1) {
+      // fireEvent, not userEvent: twenty full pointer sequences would crowd the
+      // default test timeout on a slow CI runner, and nothing here is about the pointer.
+      fireEvent.click(screen.getByRole("button", { name: `Add Item ${i}` }));
+    }
+
+    expect(screen.getByRole("button", { name: `Add Item ${MAX_CART_LINES}` })).toBeDisabled();
+    expect(screen.getByText(/Your cart is full/)).toBeInTheDocument();
+    // Twenty-one rows re-rendered twenty times is slow in jsdom, not in a browser.
+  }, 15_000);
+
+  it("AC5 — a single-choice form keeps its rows as choose buttons and shows no cart", async () => {
+    cartServer([{ data: [card("a", "Loaf")], meta: { cursor: null } }]);
+    renderCart(null, false);
+
+    expect(await screen.findByRole("button", { name: "Choose Loaf" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add Loaf" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Your cart" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Continue to your details" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("AC7 — names the item on every control and announces changes politely", async () => {
+    const user = userEvent.setup();
+    cartServer([{ data: [card("a", "Loaf")], meta: { cursor: null } }]);
+    renderCart();
+
+    await user.click(await screen.findByRole("button", { name: "Add Loaf" }));
+    const live = screen.getByText(/Added Loaf to your cart/);
+    expect(live).toHaveAttribute("aria-live", "polite");
+
+    await user.click(cartList().getByRole("button", { name: "Increase quantity of Loaf" }));
+    expect(live).toHaveTextContent("Loaf: quantity 2.");
+
+    await user.click(cartList().getByRole("button", { name: "Remove Loaf" }));
+    expect(live).toHaveTextContent(/Removed Loaf from your cart/);
   });
 });

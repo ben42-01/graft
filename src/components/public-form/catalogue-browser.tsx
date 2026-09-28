@@ -25,13 +25,25 @@
  *     list, showing the chosen resource and the questions about it. The list
  *     stays mounted while hidden so "Change" returns to the same search and
  *     scroll position.
+ *   - **Cart mode adds, it does not hand off** (GRAFT-30.3). On a
+ *     `catalogue.multiple` form each row carries its own add / quantity /
+ *     remove controls instead of being one big button, and the cart itself
+ *     lives with the form (`useCart`), so it survives paging and searching
+ *     this list. Nothing about money is decided here.
  *   - **It degrades to the form.** An empty catalogue or a failed first fetch
  *     calls `onUnavailable`, and the form shows its fields without a step
  *     one. A catalogue is an enhancement to a form, never a gate in front of
  *     one.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRightIcon, ImageIcon, SearchIcon } from "lucide-react";
+import {
+  ChevronRightIcon,
+  ImageIcon,
+  MinusIcon,
+  PlusIcon,
+  SearchIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { contrastingTextColor } from "@/lib/contrast";
@@ -67,12 +79,29 @@ const PREFETCH_MARGIN = "600px";
 
 export const nameOf = (card: CatalogueCard) => card.values[0]?.value || "This item";
 
+/** Mirrors `MAX_CART_LINES` in src/server/services/public-forms.ts. */
+export const MAX_CART_LINES = 20;
+/** Mirrors `MAX_CART_QUANTITY` in src/server/services/public-forms.ts. */
+export const MAX_CART_QUANTITY = 100_000;
+
+/** One cart line as the page holds it. Only `card.id` and `quantity` are sent. */
+export type CartLine = { card: CatalogueCard; quantity: number };
+
+/** What a row needs to add itself to the cart and adjust its line. */
+export type CartApi = {
+  lines: CartLine[];
+  add: (card: CatalogueCard) => void;
+  remove: (id: string) => void;
+  setQuantity: (id: string, quantity: number) => void;
+};
+
 export function CatalogueBrowser({
   tenantSlug,
   formSlug,
   accent,
   onSelect,
   onUnavailable,
+  cart,
 }: {
   tenantSlug: string;
   formSlug: string;
@@ -81,6 +110,8 @@ export function CatalogueBrowser({
   onSelect: (card: CatalogueCard) => void;
   /** Nothing to choose from — empty, or the first page failed. */
   onUnavailable?: () => void;
+  /** Cart mode: rows add to this instead of calling `onSelect`. */
+  cart?: CartApi;
 }) {
   const [state, setState] = useState<State>({ status: "loading" });
   const [searchLabel, setSearchLabel] = useState<string | null>(null);
@@ -245,11 +276,26 @@ export function CatalogueBrowser({
         <ul aria-label="Items" className="flex flex-col gap-3">
           {state.cards.map((card) => (
             <li key={card.id}>
-              <ResourceRow card={card} accent={accent} onChoose={() => onSelect(card)} />
+              {cart ? (
+                <ResourceRow
+                  card={card}
+                  accent={accent}
+                  trailing={<CartControls card={card} cart={cart} />}
+                />
+              ) : (
+                <ResourceRow card={card} accent={accent} onChoose={() => onSelect(card)} />
+              )}
             </li>
           ))}
         </ul>
       )}
+
+      {cart && cart.lines.length >= MAX_CART_LINES ? (
+        <p className="text-center text-sm text-muted-foreground">
+          Your cart is full — it holds up to {MAX_CART_LINES} different items. Remove one to add
+          another.
+        </p>
+      ) : null}
 
       <div ref={sentinelRef} aria-hidden="true" />
 
@@ -353,5 +399,88 @@ export function ResourceRow({
     >
       {body}
     </button>
+  );
+}
+
+/**
+ * A row's cart controls: "Add" until the item is in the cart, then a quantity
+ * stepper and a remove button. Every control names the item it acts on, since
+ * a screen reader lists twenty "Add" buttons otherwise (AC7). Quantity stays
+ * between 1 and the server's bound — going below 1 is what "Remove" is for.
+ */
+export function CartControls({ card, cart }: { card: CatalogueCard; cart: CartApi }) {
+  const name = nameOf(card);
+  const line = cart.lines.find((entry) => entry.card.id === card.id);
+
+  if (!line) {
+    return (
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="self-center rounded-full"
+        aria-label={`Add ${name}`}
+        disabled={cart.lines.length >= MAX_CART_LINES}
+        onClick={() => cart.add(card)}
+      >
+        <PlusIcon aria-hidden="true" /> Add
+      </Button>
+    );
+  }
+  return <QuantityStepper line={line} cart={cart} />;
+}
+
+/** The stepper itself, shared by a catalogue row and a cart summary line. */
+export function QuantityStepper({ line, cart }: { line: CartLine; cart: CartApi }) {
+  const name = nameOf(line.card);
+  const { quantity } = line;
+  return (
+    <span className="flex shrink-0 items-center gap-1 self-center">
+      <Button
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        aria-label={`Decrease quantity of ${name}`}
+        disabled={quantity <= 1}
+        onClick={() => cart.setQuantity(line.card.id, quantity - 1)}
+      >
+        <MinusIcon aria-hidden="true" />
+      </Button>
+      <Input
+        type="number"
+        inputMode="numeric"
+        min={1}
+        max={MAX_CART_QUANTITY}
+        aria-label={`Quantity of ${name}`}
+        value={quantity}
+        onChange={(event) => {
+          const next = Number.parseInt(event.target.value, 10);
+          // A cleared box keeps the last good number rather than becoming 0.
+          if (Number.isFinite(next)) {
+            cart.setQuantity(line.card.id, Math.min(Math.max(next, 1), MAX_CART_QUANTITY));
+          }
+        }}
+        className="h-8 w-16 text-center"
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="icon-sm"
+        aria-label={`Increase quantity of ${name}`}
+        disabled={quantity >= MAX_CART_QUANTITY}
+        onClick={() => cart.setQuantity(line.card.id, quantity + 1)}
+      >
+        <PlusIcon aria-hidden="true" />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`Remove ${name}`}
+        onClick={() => cart.remove(line.card.id)}
+      >
+        <Trash2Icon aria-hidden="true" />
+      </Button>
+    </span>
   );
 }

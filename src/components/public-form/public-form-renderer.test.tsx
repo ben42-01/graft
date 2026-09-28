@@ -3,7 +3,7 @@
  * mocked at the module boundary; the transactional write itself is proven
  * elsewhere (public-forms.integration.test.ts).
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PublicFormRenderer } from "./public-form-renderer";
@@ -464,5 +464,99 @@ describe("PublicFormRenderer — choosing a resource first", () => {
     renderCatalogue(["start"]);
     await screen.findByRole("button", { name: "Choose Pontoon" });
     expect(screen.queryByRole("button", { name: /without choosing/ })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * GRAFT-30.3 AC4 — a cart line the server refuses. The error names the line
+ * by its index in what was sent (`_cart.<i>`); the cart marks that line, keeps
+ * the rest, and lets the visitor drop it and send again.
+ */
+describe("PublicFormRenderer — a refused cart line", () => {
+  const item = (id: string, name: string) => ({
+    id,
+    image: null,
+    values: [{ key: "name", label: "Name", value: name }],
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("AC4 — marks the refused line, keeps the cart, and resubmits without it", async () => {
+    const user = userEvent.setup();
+    const submissions: unknown[] = [];
+    const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      if (!String(input).includes("/submissions")) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: [item("a", "Loaf"), item("b", "Oven hire")],
+              meta: { cursor: null },
+            }),
+            { status: 200 },
+          ),
+        );
+      }
+      submissions.push(JSON.parse(String(init!.body)));
+      return Promise.resolve(
+        submissions.length === 1
+          ? new Response(
+              JSON.stringify({
+                error: {
+                  code: "CONFLICT",
+                  message: "Not enough of that item is available for the requested time",
+                  details: {
+                    fields: { "_cart.1": "Not enough of this item is available for that time" },
+                  },
+                },
+              }),
+              { status: 409 },
+            )
+          : new Response(JSON.stringify({ data: { submissionId: "s1" } }), { status: 201 }),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <PublicFormRenderer
+        tenantSlug="bakery"
+        formSlug="shop"
+        fields={FIELDS}
+        primaryColor={null}
+        catalogue={{ selectionKey: null, multiple: true }}
+      />,
+    );
+
+    await user.click(await screen.findByRole("button", { name: "Add Loaf" }));
+    await user.click(screen.getByRole("button", { name: "Add Oven hire" }));
+    await user.click(screen.getByRole("button", { name: "Continue to your details" }));
+    await user.type(screen.getByLabelText(/Name/), "Ada");
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    const cart = within(screen.getByRole("list", { name: "Cart items" }));
+    const [loaf, oven] = cart.getAllByRole("listitem");
+    await waitFor(() =>
+      expect(oven).toHaveAccessibleDescription(
+        "Not enough of this item is available for that time",
+      ),
+    );
+    expect(oven).toHaveTextContent("Oven hire");
+    expect(loaf).toHaveTextContent("Loaf");
+    expect(loaf).not.toHaveAccessibleDescription();
+    // Still on the details step, answers intact.
+    expect(screen.getByLabelText(/Name/)).toHaveValue("Ada");
+
+    await user.click(cart.getByRole("button", { name: "Remove Oven hire" }));
+    expect(
+      screen.queryByText("Not enough of this item is available for that time"),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Submit" }));
+
+    await screen.findByText(/your submission was received/);
+    expect(submissions).toHaveLength(2);
+    expect((submissions[1] as { _cart: unknown })._cart).toEqual([
+      { recordId: "a", quantity: 1 },
+    ]);
   });
 });

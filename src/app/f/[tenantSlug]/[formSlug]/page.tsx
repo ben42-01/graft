@@ -64,7 +64,12 @@ export default async function PublicFormPage({ params }: { params: Promise<Param
         formSlug={page.formSlug}
         fields={page.fields}
         primaryColor={page.branding.primaryColor}
-        catalogue={page.catalogue ? { selectionKey: page.catalogue.selectionKey } : null}
+        catalogue={
+          page.catalogue
+            ? { selectionKey: page.catalogue.selectionKey, multiple: page.catalogue.multiple }
+            : null
+        }
+        cartPricing={page.booking}
         timeFields={page.timeFields}
         content={page.content}
       />
