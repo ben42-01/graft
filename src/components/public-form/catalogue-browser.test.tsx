@@ -306,14 +306,22 @@ describe("CatalogueBrowser — cart mode", () => {
       String(url).includes("/submissions"),
     )!;
     const body = JSON.parse(String(init!.body));
+    // The exact shape: nothing beside the answers, the render timestamp and
+    // the cart — no `_selection`, and no price, rate or total anywhere.
+    expect(Object.keys(body).sort()).toEqual(["_cart", "_t", "data"]);
+    expect(typeof body._t).toBe("number");
+    expect(body.data).toEqual({ customer: "Ada" });
     expect(body._cart).toEqual([
       { recordId: "a", quantity: 2 },
       { recordId: "b", quantity: 1 },
     ]);
-    expect(body._selection).toBeUndefined();
-    expect(body.data).toEqual({ customer: "Ada" });
-    // The estimate was on screen (360.00), and it goes nowhere.
-    expect(String(init!.body)).not.toMatch(/price|total|amount|rate|120|360/i);
+    for (const line of body._cart) {
+      expect(Object.keys(line).sort()).toEqual(["quantity", "recordId"]);
+    }
+    // The estimate was on screen (360.00), and it goes nowhere. `_t` is left
+    // out of this check: a millisecond timestamp can contain any digits.
+    const rest = { data: body.data, _cart: body._cart };
+    expect(JSON.stringify(rest)).not.toMatch(/price|total|amount|rate|120|360/i);
   });
 
   it("AC2 — shows an estimated total only for flat pricing with a public rate", async () => {
