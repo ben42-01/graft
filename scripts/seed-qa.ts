@@ -142,6 +142,18 @@ const IDS = {
   entityPremiumCartItems: oid(28),
   entityPremiumCartOrders: oid(29),
   formPremiumCart: oid(39),
+  // GRAFT-30.2 — a form already *in* cart mode, so bruno/forms/cart-submit*.bru
+  // never depend on cart-config.bru having switched formPremiumCart on first.
+  // Flat-priced (€5 loaf, €22 veg box) so AC1's totals are exact, and a 30%
+  // deposit so AC7 is visible on the same order. The loaf and the box share a
+  // large pool; the oven's pool holds one, which is AC3's refusal.
+  formPremiumCartShop: oid(40),
+  recordCartLoaf: oid(56),
+  recordCartVegBox: oid(57),
+  recordCartOven: oid(58),
+  poolCartLoaf: oid(103),
+  poolCartVegBox: oid(104),
+  poolCartOven: oid(105),
   recordFreeFirst: oid(41),
   // BMS inventory (docs/BMS_EXTENSION.md §2.1). A bookable resource needs an
   // entity to be an instance of, a record to *be* the instance, and a pool to
@@ -681,6 +693,42 @@ async function main() {
       },
     ]);
 
+    // GRAFT-30.2 — the cart shop's catalogue: three products of the premium
+    // tenant's QA Cart Items entity, each with a pool. Prices are *major*
+    // units, as a human types them (pricing.ts `toMinor`).
+    await db.collection("records").insertMany(
+      [
+        { _id: IDS.recordCartLoaf, data: { name: "Sourdough loaf", price: 5 } },
+        { _id: IDS.recordCartVegBox, data: { name: "Veg box", price: 22 } },
+        { _id: IDS.recordCartOven, data: { name: "Wood-fired oven hire", price: 40 } },
+      ].map((row) => ({
+        ...row,
+        tenantId: IDS.tenantPremium,
+        entityDefId: IDS.entityPremiumCartItems,
+        schemaVersion: 1,
+        deletedAt: null,
+        ...base,
+      })),
+    );
+    await db.collection("inventory_pools").insertMany(
+      [
+        { _id: IDS.poolCartLoaf, recordId: IDS.recordCartLoaf, totalQuantity: 1000 },
+        { _id: IDS.poolCartVegBox, recordId: IDS.recordCartVegBox, totalQuantity: 1000 },
+        // One oven: a cart asking for two of it is refused whatever else it holds.
+        { _id: IDS.poolCartOven, recordId: IDS.recordCartOven, totalQuantity: 1 },
+      ].map((row) => ({
+        ...row,
+        tenantId: IDS.tenantPremium,
+        entityDefId: IDS.entityPremiumCartItems,
+        strategy: "pooled_quantity",
+        bufferMinutes: 0,
+        autoLockOnCheckout: true,
+        allocationVersion: 0,
+        deletedAt: null,
+        ...base,
+      })),
+    );
+
     // Exactly 3 records for the free tenant — assertions count on this.
     await db.collection("records").insertMany([
       {
@@ -821,6 +869,43 @@ async function main() {
           rateKey: "price",
           labelKey: "name",
           depositPercent: null,
+        },
+        payment: null,
+        showBadge: true,
+        deletedAt: null,
+        ...base,
+      },
+      {
+        // GRAFT-30.2 — seeded in cart mode, flat-priced, 30% deposit.
+        _id: IDS.formPremiumCartShop,
+        tenantId: IDS.tenantPremium,
+        entityDefId: IDS.entityPremiumCartOrders,
+        name: "QA Premium Cart Shop",
+        slug: "qa-premium-cart-shop",
+        publicSlug: "qa-premium/qa-premium-cart-shop",
+        visibility: "public",
+        published: true,
+        enabled: true,
+        killSwitchAt: null,
+        killSwitchBy: null,
+        fields: CART_ORDER_FIELDS,
+        catalogue: {
+          entityDefId: IDS.entityPremiumCartItems,
+          fields: ["name", "price"],
+          imageField: null,
+          pageSize: 12,
+          selectionKey: "item",
+          multiple: true,
+        },
+        booking: {
+          startKey: "starts_at",
+          endKey: "ends_at",
+          durationMinutes: null,
+          quantityKey: null,
+          rateBasis: "flat",
+          rateKey: "price",
+          labelKey: "name",
+          depositPercent: 30,
         },
         payment: null,
         showBadge: true,
