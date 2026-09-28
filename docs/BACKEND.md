@@ -63,6 +63,21 @@
 - Entitlements (tier gating) checked alongside permissions: `can(ctx, "csv_import")`.
 - Public form endpoints (`POST /api/v1/public/forms/:slug/submissions`) are the **only** unauthenticated write surface — see §5.
 
+#### Team — invites and members (GRAFT-33.1)
+
+**Owner only.** Every team endpoint refuses `admin` and `member` with `403 FORBIDDEN` before it validates input or reads anything. Tenant role `admin` is labelled **"Manager"** in every tenant-facing screen, and it grants nothing on the platform-admin console below. The owner may invite a person as `admin` or `member`. `owner` can't be granted, and each workspace has one owner.
+
+| Endpoint | Result |
+| --- | --- |
+| `POST /api/v1/team/invites` `{ role: "admin"\|"member", email? }` | `201 { invite: { id, role, email, expiresAt }, url }`. `url` is `${APP_URL}/invite/<token>`. Unknown fields, `owner` or a malformed email give `400 VALIDATION_FAILED`. |
+| `GET /api/v1/team` | `{ members: [{ userId, email, roles, isYou }], invites: [pending], seats: { used, limit } }` |
+| `DELETE /api/v1/team/invites/:inviteId` | `204`. Another tenant's id, or an invite that is no longer pending, gives `404`. |
+| `DELETE /api/v1/team/members/:userId` | `204`. Only this tenant's membership is pulled from the user. The owner removing themselves gives `400`. Someone who isn't a member here gives `404`. The removed session stops working at its next refresh, because the identity store re-reads memberships. |
+
+- **The token.** It is 32 random bytes, appears once inside `url`, and is never stored. `invites.tokenHash` holds its SHA-256, which has a unique index. Invites expire after 7 days. Logs carry the invite id, `tenantId` and `userId`, never the email or the token.
+- **Seat arithmetic.** `used` = this tenant's members + its pending invites. An invite is pending while it is unexpired, unrevoked and unaccepted. `limit` is the resolved `seats` entitlement (`null` is unlimited). Creating an invite when `used >= limit` is refused with `QUOTA_EXCEEDED` (`details: { meter: "seats", limit, used, reason }`), the same shape as every other quota refusal. On Free (1 seat) the first invite is refused. Seats are counted, not metered, so no `usage_meters` row exists for them.
+- Members live on the global `users` collection, so `src/server/services/team.ts` reads them through its own store. That store is filtered by `ctx.tenantId` and projects only email and memberships. Invites go through the tenant-scoped repository.
+
 #### Platform admin — a second boundary, not a role (GRAFT-27.1)
 
 `/api/v1/admin/*` is authorised by `assertPlatformAdmin(ctx, …)`

@@ -1,0 +1,60 @@
+meta {
+  name: The owner lists this workspace's members, pending invites and seats
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/v1/team
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamOwnerToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.members: isArray
+  res.body.data.invites: isArray
+  res.body.data.seats.limit: eq 15
+  res.body.error: isUndefined
+}
+
+tests {
+  const team = res.getBody().data;
+  const emails = team.members.map((m) => m.email);
+
+  test("AC5 — the caller, and only the caller, is isYou", function () {
+    const you = team.members.filter((m) => m.isYou);
+    expect(you).to.have.lengthOf(1);
+    expect(you[0].email).to.equal("owner@qa-premium.test");
+    expect(you[0].userId).to.equal("00000000000000000000000c");
+    expect(you[0].roles).to.eql(["owner"]);
+  });
+
+  test("AC5 — this tenant's members only", function () {
+    expect(emails).to.include.members([
+      "member@qa-premium.test",
+      "admin@qa-premium.test",
+      "removable@qa-premium.test",
+    ]);
+    expect(emails).to.not.include("owner@qa-free.test");
+    expect(emails).to.not.include("owner@qa-platform.test");
+  });
+
+  test("AC5 — the invite just created is pending, with no hash and no token", function () {
+    expect(team.invites.map((i) => i.id)).to.include(bru.getVar("teamInviteId"));
+    for (const invite of team.invites) {
+      expect(Object.keys(invite).sort()).to.eql(["email", "expiresAt", "id", "role"]);
+    }
+    const token = bru.getVar("teamInviteUrl").split("/invite/")[1];
+    expect(JSON.stringify(res.getBody())).to.not.contain(token);
+    expect(JSON.stringify(res.getBody())).to.not.contain("tokenHash");
+  });
+
+  test("AC3 — seats used is members plus pending invites", function () {
+    expect(team.seats.used).to.equal(team.members.length + team.invites.length);
+  });
+}

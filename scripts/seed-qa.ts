@@ -110,6 +110,12 @@ const IDS = {
   // GRAFT-27.4 AC6 — the owner of qa-override, used to prove that a tenant
   // owner cannot flip their OWN tenant's tier.
   userOverrideOwner: oid(82),
+  // GRAFT-33.1 — a tenant `admin` ("Manager") on qa-premium with no platform
+  // flag (AC4, AC9), and a member bruno/team/remove-member.bru removes (AC7).
+  // The removable one also belongs to qa-free, so "their other workspaces are
+  // untouched" has a workspace to look at. Premium first: login lands there.
+  userPremiumAdmin: oid(84),
+  userPremiumRemovable: oid(85),
   entityBillingDowngrade: oid(25),
   entityFreeCustomers: oid(21),
   entityPremiumCustomers: oid(22),
@@ -537,6 +543,27 @@ async function main() {
         emailVerifiedAt: FIXED_DATE,
         passwordHash,
         memberships: [{ tenantId: IDS.tenantPlatform, roles: ["owner", "admin"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userPremiumAdmin,
+        email: "admin@qa-premium.test",
+        name: "QA Premium Manager",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantPremium, roles: ["admin"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userPremiumRemovable,
+        email: "removable@qa-premium.test",
+        name: "QA Premium Removable Member",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [
+          { tenantId: IDS.tenantPremium, roles: ["member"] },
+          { tenantId: IDS.tenantFree, roles: ["member"] },
+        ],
         ...base,
       },
     ]);

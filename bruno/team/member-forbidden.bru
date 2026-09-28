@@ -1,0 +1,75 @@
+meta {
+  name: A member or manager is refused by every team endpoint
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/v1/team
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamMemberToken}}
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = async (email) =>
+    (
+      await axios.post(`${baseUrl}/api/v1/auth/login`, {
+        email,
+        password: bru.getEnvVar("qaPassword"),
+      })
+    ).data.data.accessToken;
+  const tokens = {
+    member: await login("member@qa-premium.test"),
+    admin: await login("admin@qa-premium.test"),
+  };
+  bru.setVar("teamMemberToken", tokens.member);
+
+  const results = {};
+  for (const [who, token] of Object.entries(tokens)) {
+    const opts = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+    const calls = {
+      list: () => axios.get(`${baseUrl}/api/v1/team`, opts),
+      invite: () => axios.post(`${baseUrl}/api/v1/team/invites`, { role: "member" }, opts),
+      // Invalid body: the role check must still answer first.
+      inviteOwner: () => axios.post(`${baseUrl}/api/v1/team/invites`, { role: "owner" }, opts),
+      revoke: () =>
+        axios.delete(`${baseUrl}/api/v1/team/invites/${bru.getVar("teamInviteId")}`, opts),
+      remove: () =>
+        axios.delete(`${baseUrl}/api/v1/team/members/000000000000000000000055`, opts),
+    };
+    for (const [name, call] of Object.entries(calls)) {
+      const response = await call();
+      results[`${who}.${name}`] = `${response.status} ${response.data?.error?.code}`;
+    }
+  }
+  bru.setVar("teamForbidden", JSON.stringify(results));
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq FORBIDDEN
+  res.body.data: isUndefined
+}
+
+tests {
+  const results = JSON.parse(bru.getVar("teamForbidden"));
+
+  test("AC4 — every endpoint answers 403 FORBIDDEN to a member and a manager", function () {
+    expect(Object.keys(results)).to.have.lengthOf(10);
+    for (const [call, outcome] of Object.entries(results)) {
+      expect(outcome, call).to.equal("403 FORBIDDEN");
+    }
+  });
+}
+
+docs {
+  AC4. Runs before revoke.bru and remove-member.bru, so the invite and the
+  removable member it aims at still exist — a 404 here would not prove the
+  role check ran first.
+}

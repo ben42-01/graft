@@ -1,0 +1,62 @@
+meta {
+  name: An invite for owner, an unknown role, a bad email or extra fields is refused
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/api/v1/team/invites
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamOwnerToken}}
+}
+
+body:json {
+  {
+    "role": "owner"
+  }
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const auth = {
+    headers: { Authorization: `Bearer ${bru.getVar("teamOwnerToken")}` },
+    validateStatus: () => true,
+  };
+  const results = {};
+  for (const [name, body] of Object.entries({
+    unknownRole: { role: "superuser" },
+    badEmail: { role: "member", email: "not-an-email" },
+    extraField: { role: "member", tenantId: "000000000000000000000001" },
+  })) {
+    const response = await axios.post(`${baseUrl}/api/v1/team/invites`, body, auth);
+    results[name] = { status: response.status, code: response.data?.error?.code };
+  }
+  bru.setVar("teamValidation", JSON.stringify(results));
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.data: isUndefined
+}
+
+tests {
+  const results = JSON.parse(bru.getVar("teamValidation"));
+
+  test("AC2 — an unknown role is VALIDATION_FAILED", function () {
+    expect(results.unknownRole).to.eql({ status: 400, code: "VALIDATION_FAILED" });
+  });
+
+  test("AC2 — a malformed email is VALIDATION_FAILED", function () {
+    expect(results.badEmail).to.eql({ status: 400, code: "VALIDATION_FAILED" });
+  });
+
+  test("AC2 — an unknown body field is VALIDATION_FAILED, not dropped", function () {
+    expect(results.extraField).to.eql({ status: 400, code: "VALIDATION_FAILED" });
+  });
+}

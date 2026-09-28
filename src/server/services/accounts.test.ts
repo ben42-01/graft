@@ -92,6 +92,10 @@ function fakeStore() {
       verifications.set(tokenHash, { ...found, usedAt: now });
       return { userId: found.userId };
     },
+    // GRAFT-33.1 — part of the port now; nothing in accounts.ts calls it.
+    async removeMembership() {
+      return false;
+    },
   };
 
   return { store, users, tenants, verifications };

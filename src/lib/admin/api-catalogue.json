@@ -393,6 +393,13 @@
       "source": "src/app/api/v1/admin/users/route.ts",
       "examples": [
         {
+          "name": "A tenant Manager (role admin) gets nothing from the Graft Admin console",
+          "file": "bruno/admin/tenant-admin-not-platform-admin.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
           "name": "A platform admin searches users across every tenant",
           "file": "bruno/admin/users-list.bru",
           "pathParams": {},
@@ -2317,6 +2324,118 @@
           "pathParams": {},
           "query": {},
           "body": "{\n  \"intent\": \"invoicing\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/team",
+      "method": "GET",
+      "path": "/api/v1/team",
+      "group": "team",
+      "params": [],
+      "auth": "session",
+      "summary": "members, pending invites and seats (GRAFT-33.1 AC5). Owner only (AC4); every decision lives in src/server/services/team.ts.",
+      "source": "src/app/api/v1/team/route.ts",
+      "examples": [
+        {
+          "name": "The owner lists this workspace's members, pending invites and seats",
+          "file": "bruno/team/list.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A member or manager is refused by every team endpoint",
+          "file": "bruno/team/member-forbidden.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Another workspace's owner cannot see or touch this team",
+          "file": "bruno/team/tenant-isolation.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/team/invites",
+      "method": "POST",
+      "path": "/api/v1/team/invites",
+      "group": "team",
+      "params": [],
+      "auth": "session",
+      "summary": "the owner creates an invite link (GRAFT-33.1 AC1–AC4). The raw token appears once, inside `url`, and is never stored.",
+      "source": "src/app/api/v1/team/invites/route.ts",
+      "examples": [
+        {
+          "name": "On Free the very first invite is refused at the seat limit",
+          "file": "bruno/team/create-invite-seat-limit.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"role\": \"member\"\n}"
+        },
+        {
+          "name": "An invite for owner, an unknown role, a bad email or extra fields is refused",
+          "file": "bruno/team/create-invite-validation.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"role\": \"owner\"\n}"
+        },
+        {
+          "name": "The owner creates an invite link",
+          "file": "bruno/team/create-invite.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"role\": \"member\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "DELETE /api/v1/team/invites/:inviteId",
+      "method": "DELETE",
+      "path": "/api/v1/team/invites/:inviteId",
+      "group": "team",
+      "params": [
+        "inviteId"
+      ],
+      "auth": "session",
+      "summary": "revoke a pending invite (GRAFT-33.1 AC6). Another tenant's invite is invisible to the scoped repository: 404.",
+      "source": "src/app/api/v1/team/invites/[inviteId]/route.ts",
+      "examples": [
+        {
+          "name": "Revoking an invite drops it from the list and frees its seat",
+          "file": "bruno/team/revoke.bru",
+          "pathParams": {
+            "inviteId": "{{teamInviteId}}"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "DELETE /api/v1/team/members/:userId",
+      "method": "DELETE",
+      "path": "/api/v1/team/members/:userId",
+      "group": "team",
+      "params": [
+        "userId"
+      ],
+      "auth": "session",
+      "summary": "remove someone from this workspace (GRAFT-33.1 AC7). Only this tenant's membership goes; the owner cannot remove themselves, and someone who is not a member here is 404.",
+      "source": "src/app/api/v1/team/members/[userId]/route.ts",
+      "examples": [
+        {
+          "name": "Removing a member ends their seat here and nowhere else",
+          "file": "bruno/team/remove-member.bru",
+          "pathParams": {
+            "userId": "000000000000000000000055"
+          },
+          "query": {},
+          "body": null
         }
       ]
     },
