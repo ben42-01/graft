@@ -2234,7 +2234,7 @@
       "source": "src/app/api/v1/workspace-templates/route.ts",
       "examples": [
         {
-          "name": "The template gallery lists the ten business templates",
+          "name": "The template gallery lists the fifteen business templates",
           "file": "bruno/workspace-templates/list.bru",
           "pathParams": {},
           "query": {},

@@ -14,13 +14,18 @@
  * Adding one: write `templates/<id>.json`, import it below, add it to the
  * list. The tests will tell you what is wrong with it.
  */
+import clinic from "./templates/clinic.json";
 import equipmentHire from "./templates/equipment-hire.json";
 import fitnessStudio from "./templates/fitness-studio.json";
+import garage from "./templates/garage.json";
 import hotel from "./templates/hotel.json";
 import petCare from "./templates/pet-care.json";
 import professionalServices from "./templates/professional-services.json";
 import restaurant from "./templates/restaurant.json";
 import salon from "./templates/salon.json";
+import school from "./templates/school.json";
+import shop from "./templates/shop.json";
+import tours from "./templates/tours.json";
 import trades from "./templates/trades.json";
 import vehicleRental from "./templates/vehicle-rental.json";
 import venue from "./templates/venue.json";
@@ -37,6 +42,11 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
   restaurant,
   trades,
   professionalServices,
+  shop,
+  clinic,
+  garage,
+  school,
+  tours,
 ].map((raw) => workspaceTemplateSchema.parse(raw));
 
 export function findWorkspaceTemplate(id: string): WorkspaceTemplate | undefined {
