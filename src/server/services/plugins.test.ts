@@ -357,3 +357,70 @@ describe("disablePlugin (AC2, AC6)", () => {
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 });
+
+describe("enablePlugin — form-write roles (GRAFT-31 AC7)", () => {
+  const withRoles = (roles: Ctx["roles"]): Ctx =>
+    createContext({
+      requestId: "req-plugins-roles",
+      tenantId: TENANT,
+      userId: USER,
+      roles,
+      tier: "free",
+    });
+
+  it("refuses a member before anything is read, charged or provisioned", async () => {
+    const { repo, docs } = fakeRepo();
+    const findOne = vi.spyOn(repo, "findOne");
+    const entitlements = vi.fn(async () => entitlementsFor("free"));
+    const consumeQuota = vi.fn();
+    const createEntity = vi.fn();
+    const createForm = vi.fn();
+
+    await expect(
+      enablePlugin(withRoles(["member"]), "contacts", {
+        repo,
+        entitlements,
+        consumeQuota,
+        createEntity,
+        createForm,
+      }),
+    ).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      message: "Only an owner or admin can change forms",
+    });
+    for (const spy of [findOne, entitlements, consumeQuota, createEntity, createForm]) {
+      expect(spy).not.toHaveBeenCalled();
+    }
+    expect(docs.size).toBe(0);
+  });
+
+  it("lets an admin enable a plugin that provisions forms", async () => {
+    const { repo } = fakeRepo();
+    const createForm = vi.fn().mockResolvedValue({});
+    const view = await enablePlugin(withRoles(["admin"]), "contacts", {
+      repo,
+      entitlements: async () => entitlementsFor("free"),
+      consumeQuota: vi.fn().mockResolvedValue(allowedQuota),
+      createEntity: vi.fn().mockResolvedValue(entityView()),
+      createForm,
+    });
+    expect(view.enabled).toBe(true);
+    expect(createForm).toHaveBeenCalled();
+  });
+
+  it("does not gate a plugin that provisions no forms", async () => {
+    const formless = PLUGIN_REGISTRY.find((manifest) => manifest.forms.length === 0);
+    expect(formless).toBeDefined();
+    const { repo } = fakeRepo();
+    const createForm = vi.fn();
+    const view = await enablePlugin(withRoles(["member"]), formless!.id, {
+      repo,
+      entitlements: async () => entitlementsFor("enterprise"),
+      consumeQuota: vi.fn().mockResolvedValue(allowedQuota),
+      createEntity: vi.fn().mockResolvedValue(entityView()),
+      createForm,
+    });
+    expect(view.enabled).toBe(true);
+    expect(createForm).not.toHaveBeenCalled();
+  });
+});

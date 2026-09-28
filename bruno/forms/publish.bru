@@ -11,7 +11,23 @@ post {
 }
 
 headers {
-  Authorization: Bearer {{loginAccessToken}}
+  Authorization: Bearer {{freeOwnerAccessToken}}
+}
+
+script:pre-request {
+  // GRAFT-31 — form writes (and enabling a plugin that provisions forms) are
+  // owner/admin only. `loginAccessToken` is both@qa.test, a *member* of the
+  // free tenant, so this file writes as the free tenant's owner instead.
+  // Logged in once and reused across files: the `auth` scope allows 5 logins
+  // per email per 15 minutes (src/server/rate-limit/scopes.ts).
+  if (!bru.getVar("freeOwnerAccessToken")) {
+    const axios = require("axios");
+    const login = await axios.post(`${bru.getEnvVar("baseUrl")}/api/v1/auth/login`, {
+      email: "owner@qa-free.test",
+      password: bru.getEnvVar("qaPassword"),
+    });
+    bru.setVar("freeOwnerAccessToken", login.data.data.accessToken);
+  }
 }
 
 assert {

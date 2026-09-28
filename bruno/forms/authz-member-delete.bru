@@ -1,0 +1,61 @@
+meta {
+  name: A member cannot delete a form, and it still exists afterwards
+  type: http
+  seq: 36
+}
+
+get {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000026
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumMemberAccessToken}}
+}
+
+script:pre-request {
+  // The refused DELETE happens here so that the request this file asserts on
+  // synchronously is the read-back proving the form survived.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  // Logged in once and reused by every member file: the `auth` scope allows
+  // 5 logins per email per 15 minutes (src/server/rate-limit/scopes.ts).
+  if (!bru.getVar("premiumMemberAccessToken")) {
+    const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+      email: "member@qa-premium.test",
+      password: bru.getEnvVar("qaPassword"),
+    });
+    bru.setVar("premiumMemberAccessToken", login.data.data.accessToken);
+  }
+  const token = bru.getVar("premiumMemberAccessToken");
+
+  const del = await axios.delete(`${baseUrl}/api/v1/forms/000000000000000000000026`, {
+    headers: { Authorization: `Bearer ${token}` },
+    validateStatus: () => true,
+  });
+  bru.setVar("memberDeleteStatus", del.status);
+  bru.setVar("memberDeleteCode", del.data?.error?.code);
+  bru.setVar("memberDeleteHasRequestId", Boolean(del.data?.error?.requestId));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.id: eq "000000000000000000000026"
+  res.body.data.published: eq true
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC1 — the member's DELETE is 403 FORBIDDEN in the standard envelope", function () {
+    expect(String(bru.getVar("memberDeleteStatus"))).to.equal("403");
+    expect(String(bru.getVar("memberDeleteCode"))).to.equal("FORBIDDEN");
+    expect(String(bru.getVar("memberDeleteHasRequestId"))).to.equal("true");
+  });
+}
+
+docs {
+  GRAFT-31 AC1 (DELETE). Runs against formPremiumPayment
+  (000000000000000000000026, scripts/seed-qa.ts). A soft-deleted form reads
+  as 404, so the 200 here is the proof it was not deleted.
+}

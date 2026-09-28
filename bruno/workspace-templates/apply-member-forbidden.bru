@@ -1,0 +1,87 @@
+meta {
+  name: A member cannot apply a template, and nothing is built
+  type: http
+  seq: 8
+}
+
+post {
+  url: {{baseUrl}}/api/v1/workspace-templates/hotel/apply
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumMemberAccessToken}}
+}
+
+body:json {
+  {
+    "answers": {}
+  }
+}
+
+script:pre-request {
+  // member@qa-premium.test (scripts/seed-qa.ts) holds only the "member" role
+  // on the premium tenant. Every template builds and publishes forms, so
+  // applying one is a form write (GRAFT-31 AC7).
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  // Logged in once and reused by every member file: the `auth` scope allows
+  // 5 logins per email per 15 minutes (src/server/rate-limit/scopes.ts).
+  if (!bru.getVar("premiumMemberAccessToken")) {
+    const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+      email: "member@qa-premium.test",
+      password: bru.getEnvVar("qaPassword"),
+    });
+    bru.setVar("premiumMemberAccessToken", login.data.data.accessToken);
+  }
+  const token = bru.getVar("premiumMemberAccessToken");
+  const auth = { headers: { Authorization: `Bearer ${token}` } };
+
+  const entities = await axios.get(`${baseUrl}/api/v1/entities?limit=100`, auth);
+  bru.setVar("templatesMemberEntitiesBefore", entities.data.data.length);
+  const forms = await axios.get(`${baseUrl}/api/v1/forms?limit=100`, auth);
+  bru.setVar("templatesMemberFormsBefore", forms.data.data.length);
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq FORBIDDEN
+  res.body.error.message: eq "Only an owner or admin can change forms"
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const auth = { headers: { Authorization: `Bearer ${bru.getVar("premiumMemberAccessToken")}` } };
+
+  const entities = await axios.get(`${baseUrl}/api/v1/entities?limit=100`, auth);
+  bru.setVar("templatesMemberEntitiesAfter", entities.data.data.length);
+  const forms = await axios.get(`${baseUrl}/api/v1/forms?limit=100`, auth);
+  bru.setVar("templatesMemberFormsAfter", forms.data.data.length);
+}
+
+tests {
+  test("AC7 — no entity was created", function () {
+    expect(String(bru.getVar("templatesMemberEntitiesAfter"))).to.equal(
+      String(bru.getVar("templatesMemberEntitiesBefore")),
+    );
+  });
+
+  test("AC7 — no form was created", function () {
+    expect(String(bru.getVar("templatesMemberFormsAfter"))).to.equal(
+      String(bru.getVar("templatesMemberFormsBefore")),
+    );
+  });
+}
+
+docs {
+  GRAFT-31 AC7. src/server/services/workspace-templates.ts's
+  `applyWorkspaceTemplate` calls `assertCanWriteForms` before it prices the
+  plan, claims names or opens a run, so a member's refusal leaves nothing
+  behind. That the template run itself is never inserted is proved by unit
+  test in src/server/services/workspace-templates.test.ts, as runs have no
+  list endpoint.
+}

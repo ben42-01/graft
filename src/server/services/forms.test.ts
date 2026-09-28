@@ -15,10 +15,20 @@ import type { EntityView, FieldDef } from "@/server/services/entities";
 import type { Meter, QuotaResult } from "@/server/services/meters";
 import type { Repository } from "@/server/repositories/base";
 import {
+  attachFormImage,
+  removeFormImage,
+  requestFormImageUpload,
+  updateFormCarousel,
+  type FormMediaDeps,
+} from "./form-media";
+import {
+  assertCanWriteForms,
   cartConfigErrors,
   createForm,
   deleteForm,
+  getForm,
   isFormServable,
+  listForms,
   isPaymentLinkUrl,
   paymentSchema,
   meterForVisibility,
@@ -1334,6 +1344,269 @@ describe("catalogue.multiple — cart mode (GRAFT-30.1)", () => {
       expect(publicCartPricing({ fields: catalogue.fields }, booking)).toBeNull();
       expect(publicCartPricing(null, booking)).toBeNull();
       expect(publicCartPricing(catalogue, null)).toBeNull();
+    });
+  });
+});
+
+/**
+ * GRAFT-31 — only an owner or admin may write forms; a member may read them.
+ * The refusal has to come first: before the body is resolved against an
+ * entity, before quota is reserved, before anything is written. So the member
+ * cases below hand the service ports that fail the test if touched at all.
+ */
+describe("form write roles (GRAFT-31)", () => {
+  const withRoles = (roles: Ctx["roles"]): Ctx =>
+    createContext({
+      requestId: "req-roles",
+      tenantId: TENANT,
+      userId: USER,
+      roles,
+      tier: "free",
+    });
+  const member = withRoles(["member"]);
+  const admin = withRoles(["admin"]);
+
+  const untouchable = () =>
+    vi.fn(async () => {
+      throw new Error("a refused member call must not reach this port");
+    });
+
+  /** Every FormDeps port wired to fail loudly, plus the spies to prove it. */
+  function forbiddenFormDeps() {
+    const repoFns = {
+      find: untouchable(),
+      findOne: untouchable(),
+      findById: untouchable(),
+      insertOne: untouchable(),
+      updateOne: untouchable(),
+      softDelete: untouchable(),
+      listPage: untouchable(),
+      count: untouchable(),
+    };
+    const repo = {
+      collectionName: "forms",
+      collection: vi.fn(),
+      ...repoFns,
+    } as unknown as Repository<FormDoc>;
+    const getEntity = untouchable();
+    const consumeQuota = untouchable();
+    const findTenantById = untouchable();
+    const accounts = { findTenantById } as unknown as AccountStore;
+    const spies = [...Object.values(repoFns), getEntity, consumeQuota, findTenantById];
+    return {
+      deps: { repo, getEntity, consumeQuota, accounts } as unknown as Partial<
+        Parameters<typeof createForm>[2]
+      >,
+      spies,
+    };
+  }
+
+  function forbiddenMediaDeps() {
+    const formsFns = {
+      find: untouchable(),
+      findOne: untouchable(),
+      findById: untouchable(),
+      insertOne: untouchable(),
+      updateOne: untouchable(),
+      softDelete: untouchable(),
+      listPage: untouchable(),
+      count: untouchable(),
+    };
+    const ports = {
+      requestUpload: untouchable(),
+      confirmUpload: untouchable(),
+      deleteMedia: untouchable(),
+      getMedia: untouchable(),
+      listMediaFor: untouchable(),
+    };
+    const deps = {
+      forms: { collectionName: "forms", collection: vi.fn(), ...formsFns },
+      ...ports,
+    } as unknown as Partial<FormMediaDeps>;
+    return { deps, spies: [...Object.values(formsFns), ...Object.values(ports)] };
+  }
+
+  const FORM = "000000000000000000000031";
+  const MEDIA = "000000000000000000000041";
+
+  const expectForbidden = async (call: Promise<unknown>) => {
+    const error = await call.then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(AppError);
+    expect(error).toMatchObject({
+      code: "FORBIDDEN",
+      message: "Only an owner or admin can change forms",
+    });
+  };
+
+  describe("assertCanWriteForms (AC6)", () => {
+    it("lets an owner through", () => {
+      expect(() => assertCanWriteForms(ctx)).not.toThrow();
+    });
+
+    it("lets an admin through", () => {
+      expect(() => assertCanWriteForms(admin)).not.toThrow();
+    });
+
+    it("lets someone holding member and admin through", () => {
+      expect(() => assertCanWriteForms(withRoles(["member", "admin"]))).not.toThrow();
+    });
+
+    it("refuses a member with FORBIDDEN", () => {
+      expect(() => assertCanWriteForms(member)).toThrow(AppError);
+      expect(() => assertCanWriteForms(member)).toThrow(
+        "Only an owner or admin can change forms",
+      );
+    });
+  });
+
+  describe("a member is refused before anything is read, reserved or written (AC1, AC4)", () => {
+    const body = {
+      entityId: ENTITY_ID,
+      name: "Member's form",
+      slug: "members-form",
+      visibility: "internal",
+      fields: [{ key: "name" }],
+    };
+
+    const formCalls: [
+      string,
+      (deps: ReturnType<typeof forbiddenFormDeps>["deps"]) => Promise<unknown>,
+    ][] = [
+      ["createForm", (deps) => createForm(member, body, deps)],
+      ["updateForm", (deps) => updateForm(member, FORM, { name: "Renamed" }, deps)],
+      ["deleteForm", (deps) => deleteForm(member, FORM, deps)],
+      ["publishForm", (deps) => publishForm(member, FORM, deps)],
+      ["unpublishForm", (deps) => unpublishForm(member, FORM, deps)],
+    ];
+
+    it.each(formCalls)("%s", async (_name, call) => {
+      const { deps, spies } = forbiddenFormDeps();
+      await expectForbidden(call(deps));
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    });
+
+    const mediaCalls: [string, (deps: Partial<FormMediaDeps>) => Promise<unknown>][] = [
+      [
+        "requestFormImageUpload (POST /media)",
+        (deps) =>
+          requestFormImageUpload(
+            member,
+            FORM,
+            { contentType: "image/png", sizeBytes: 1024 } as never,
+            deps,
+          ),
+      ],
+      [
+        "attachFormImage (POST /media/:mediaId)",
+        (deps) => attachFormImage(member, FORM, MEDIA, "A photo", deps),
+      ],
+      [
+        "removeFormImage (DELETE /media/:mediaId)",
+        (deps) => removeFormImage(member, FORM, MEDIA, deps),
+      ],
+      [
+        "updateFormCarousel (PUT /carousel)",
+        (deps) => updateFormCarousel(member, FORM, { images: [] }, deps),
+      ],
+    ];
+
+    it.each(mediaCalls)("%s", async (_name, call) => {
+      const { deps, spies } = forbiddenMediaDeps();
+      await expectForbidden(call(deps));
+      for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+    });
+
+    it("a refused create of an internal form reserves no internal_forms quota (AC4)", async () => {
+      const consumeQuota = vi.fn(async (_c: Ctx, meter: Meter) => allowedQuota(meter));
+      const { repo, docs } = fakeRepo();
+      await expectForbidden(
+        createForm(member, body, { repo, getEntity: async () => entity(), consumeQuota }),
+      );
+      expect(consumeQuota).not.toHaveBeenCalled();
+      expect(docs.size).toBe(0);
+    });
+
+    it("a refused publish reserves no active_forms quota and leaves the form unpublished (AC4)", async () => {
+      const doc = seedDoc();
+      const { repo, docs } = fakeRepo([doc]);
+      const consumeQuota = vi.fn(async (_c: Ctx, meter: Meter) => allowedQuota(meter));
+      await expectForbidden(
+        publishForm(member, doc._id.toHexString(), {
+          repo,
+          accounts: fakeAccounts(TENANT_RECORD),
+          consumeQuota,
+        }),
+      );
+      expect(consumeQuota).not.toHaveBeenCalled();
+      expect(docs.get(doc._id.toHexString())?.published).toBe(false);
+      expect(docs.get(doc._id.toHexString())?.publicSlug).toBeNull();
+    });
+
+    it("a refused update leaves the stored form exactly as it was", async () => {
+      const doc = seedDoc();
+      const { repo, docs } = fakeRepo([doc]);
+      await expectForbidden(
+        updateForm(member, doc._id.toHexString(), { name: "Renamed" }, { repo }),
+      );
+      expect(docs.get(doc._id.toHexString())).toEqual(doc);
+    });
+
+    it("a refused delete leaves the form live", async () => {
+      const doc = seedDoc();
+      const { repo, docs } = fakeRepo([doc]);
+      await expectForbidden(deleteForm(member, doc._id.toHexString(), { repo }));
+      expect(docs.get(doc._id.toHexString())?.deletedAt).toBeNull();
+    });
+  });
+
+  describe("an admin writes exactly as an owner does (AC2)", () => {
+    it("creates an internal form and reserves its quota", async () => {
+      const consumeQuota = vi.fn(async (_c: Ctx, meter: Meter) => allowedQuota(meter));
+      const { repo } = fakeRepo();
+      const form = await createForm(
+        admin,
+        {
+          entityId: ENTITY_ID,
+          name: "Admin's form",
+          slug: "admins-form",
+          visibility: "internal",
+          fields: [{ key: "name" }],
+        },
+        { repo, getEntity: async () => entity(), consumeQuota },
+      );
+      expect(form.slug).toBe("admins-form");
+      expect(consumeQuota).toHaveBeenCalledWith(admin, "internal_forms");
+    });
+
+    it("updates, publishes, unpublishes and deletes", async () => {
+      const doc = seedDoc();
+      const id = doc._id.toHexString();
+      const { repo, docs } = fakeRepo([doc]);
+      const deps = {
+        repo,
+        accounts: fakeAccounts(TENANT_RECORD),
+        consumeQuota: async (_c: Ctx, meter: Meter) => allowedQuota(meter),
+      };
+      expect((await updateForm(admin, id, { name: "Renamed" }, deps)).name).toBe("Renamed");
+      expect((await publishForm(admin, id, deps)).published).toBe(true);
+      expect((await unpublishForm(admin, id, deps)).published).toBe(false);
+      await deleteForm(admin, id, deps);
+      expect(docs.get(id)?.deletedAt).not.toBeNull();
+    });
+  });
+
+  describe("a member can still read (AC3)", () => {
+    it("lists and gets forms", async () => {
+      const doc = seedDoc();
+      const { repo } = fakeRepo([doc]);
+      const list = await listForms(member, {}, { repo });
+      expect(list.items.map((f) => f.id)).toEqual([doc._id.toHexString()]);
+      expect((await getForm(member, doc._id.toHexString(), { repo })).id).toBe(
+        doc._id.toHexString(),
+      );
     });
   });
 });

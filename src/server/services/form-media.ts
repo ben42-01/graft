@@ -28,6 +28,7 @@ import { createRepository, type Repository } from "@/server/repositories/base";
 import { findCatalogueDisplayingRecord } from "./public-catalogue";
 import type { RecordDoc } from "./records";
 import {
+  assertCanWriteForms,
   isFormServable,
   MAX_CAROUSEL_IMAGES,
   toCarouselView,
@@ -95,6 +96,7 @@ export async function requestFormImageUpload(
   input: RequestUploadInput,
   overrides: Partial<FormMediaDeps> = {},
 ): Promise<UploadTicket> {
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const form = await findFormOrThrow(deps, ctx, formId);
   if (carouselOf(form).length >= MAX_CAROUSEL_IMAGES) {
@@ -119,6 +121,7 @@ export async function attachFormImage(
   alt: string,
   overrides: Partial<FormMediaDeps> = {},
 ): Promise<CarouselItemView[]> {
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const form = await findFormOrThrow(deps, ctx, formId);
 
@@ -175,6 +178,7 @@ export async function updateFormCarousel(
   input: unknown,
   overrides: Partial<FormMediaDeps> = {},
 ): Promise<CarouselItemView[]> {
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const { images } = parse(updateCarouselSchema, input, "body");
   const form = await findFormOrThrow(deps, ctx, formId);
@@ -233,6 +237,7 @@ export async function removeFormImage(
   mediaId: string,
   overrides: Partial<FormMediaDeps> = {},
 ): Promise<CarouselItemView[]> {
+  assertCanWriteForms(ctx);
   const deps = resolveDeps(overrides);
   const form = await findFormOrThrow(deps, ctx, formId);
   const remaining = carouselOf(form).filter((item) => item.mediaId.toHexString() !== mediaId);

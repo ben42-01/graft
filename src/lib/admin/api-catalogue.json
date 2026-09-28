@@ -1071,6 +1071,13 @@
       "source": "src/app/api/v1/forms/route.ts",
       "examples": [
         {
+          "name": "A member cannot create a form, and the refusal costs no quota",
+          "file": "bruno/forms/authz-member-create.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"entityId\": \"000000000000000000000016\",\n  \"name\": \"QA Member's Form\",\n  \"slug\": \"qa-member-authz-create\",\n  \"visibility\": \"internal\",\n  \"fields\": [{ \"key\": \"name\" }]\n}"
+        },
+        {
           "name": "Creating a form binds it to an entity with a real field subset",
           "file": "bruno/forms/create.bru",
           "pathParams": {},
@@ -1091,6 +1098,33 @@
       "summary": "(GRAFT-08).",
       "source": "src/app/api/v1/forms/[formId]/route.ts",
       "examples": [
+        {
+          "name": "A member cannot delete a form, and it still exists afterwards",
+          "file": "bruno/forms/authz-member-delete.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A member can still list and read forms",
+          "file": "bruno/forms/authz-member-read.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A member cannot change a form, and the form reads back unchanged",
+          "file": "bruno/forms/authz-member-update.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": null
+        },
         {
           "name": "Another tenant cannot switch cart mode on, and the form is unchanged",
           "file": "bruno/forms/cart-config-tenant-isolation.bru",
@@ -1346,7 +1380,17 @@
       "auth": "session",
       "summary": "(GRAFT-08 AC3).",
       "source": "src/app/api/v1/forms/[formId]/unpublish/route.ts",
-      "examples": []
+      "examples": [
+        {
+          "name": "A member can neither publish nor unpublish a form",
+          "file": "bruno/forms/authz-member-publish.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
     },
     {
       "id": "GET /api/v1/inventory/allocations",
@@ -2364,6 +2408,15 @@
       "summary": "set the workspace up: every entity, sample record, bookable pool and form the template resolves to. Send `runId` (from a failed attempt's error details) to resume that run instead of starting another.",
       "source": "src/app/api/v1/workspace-templates/[templateId]/apply/route.ts",
       "examples": [
+        {
+          "name": "A member cannot apply a template, and nothing is built",
+          "file": "bruno/workspace-templates/apply-member-forbidden.bru",
+          "pathParams": {
+            "templateId": "hotel"
+          },
+          "query": {},
+          "body": "{\n  \"answers\": {}\n}"
+        },
         {
           "name": "Applying again with a finished run's id changes nothing",
           "file": "bruno/workspace-templates/apply-resume-completed.bru",
