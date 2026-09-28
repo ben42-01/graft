@@ -15,16 +15,19 @@ import type { EntityView, FieldDef } from "@/server/services/entities";
 import type { Meter, QuotaResult } from "@/server/services/meters";
 import type { Repository } from "@/server/repositories/base";
 import {
+  cartConfigErrors,
   createForm,
   deleteForm,
   isFormServable,
   isPaymentLinkUrl,
   paymentSchema,
   meterForVisibility,
+  publicCartPricing,
   publishForm,
   resolveBooking,
   resolveCatalogue,
   resolveFormFields,
+  toCatalogueView,
   unpublishForm,
   unpublishFormsForEntity,
   updateForm,
@@ -486,6 +489,7 @@ describe("resolveCatalogue", () => {
     imageField: "photo" as string | null,
     pageSize: 12,
     selectionKey: null as string | null,
+    multiple: false,
     ...over,
   });
 
@@ -960,5 +964,376 @@ describe("createForm / updateForm — notes and links for customers", () => {
 
   it('`content` alone satisfies the "Nothing to update" refinement', () => {
     expect(updateFormSchema.safeParse({ content: [] }).success).toBe(true);
+  });
+});
+
+/**
+ * GRAFT-30.1 — cart mode (`catalogue.multiple`). The switch itself, its three
+ * rules on create and update, and the public pricing hint. The rules are
+ * checked against the state a write leaves behind, so the update cases below
+ * each touch only one part of a form that is already in cart mode.
+ */
+describe("catalogue.multiple — cart mode (GRAFT-30.1)", () => {
+  const CATALOGUE_ENTITY_ID = "000000000000000000000022";
+
+  const submissionEntity = entity({
+    fields: [
+      field({ key: "customer", label: "Customer" }),
+      field({ key: "chosen_item", label: "Chosen item", required: false }),
+      field({ key: "starts_at", label: "Starts", type: "date" }),
+      field({ key: "ends_at", label: "Ends", type: "date" }),
+      field({ key: "people", label: "People", type: "number", required: false }),
+    ],
+  });
+  const catalogueEntity = entity({
+    id: CATALOGUE_ENTITY_ID,
+    key: "items",
+    name: "Items",
+    fields: [
+      field({ key: "item_name", label: "Item" }),
+      field({ key: "price", label: "Price", type: "number", required: false }),
+      field({ key: "cost", label: "Cost", type: "number", required: false }),
+    ],
+  });
+  const getEntity = async (_ctx: Ctx, id: string) =>
+    id === CATALOGUE_ENTITY_ID ? catalogueEntity : submissionEntity;
+
+  const catalogueInput = (multiple?: boolean) => ({
+    entityId: CATALOGUE_ENTITY_ID,
+    fields: ["item_name", "price"],
+    selectionKey: "chosen_item",
+    ...(multiple === undefined ? {} : { multiple }),
+  });
+  const bookingInput = (over: Record<string, unknown> = {}) => ({
+    startKey: "starts_at",
+    endKey: "ends_at",
+    rateBasis: "daily",
+    rateKey: "price",
+    ...over,
+  });
+  const linkPayment = { mode: "link", link: { url: "https://buy.stripe.com/abc" } };
+
+  const createInput = (over: Record<string, unknown> = {}) => ({
+    entityId: ENTITY_ID,
+    name: "Shop",
+    slug: "shop",
+    visibility: "public",
+    fields: [
+      { key: "customer" },
+      { key: "chosen_item" },
+      { key: "starts_at" },
+      { key: "ends_at" },
+    ],
+    ...over,
+  });
+
+  /** The stored shape of a form already in cart mode. */
+  const cartDoc = () =>
+    seedDoc({
+      fields: submissionEntity.fields,
+      catalogue: {
+        entityDefId: new ObjectId(CATALOGUE_ENTITY_ID),
+        fields: ["item_name", "price"],
+        imageField: null,
+        pageSize: 12,
+        selectionKey: "chosen_item",
+        multiple: true,
+      },
+      booking: {
+        startKey: "starts_at",
+        endKey: "ends_at",
+        durationMinutes: null,
+        quantityKey: null,
+        rateBasis: "daily",
+        rateKey: "price",
+        labelKey: null,
+        depositPercent: null,
+      },
+      payment: null,
+    });
+
+  /** The field errors a refusal carries — what the builder renders. */
+  async function refusal(promise: Promise<unknown>): Promise<Record<string, string>> {
+    try {
+      await promise;
+    } catch (error) {
+      expect(error).toBeInstanceOf(AppError);
+      expect((error as AppError).code).toBe("VALIDATION_FAILED");
+      return ((error as AppError).details as { fields: Record<string, string> }).fields;
+    }
+    throw new Error("expected the write to be refused");
+  }
+
+  it("AC1 — a form created without `multiple` reads multiple: false", async () => {
+    const { repo } = fakeRepo();
+    const view = await createForm(ctx, createInput({ catalogue: catalogueInput() }), {
+      repo,
+      getEntity,
+    });
+    expect(view.catalogue?.multiple).toBe(false);
+  });
+
+  it("AC1 — a catalogue stored before the switch existed reads false, no migration", async () => {
+    const legacy = seedDoc({
+      catalogue: {
+        entityDefId: new ObjectId(CATALOGUE_ENTITY_ID),
+        fields: ["item_name"],
+        imageField: null,
+        pageSize: 12,
+        selectionKey: null,
+      },
+    });
+    expect(toCatalogueView(legacy.catalogue)?.multiple).toBe(false);
+    const { repo } = fakeRepo([legacy]);
+    const read = await updateForm(ctx, legacy._id.toHexString(), { name: "Renamed" }, { repo });
+    expect(read.catalogue?.multiple).toBe(false);
+  });
+
+  it("AC2 — an owner turns it on for a form with a selection and a booking config", async () => {
+    const existing = cartDoc();
+    existing.catalogue = { ...existing.catalogue!, multiple: false };
+    const { repo, docs } = fakeRepo([existing]);
+    const view = await updateForm(
+      ctx,
+      existing._id.toHexString(),
+      { catalogue: catalogueInput(true) },
+      { repo, getEntity },
+    );
+    expect(view.catalogue?.multiple).toBe(true);
+    expect(docs.get(existing._id.toHexString())?.catalogue?.multiple).toBe(true);
+  });
+
+  it("AC2 — created in cart mode with a booking config and Checkout", async () => {
+    const { repo } = fakeRepo();
+    const view = await createForm(
+      ctx,
+      createInput({
+        catalogue: catalogueInput(true),
+        booking: bookingInput(),
+        payment: { mode: "checkout" },
+      }),
+      { repo, getEntity },
+    );
+    expect(view.catalogue?.multiple).toBe(true);
+    expect(view.payment).toEqual({ mode: "checkout", required: false });
+  });
+
+  it("AC3 — create: cart mode with no booking config is refused on catalogue.multiple", async () => {
+    const { repo, docs } = fakeRepo();
+    const fields = await refusal(
+      createForm(ctx, createInput({ catalogue: catalogueInput(true) }), { repo, getEntity }),
+    );
+    expect(Object.keys(fields)).toEqual(["catalogue.multiple"]);
+    expect(docs.size).toBe(0);
+  });
+
+  it("AC4 — create: a form-level quantityKey is refused on booking.quantityKey", async () => {
+    const { repo, docs } = fakeRepo();
+    const fields = await refusal(
+      createForm(
+        ctx,
+        createInput({
+          fields: [...createInput().fields, { key: "people" }],
+          catalogue: catalogueInput(true),
+          booking: bookingInput({ quantityKey: "people" }),
+        }),
+        { repo, getEntity },
+      ),
+    );
+    expect(Object.keys(fields)).toEqual(["booking.quantityKey"]);
+    expect(docs.size).toBe(0);
+  });
+
+  it("AC5 — create: a payment link is refused on payment", async () => {
+    const { repo, docs } = fakeRepo();
+    const fields = await refusal(
+      createForm(
+        ctx,
+        createInput({
+          catalogue: catalogueInput(true),
+          booking: bookingInput(),
+          payment: linkPayment,
+        }),
+        { repo, getEntity },
+      ),
+    );
+    expect(Object.keys(fields)).toEqual(["payment"]);
+    expect(docs.size).toBe(0);
+  });
+
+  it("AC5 — create: no payment at all is accepted", async () => {
+    const { repo } = fakeRepo();
+    const view = await createForm(
+      ctx,
+      createInput({ catalogue: catalogueInput(true), booking: bookingInput() }),
+      { repo, getEntity },
+    );
+    expect(view.payment).toBeNull();
+  });
+
+  it("AC3 — update: turning it on for a form with no booking config is refused", async () => {
+    const existing = cartDoc();
+    existing.catalogue = { ...existing.catalogue!, multiple: false };
+    existing.booking = null;
+    const { repo, docs } = fakeRepo([existing]);
+    const fields = await refusal(
+      updateForm(
+        ctx,
+        existing._id.toHexString(),
+        { catalogue: catalogueInput(true) },
+        {
+          repo,
+          getEntity,
+        },
+      ),
+    );
+    expect(fields).toHaveProperty("catalogue.multiple");
+    expect(docs.get(existing._id.toHexString())?.catalogue?.multiple).toBe(false);
+  });
+
+  it("AC6 — update touching only booking: removing it is refused, nothing written", async () => {
+    const existing = cartDoc();
+    const { repo, docs } = fakeRepo([existing]);
+    const fields = await refusal(
+      updateForm(ctx, existing._id.toHexString(), { booking: null }, { repo, getEntity }),
+    );
+    expect(Object.keys(fields)).toEqual(["catalogue.multiple"]);
+    expect(docs.get(existing._id.toHexString())).toBe(existing);
+  });
+
+  it("AC6 — update touching only booking: adding a quantityKey is refused, nothing written", async () => {
+    const existing = cartDoc();
+    const { repo, docs } = fakeRepo([existing]);
+    const fields = await refusal(
+      updateForm(
+        ctx,
+        existing._id.toHexString(),
+        { booking: bookingInput({ quantityKey: "people" }) },
+        { repo, getEntity },
+      ),
+    );
+    expect(Object.keys(fields)).toEqual(["booking.quantityKey"]);
+    expect(docs.get(existing._id.toHexString())).toBe(existing);
+  });
+
+  it("AC6 — update touching only payment: switching to a link is refused, nothing written", async () => {
+    const existing = cartDoc();
+    const { repo, docs } = fakeRepo([existing]);
+    const fields = await refusal(
+      updateForm(
+        ctx,
+        existing._id.toHexString(),
+        { payment: linkPayment },
+        { repo, getEntity },
+      ),
+    );
+    expect(Object.keys(fields)).toEqual(["payment"]);
+    expect(docs.get(existing._id.toHexString())).toBe(existing);
+  });
+
+  it("AC5, AC6 — Checkout is accepted on a cart form", async () => {
+    const existing = cartDoc();
+    const { repo } = fakeRepo([existing]);
+    const view = await updateForm(
+      ctx,
+      existing._id.toHexString(),
+      { payment: { mode: "checkout", required: true } },
+      { repo, getEntity },
+    );
+    expect(view.payment).toEqual({ mode: "checkout", required: true });
+  });
+
+  it("AC6 — turning multiple off in the same call makes a payment link legal again", async () => {
+    const existing = cartDoc();
+    const { repo } = fakeRepo([existing]);
+    const view = await updateForm(
+      ctx,
+      existing._id.toHexString(),
+      { catalogue: catalogueInput(false), payment: linkPayment },
+      { repo, getEntity },
+    );
+    expect(view.catalogue?.multiple).toBe(false);
+    expect(view.payment?.mode).toBe("link");
+  });
+
+  it("AC8 — another tenant's form is not found and stays unchanged", async () => {
+    const other = cartDoc();
+    other.tenantId = new ObjectId("0000000000000000000000ff");
+    other.catalogue = { ...other.catalogue!, multiple: false };
+    const { repo, docs } = fakeRepo([other]);
+    await expect(
+      updateForm(
+        ctx,
+        other._id.toHexString(),
+        { catalogue: catalogueInput(true) },
+        {
+          repo,
+          getEntity,
+        },
+      ),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(docs.get(other._id.toHexString())).toBe(other);
+  });
+
+  describe("cartConfigErrors", () => {
+    const booking = { quantityKey: null };
+
+    it("has nothing to say about a form that is not in cart mode", () => {
+      expect(cartConfigErrors(null, null, null)).toEqual({});
+      expect(
+        cartConfigErrors({ multiple: false }, null, {
+          mode: "link",
+          link: { url: "https://buy.stripe.com/x" },
+          required: false,
+        }),
+      ).toEqual({});
+      expect(cartConfigErrors({}, null, null)).toEqual({});
+    });
+
+    it("reports every broken rule at once", () => {
+      expect(
+        Object.keys(
+          cartConfigErrors({ multiple: true }, null, {
+            mode: "link",
+            link: { url: "https://buy.stripe.com/x" },
+            required: false,
+          }),
+        ),
+      ).toEqual(["catalogue.multiple", "payment"]);
+    });
+
+    it("accepts a booking with no quantity and Checkout or no payment", () => {
+      expect(cartConfigErrors({ multiple: true }, booking, null)).toEqual({});
+      expect(
+        cartConfigErrors({ multiple: true }, booking, { mode: "checkout", required: false }),
+      ).toEqual({});
+    });
+  });
+
+  describe("publicCartPricing (AC7)", () => {
+    const catalogue = { fields: ["item_name", "price"], multiple: true };
+    const booking = { rateBasis: "daily" as const, rateKey: "price" as string | null };
+
+    it("exposes the rate basis and key when the key is already a public catalogue field", () => {
+      expect(publicCartPricing(catalogue, booking)).toEqual({
+        rateBasis: "daily",
+        rateKey: "price",
+      });
+    });
+
+    it("is null when the rate key is not on the public allowlist", () => {
+      expect(publicCartPricing(catalogue, { ...booking, rateKey: "cost" })).toBeNull();
+    });
+
+    it("is null when there is no rate key", () => {
+      expect(publicCartPricing(catalogue, { ...booking, rateKey: null })).toBeNull();
+    });
+
+    it("is null on every form that is not in cart mode", () => {
+      expect(publicCartPricing({ ...catalogue, multiple: false }, booking)).toBeNull();
+      expect(publicCartPricing({ fields: catalogue.fields }, booking)).toBeNull();
+      expect(publicCartPricing(null, booking)).toBeNull();
+      expect(publicCartPricing(catalogue, null)).toBeNull();
+    });
   });
 });

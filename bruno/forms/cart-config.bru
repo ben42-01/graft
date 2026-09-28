@@ -1,0 +1,74 @@
+meta {
+  name: Cart mode can be switched on for a catalogue form that takes bookings
+  type: http
+  seq: 24
+}
+
+get {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000027
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumAccessToken}}
+}
+
+script:pre-request {
+  // The premium tenant's owner, not `loginAccessToken`: the free fixture
+  // tenant's `api` budget is already spent by the rest of the suite.
+  //
+  // The PATCH happens here so that the request this file *asserts on* is the
+  // form read (GET), synchronously — an async `test()` body would not count
+  // towards the gate. The PATCH's own outcome is carried across in vars and
+  // asserted in synchronous tests below.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const token = login.data.data.accessToken;
+  bru.setVar("premiumAccessToken", token);
+
+  const patch = await axios.patch(
+    `${baseUrl}/api/v1/forms/000000000000000000000027`,
+    {
+      catalogue: {
+        entityId: "00000000000000000000001c",
+        fields: ["name", "price"],
+        selectionKey: "item",
+        multiple: true,
+      },
+    },
+    { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true },
+  );
+  bru.setVar("cartPatchStatus", patch.status);
+  bru.setVar("cartPatchMultiple", patch.data?.data?.catalogue?.multiple);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.id: eq "000000000000000000000027"
+  res.body.data.catalogue.multiple: eq true
+  res.body.data.catalogue.selectionKey: eq item
+  res.body.data.booking.rateKey: eq price
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC2 — the PATCH turning cart mode on succeeds", function () {
+    expect(String(bru.getVar("cartPatchStatus"))).to.equal("200");
+    expect(String(bru.getVar("cartPatchMultiple"))).to.equal("true");
+  });
+}
+
+docs {
+  GRAFT-30.1 AC2. Runs against formPremiumCart (000000000000000000000027,
+  scripts/seed-qa.ts): a published catalogue form of the premium tenant with a
+  selection field and a booking config, seeded with no `multiple` key at all.
+  The owner switches cart mode on and the form read (GET) reports it. The
+  public half of AC2 — getPublicFormPage reporting it — is proved by unit test
+  in src/server/services/public-form-page.test.ts, as there is no public JSON
+  form endpoint.
+}

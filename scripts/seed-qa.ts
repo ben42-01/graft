@@ -135,6 +135,13 @@ const IDS = {
   // tenant's api rate-limit budget rather than the free tenant's 60/min, which
   // the rest of the Bruno suite shares.
   formPremiumPayment: oid(38),
+  // GRAFT-30.1 — cart mode (`catalogue.multiple`) is configured against a
+  // published catalogue form that already has a selection and a booking
+  // config, on the premium tenant for the same api-budget reason as above. Its
+  // own entities, so no other suite's catalogue or submission shape moves.
+  entityPremiumCartItems: oid(28),
+  entityPremiumCartOrders: oid(29),
+  formPremiumCart: oid(39),
   recordFreeFirst: oid(41),
   // BMS inventory (docs/BMS_EXTENSION.md §2.1). A bookable resource needs an
   // entity to be an instance of, a record to *be* the instance, and a pool to
@@ -165,6 +172,20 @@ const CUSTOMER_FIELDS = [
   { key: "name", label: "Name", type: "text", required: true },
   { key: "email", label: "Email", type: "email", required: true },
   { key: "phone", label: "Phone", type: "phone" },
+];
+
+/** GRAFT-30.1 — what a cart form browses: a name and a public price. */
+const CART_ITEM_FIELDS = [
+  { key: "name", label: "Name", type: "text" as const, required: true },
+  { key: "price", label: "Price", type: "number" as const, required: false },
+];
+
+/** GRAFT-30.1 — what a cart form submits: the choice, and when. */
+const CART_ORDER_FIELDS = [
+  { key: "customer", label: "Customer", type: "text" as const, required: true },
+  { key: "item", label: "Item", type: "text" as const, required: false },
+  { key: "starts_at", label: "Starts", type: "date" as const, required: true },
+  { key: "ends_at", label: "Ends", type: "date" as const, required: true },
 ];
 
 const base = { createdAt: FIXED_DATE, updatedAt: FIXED_DATE, seedBatch: "qa-fixtures" };
@@ -549,6 +570,26 @@ async function main() {
         ...base,
       },
       {
+        _id: IDS.entityPremiumCartItems,
+        tenantId: IDS.tenantPremium,
+        key: "qa_cart_items",
+        name: "QA Cart Items",
+        fields: CART_ITEM_FIELDS,
+        schemaVersion: 1,
+        readOnly: false,
+        ...base,
+      },
+      {
+        _id: IDS.entityPremiumCartOrders,
+        tenantId: IDS.tenantPremium,
+        key: "qa_cart_orders",
+        name: "QA Cart Orders",
+        fields: CART_ORDER_FIELDS,
+        schemaVersion: 1,
+        readOnly: false,
+        ...base,
+      },
+      {
         // Over the free limit after downgrade — read-only, never deleted
         _id: IDS.entityDowngradedExtra,
         tenantId: IDS.tenantDowngraded,
@@ -743,6 +784,44 @@ async function main() {
         fields: CUSTOMER_FIELDS,
         // Payment off to begin with: bruno/forms/payment-link-config.bru turns
         // it on and off again against this form.
+        payment: null,
+        showBadge: true,
+        deletedAt: null,
+        ...base,
+      },
+      {
+        _id: IDS.formPremiumCart,
+        tenantId: IDS.tenantPremium,
+        entityDefId: IDS.entityPremiumCartOrders,
+        name: "QA Premium Cart Form",
+        slug: "qa-premium-cart-form",
+        publicSlug: "qa-premium/qa-premium-cart-form",
+        visibility: "public",
+        published: true,
+        enabled: true,
+        killSwitchAt: null,
+        killSwitchBy: null,
+        fields: CART_ORDER_FIELDS,
+        // Deliberately stored without a `multiple` key, the way every form
+        // written before GRAFT-30.1 is: it must read back as `false`.
+        // bruno/forms/cart-config*.bru switch it on against this form.
+        catalogue: {
+          entityDefId: IDS.entityPremiumCartItems,
+          fields: ["name", "price"],
+          imageField: null,
+          pageSize: 12,
+          selectionKey: "item",
+        },
+        booking: {
+          startKey: "starts_at",
+          endKey: "ends_at",
+          durationMinutes: null,
+          quantityKey: null,
+          rateBasis: "daily",
+          rateKey: "price",
+          labelKey: "name",
+          depositPercent: null,
+        },
         payment: null,
         showBadge: true,
         deletedAt: null,

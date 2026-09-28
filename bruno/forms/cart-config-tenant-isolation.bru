@@ -1,0 +1,77 @@
+meta {
+  name: Another tenant cannot switch cart mode on, and the form is unchanged
+  type: http
+  seq: 27
+}
+
+get {
+  url: {{baseUrl}}/api/v1/forms/000000000000000000000027
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumAccessToken}}
+}
+
+script:pre-request {
+  // Tenant B is qa-trialling, not the free tenant: `loginAccessToken`'s api
+  // budget is already spent by the rest of the suite. Its owner attempts the
+  // write; the request this file asserts on is then tenant A's own read, so
+  // "unchanged" is proven synchronously rather than in an async test() body
+  // that would not count towards the gate.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const attacker = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-trialling.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const attack = await axios.patch(
+    `${baseUrl}/api/v1/forms/000000000000000000000027`,
+    {
+      name: "Hijacked by another tenant",
+      catalogue: {
+        entityId: "00000000000000000000001c",
+        fields: ["name", "price"],
+        selectionKey: "item",
+        multiple: true,
+      },
+    },
+    {
+      headers: { Authorization: `Bearer ${attacker.data.data.accessToken}` },
+      validateStatus: () => true,
+    },
+  );
+  bru.setVar("cartAttackStatus", attack.status);
+  bru.setVar("cartAttackCode", attack.data?.error?.code);
+  bru.setVar("cartAttackBody", JSON.stringify(attack.data));
+  // Tenant A's read reuses the premium owner's `premiumAccessToken` from
+  // cart-config.bru (seq 24) — every extra login spends the suite's shared
+  // global-ip budget.
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.name: eq QA Premium Cart Form
+}
+
+tests {
+  test("AC8 — tenant B's update of tenant A's form is a 404", function () {
+    expect(String(bru.getVar("cartAttackStatus"))).to.equal("404");
+    expect(bru.getVar("cartAttackCode")).to.equal("NOT_FOUND");
+  });
+
+  test("AC8 — the 404 discloses nothing about the form", function () {
+    expect(bru.getVar("cartAttackBody")).to.not.contain("QA Premium Cart Form");
+  });
+}
+
+docs {
+  GRAFT-30.1 AC8. formPremiumCart (000000000000000000000027) belongs to
+  qa-premium; the owner of qa-trialling tries to rename it and switch cart
+  mode on. The repository layer (src/server/repositories/base.ts) scopes every
+  write by ctx.tenantId, so it is 404 rather than 403 and the row's existence
+  is never leaked. The name is the witness that nothing was written: the
+  attack's rename would show whatever order the other cart-config files ran
+  in, where `multiple` alone would not.
+}

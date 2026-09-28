@@ -47,6 +47,12 @@ export type CatalogueView = {
   imageField: string | null;
   pageSize: number;
   selectionKey: string | null;
+  /**
+   * Cart mode (GRAFT-30.1). Optional because the server defaults it to
+   * `false`; this editor has no control for it yet, and passes a stored value
+   * back through unchanged on save.
+   */
+  multiple?: boolean;
 };
 
 export type EntityOption = { id: string; name: string; fields: FieldLike[] };

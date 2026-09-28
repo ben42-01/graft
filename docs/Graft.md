@@ -176,6 +176,26 @@ redirects the submitter to it after the submission has been accepted.
   the business paying Graft for Premium (§5, [[docs/TIERS.md]] §3), which uses
   Graft's own Stripe account and shares no code or credential with it.
 
+#### Cart mode (`catalogue.multiple`)
+
+A catalogue form normally lets a visitor pick exactly one record. Setting
+`catalogue.multiple: true` switches it to a cart — several items in one
+submission, priced by the server. Off by default on every tier; forms saved
+before the switch existed read `false` with no migration. Three rules hold on
+create *and* on update (checked against the state the update leaves behind,
+so a PATCH touching only `booking` or `payment` is held to them too):
+
+- **It needs a booking config.** A cart exists only to raise a priced order,
+  and the price comes from the booking's rate. Refused on `catalogue.multiple`.
+- **No form-level `booking.quantityKey`.** Each cart line carries its own
+  quantity. Refused on `booking.quantityKey`.
+- **No payment link.** A link charges a fixed price, which cannot equal a
+  computed cart total. Refused on `payment`; Checkout or no payment are fine.
+
+The public page learns the booking's `rateBasis` and `rateKey` (for an
+estimated total) only in cart mode and only when `rateKey` is already one of
+the catalogue's public `fields`; otherwise it gets `null`.
+
 ---
 
 ## 5. Tiers
