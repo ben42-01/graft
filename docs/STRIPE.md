@@ -31,7 +31,7 @@ business account. Graft has its own standalone Stripe account instead
 - Logged the Stripe CLI into that account's key (`stripe login`, later
   swapped to the Graft account's `sk_test_...` via `--api-key`).
 - Created the product catalog in **test mode**, matching `docs/TIERS.md` §3
-  pricing (€29/mo, €290/yr):
+  pricing at the time (€29/mo, €290/yr — superseded, see "Changing prices"):
 
   | | id |
   |---|---|
@@ -43,12 +43,31 @@ business account. Graft has its own standalone Stripe account instead
   `STRIPE_PRICE_PREMIUM_ANNUAL` in `src/server/services/billing.ts`'s
   `billingEnvSchema`.
 
+## Changing prices
+
+The app never sends Stripe an amount — Checkout gets a price **ID** and Stripe
+bills whatever that price says. The figures on the landing and account pages
+come from `src/lib/pricing/pricing.json` (minor units; the annual amount is
+stored exactly, and the "2 months free" / "Save N%" label is derived from it).
+The two must agree, so a price change is:
+
+1. In Stripe (each account/mode: test for dev + QA, live for production),
+   create new prices on "Graft Premium" — Stripe prices can't be edited.
+   Optionally archive the old ones so they can't be reused by mistake.
+2. Set `STRIPE_PRICE_PREMIUM_MONTHLY` / `_ANNUAL` to the new IDs in every
+   environment's env.
+3. Edit `pricing.json` to the same amounts and deploy.
+4. Existing subscribers stay on their old price until migrated in Stripe
+   (Subscription → Update → change price); new Checkouts get the new one.
+
+Current target (2026-09-28): **€19.00/month, €190.00/year** (was €29/€290).
+
 ## Checked against the code (2026-09-18)
 
 | | State |
 |---|---|
 | `STRIPE_SECRET_KEY` in `.env.dev` | ✅ real `sk_test_…`. Stripe reports the account as **"Graft sandbox"** (`acct_1U6tbx74G5LPLMfk`) — confirm in the dashboard that this is the standalone "Graft" account described above and not a sandbox nested under another business. |
-| `STRIPE_PRICE_PREMIUM_MONTHLY` / `_ANNUAL` | ✅ both active in that account, test mode: €29.00/month, €290.00/year |
+| `STRIPE_PRICE_PREMIUM_MONTHLY` / `_ANNUAL` | ⚠️ both active in that account, test mode, but still €29.00/month, €290.00/year — replace with €19/€190 prices (see "Changing prices") |
 | `STRIPE_WEBHOOK_SECRET` in `.env.dev` | ❌ still the QA fixture placeholder (`whsec_qa_fix…`) — every real webhook is rejected as "Invalid Stripe signature" until step 1 is done |
 | `APP_URL` | ✅ `http://localhost:3000` — Checkout returns to `/billing/success` or `/billing/cancel` on it |
 | Webhook events acted on | `checkout.session.completed` (→ Premium), `customer.subscription.updated` with status `active`/`trialing` (→ Premium, clears any grace period), `customer.subscription.deleted` (→ Free via the downgrade policy), `invoice.payment_failed` (→ 7-day grace period, still Premium). Everything else is accepted and ignored. |
