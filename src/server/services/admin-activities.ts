@@ -129,6 +129,9 @@ export const adminActivityListQuerySchema = z
       .refine(isValidActionFilter, "Unregistered activity action or family")
       .optional(),
     actorType: z.enum(ACTOR_TYPES).optional(),
+    // Admin console addition: narrow to failures (or successes) only — the
+    // activity monitor's "failed only" toggle.
+    ok: z.enum(["true", "false"]).optional(),
     // AC5 — ISO dates, validated as parseable rather than with a strict format
     // regex, so both a bare date and a full timestamp are accepted.
     from: z
@@ -255,6 +258,7 @@ export function buildActivityFilter(query: AdminActivityListQuery): ActivityFilt
 
   if (query.tenantId) filter.tenantId = new ObjectId(query.tenantId);
   if (query.actorType) filter.actorType = query.actorType;
+  if (query.ok) filter.ok = query.ok === "true";
 
   if (query.action) {
     filter.action = query.action.endsWith(".")

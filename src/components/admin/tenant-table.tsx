@@ -21,6 +21,7 @@ import { EmptyState } from "@/components/shell/empty-state";
 import { ErrorState } from "@/components/shell/error-state";
 import { LoadingState } from "@/components/shell/loading-state";
 import { Button } from "@/components/ui/button";
+import { DataTable, Pill, TierPill, When } from "@/components/admin/admin-ui";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -226,52 +227,68 @@ export function TenantTable() {
           }
         />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-border">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-border bg-muted/40">
-              <tr>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Name
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Slug
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Tier
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Freeze
-                </th>
-                <th scope="col" className="px-3 py-2 font-medium">
-                  Trial / grace
-                </th>
+        <DataTable>
+          <thead>
+            <tr>
+              <th scope="col">Name</th>
+              <th scope="col">Slug</th>
+              <th scope="col">Tier</th>
+              <th scope="col">Freeze</th>
+              <th scope="col">Trial / grace</th>
+              <th scope="col">Stripe</th>
+              <th scope="col">Created</th>
+            </tr>
+          </thead>
+          <tbody>
+            {state.rows.map((row) => (
+              <tr key={row.id}>
+                <td>
+                  <Link
+                    href={`/admin/tenants/${row.id}`}
+                    className="font-medium underline-offset-2 hover:text-graft-green-deep hover:underline dark:hover:text-graft-green-light"
+                  >
+                    {row.name || "(unnamed)"}
+                  </Link>
+                  {row.hasLimitOverrides ? (
+                    <span className="ml-2">
+                      <Pill tone="indigo">custom limits</Pill>
+                    </span>
+                  ) : null}
+                </td>
+                <td className="font-mono text-xs text-muted-foreground">{row.slug}</td>
+                <td>
+                  <TierPill tier={row.tier} />
+                </td>
+                <td>
+                  {row.readOnlyCount > 0 ? (
+                    <Pill tone="amber">{freezeLabel(row.readOnlyCount)}</Pill>
+                  ) : (
+                    freezeLabel(row.readOnlyCount)
+                  )}
+                </td>
+                <td>{billingLabel(row.billing)}</td>
+                <td>
+                  {row.billing.hasSubscription ? (
+                    <Pill tone="green">Subscribed</Pill>
+                  ) : row.billing.hasCustomer ? (
+                    <Pill tone="blue">Customer</Pill>
+                  ) : (
+                    <span className="text-muted-foreground">—</span>
+                  )}
+                </td>
+                <td className="text-muted-foreground">
+                  <When iso={row.createdAt} />
+                </td>
               </tr>
-            </thead>
-            <tbody>
-              {state.rows.map((row) => (
-                <tr key={row.id} className="border-b border-border last:border-b-0">
-                  <td className="px-3 py-2">
-                    <Link
-                      href={`/admin/tenants/${row.id}`}
-                      className="font-medium underline-offset-2 hover:underline"
-                    >
-                      {row.name || "(unnamed)"}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-muted-foreground">{row.slug}</td>
-                  <td className="px-3 py-2 capitalize">{row.tier}</td>
-                  <td className="px-3 py-2">{freezeLabel(row.readOnlyCount)}</td>
-                  <td className="px-3 py-2">{billingLabel(row.billing)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </tbody>
+        </DataTable>
       )}
 
       {state.hasMore ? (
         <div className="flex justify-center">
           <Button
+            loading={loadingMore}
             type="button"
             variant="outline"
             disabled={loadingMore}

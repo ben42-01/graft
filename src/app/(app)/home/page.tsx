@@ -166,7 +166,8 @@ export default function AppHomePage() {
     state.status === "ready" && entityLimit !== null && entityCount >= entityLimit;
   const canAddEntity = state.status === "ready" && !atEntityLimit;
 
-  if (state.status === "loading") return <LoadingState label="Loading your overview…" />;
+  if (state.status === "loading")
+    return <LoadingState label="Loading your overview…" variant="page" />;
   if (state.status === "error") {
     return <ErrorState description="We couldn't load your overview. Please try again." />;
   }

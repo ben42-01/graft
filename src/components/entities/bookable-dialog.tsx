@@ -282,7 +282,12 @@ export function BookableDialog({
           ) : (
             <span />
           )}
-          <Button type="button" disabled={busy || !quantityValid} onClick={() => void save()}>
+          <Button
+            loading={busy}
+            type="button"
+            disabled={busy || !quantityValid}
+            onClick={() => void save()}
+          >
             {busy ? "Saving…" : pool ? "Save changes" : "Make bookable"}
           </Button>
         </DialogFooter>

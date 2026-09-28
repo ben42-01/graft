@@ -115,7 +115,7 @@ function LoginForm() {
           ) : null}
         </CardContent>
         <CardFooter className="mt-6 flex flex-col gap-3">
-          <Button type="submit" className="w-full" disabled={submitting}>
+          <Button loading={submitting} type="submit" className="w-full" disabled={submitting}>
             {submitting ? "Logging in…" : "Log in"}
           </Button>
           <p className="text-sm text-muted-foreground">

@@ -1,30 +1,17 @@
 "use client";
 
 /**
- * `/admin/activities` — the activity log console (GRAFT-29.3 AC1, AC4). All
- * the behaviour lives in `ActivityTable`; this file wires the `tenantId`
- * query param (AC4) and, like `/login` (src/app/(public)/login/page.tsx),
- * splits out the `useSearchParams` read into its own component because that
- * hook needs a Suspense boundary in the Next.js app router.
+ * `/admin/activities` — the Activity Monitor (supersedes the GRAFT-29.3 table). All behaviour lives in `ActivityMonitor`; this file wires the
+ * Suspense boundary its `useSearchParams` read needs in the app router.
  */
 import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { ActivityTable } from "@/components/admin/activity-table";
+import { ActivityMonitor } from "@/components/admin/activity-monitor";
 import { LoadingState } from "@/components/shell/loading-state";
 
-function ActivitiesPageContent() {
-  const searchParams = useSearchParams();
-  const tenantId = searchParams.get("tenantId") ?? "";
-  return <ActivityTable initialTenantId={tenantId} />;
-}
-
-export default function AdminActivitiesPage() {
+export default function AdminActivityMonitorPage() {
   return (
-    <div className="flex flex-col gap-4">
-      <h1 className="text-xl font-semibold">Activity</h1>
-      <Suspense fallback={<LoadingState label="Loading…" />}>
-        <ActivitiesPageContent />
-      </Suspense>
-    </div>
+    <Suspense fallback={<LoadingState label="Loading…" variant="page" />}>
+      <ActivityMonitor />
+    </Suspense>
   );
 }

@@ -32,3 +32,20 @@ describe("Button token wiring", () => {
     expect(html).not.toMatch(/#[0-9a-fA-F]{3,8}/);
   });
 });
+
+describe("Button loading state", () => {
+  it("disables itself, marks aria-busy and leads with a spinner while loading", () => {
+    const html = renderToStaticMarkup(createElement(Button, { loading: true }, "Saving…"));
+    expect(html).toContain('disabled=""');
+    expect(html).toContain('aria-busy="true"');
+    expect(html).toContain("animate-spin");
+    expect(html).toContain("Saving…");
+  });
+
+  it("renders no spinner and stays enabled when not loading", () => {
+    const html = renderToStaticMarkup(createElement(Button, null, "Save"));
+    expect(html).not.toContain('disabled=""');
+    expect(html).not.toContain("aria-busy");
+    expect(html).not.toContain("animate-spin");
+  });
+});

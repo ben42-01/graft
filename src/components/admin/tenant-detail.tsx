@@ -26,6 +26,9 @@ import Link from "next/link";
 import { EmptyState } from "@/components/shell/empty-state";
 import { ErrorState } from "@/components/shell/error-state";
 import { LoadingState } from "@/components/shell/loading-state";
+import { ArrowLeftIcon } from "lucide-react";
+import { IdChip, Pill, TierPill, When } from "@/components/admin/admin-ui";
+import { TenantSidePanels } from "@/components/admin/tenant-side-panels";
 import { TierOverrideDialog } from "@/components/admin/tier-override-dialog";
 
 /** The tier's numeric caps as resolved for this tenant — `data.limits.limits`. */
@@ -149,27 +152,57 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
   const { tenant } = state;
   const resolvedLimits = Object.entries(tenant.limits.limits ?? {});
   const overriddenKeys = Object.keys(tenant.limitOverrides ?? {});
+  const card = "flex flex-col gap-3 rounded-xl border border-border bg-card p-5";
+  const cell = "flex items-center justify-between rounded-md border border-border px-3 py-1.5";
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">{tenant.name || "(unnamed)"}</h1>
-          <p className="text-sm text-muted-foreground">
-            {tenant.slug} · <span className="capitalize">{tenant.tier}</span>
-          </p>
+      <Link
+        href="/admin/tenants"
+        className="flex w-fit items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+      >
+        <ArrowLeftIcon className="size-4" aria-hidden="true" />
+        Back to tenants
+      </Link>
+
+      <div className="flex flex-col gap-4 rounded-xl border border-border bg-card p-5 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-start gap-4">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-graft-green/10 text-lg font-semibold text-graft-green-deep uppercase dark:text-graft-green-light">
+            {(tenant.name || tenant.slug || "?").slice(0, 2)}
+          </span>
+          <div className="flex flex-col gap-1.5">
+            <h1 className="text-2xl font-semibold tracking-tight">
+              {tenant.name || "(unnamed)"}
+            </h1>
+            <p className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              <span className="font-mono">{tenant.slug}</span>
+              <TierPill tier={tenant.tier} />
+              {tenant.billing.hasSubscription ? <Pill tone="green">Subscribed</Pill> : null}
+              {!tenant.billing.hasSubscription && tenant.billing.hasCustomer ? (
+                <Pill tone="blue">Stripe customer</Pill>
+              ) : null}
+              {tenant.readOnly.length > 0 ? <Pill tone="amber">Frozen</Pill> : null}
+              <span>
+                created <When iso={tenant.createdAt} />
+              </span>
+              <IdChip id={tenant.id} />
+            </p>
+          </div>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <Link href="/admin/tenants" className="text-sm underline underline-offset-2">
-            Back to tenants
-          </Link>
+        <div className="flex flex-wrap items-center gap-2">
           {/* GRAFT-29.3 AC4 — the entry point support actually uses: open the
-              tenant, then see its activity, pre-filtered and locked to it. */}
+              tenant, then see its activity, pre-filtered to it. */}
           <Link
             href={`/admin/activities?tenantId=${tenant.id}`}
-            className="text-sm underline underline-offset-2"
+            className="inline-flex h-8 items-center rounded-md border border-border px-3 text-sm font-medium hover:bg-accent"
           >
             View activity
+          </Link>
+          <Link
+            href={`/admin/audit?tenantId=${tenant.id}`}
+            className="inline-flex h-8 items-center rounded-md border border-border px-3 text-sm font-medium hover:bg-accent"
+          >
+            Audit trail
           </Link>
           {/* GRAFT-27.4 — the console's one mutation, on the screen that
               already shows the tenant it acts on. */}
@@ -185,87 +218,92 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
         </div>
       </div>
 
-      <section aria-labelledby="resolved-limits-heading" className="flex flex-col gap-2">
-        <h2 id="resolved-limits-heading" className="text-sm font-semibold">
-          Resolved limits
-        </h2>
-        {resolvedLimits.length === 0 ? (
-          <EmptyState title="No resolved limits" />
-        ) : (
-          <ul className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
-            {resolvedLimits.map(([key, value]) => (
-              <li
-                key={key}
-                className="flex items-center justify-between rounded border border-border px-3 py-1.5"
-              >
-                <span className="text-muted-foreground">{key}</span>
-                <span className="font-medium">
-                  {formatLimitValue(value)}
-                  {overriddenKeys.includes(key) ? (
-                    <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-400">
-                      overridden
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="flex flex-col gap-4">
+          <section aria-labelledby="resolved-limits-heading" className={card}>
+            <h2 id="resolved-limits-heading" className="text-sm font-semibold">
+              Resolved limits
+            </h2>
+            {resolvedLimits.length === 0 ? (
+              <EmptyState title="No resolved limits" />
+            ) : (
+              <ul className="grid grid-cols-1 gap-1.5 text-sm sm:grid-cols-2">
+                {resolvedLimits.map(([key, value]) => (
+                  <li key={key} className={cell}>
+                    <span className="text-muted-foreground">{key}</span>
+                    <span className="font-medium">
+                      {formatLimitValue(value)}
+                      {overriddenKeys.includes(key) ? (
+                        <span className="ml-1.5 rounded bg-amber-500/15 px-1.5 py-0.5 text-xs text-amber-700 dark:text-amber-400">
+                          overridden
+                        </span>
+                      ) : null}
                     </span>
-                  ) : null}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
 
-      <section aria-labelledby="overrides-heading" className="flex flex-col gap-2">
-        <h2 id="overrides-heading" className="text-sm font-semibold">
-          Overridden keys
-        </h2>
-        {overriddenKeys.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            {tenant.hasLimitOverrides
-              ? "This tenant has an override bag, but it's empty."
-              : "No overrides — this tenant runs its tier's defaults."}
-          </p>
-        ) : (
-          <p className="text-sm">{overriddenKeys.join(", ")}</p>
-        )}
-      </section>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <section aria-labelledby="overrides-heading" className={card}>
+              <h2 id="overrides-heading" className="text-sm font-semibold">
+                Overridden keys
+              </h2>
+              {overriddenKeys.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  {tenant.hasLimitOverrides
+                    ? "This tenant has an override bag, but it's empty."
+                    : "No overrides — this tenant runs its tier's defaults."}
+                </p>
+              ) : (
+                <p className="text-sm">{overriddenKeys.join(", ")}</p>
+              )}
+            </section>
 
-      <section aria-labelledby="freeze-heading" className="flex flex-col gap-2">
-        <h2 id="freeze-heading" className="text-sm font-semibold">
-          Frozen (read-only) resources
-        </h2>
-        {tenant.readOnly.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing is frozen.</p>
-        ) : (
-          <ul className="list-inside list-disc text-sm">
-            {tenant.readOnly.map((key) => (
-              <li key={key}>{key}</li>
-            ))}
-          </ul>
-        )}
-      </section>
+            <section aria-labelledby="freeze-heading" className={card}>
+              <h2 id="freeze-heading" className="text-sm font-semibold">
+                Frozen (read-only) resources
+              </h2>
+              {tenant.readOnly.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nothing is frozen.</p>
+              ) : (
+                <ul className="list-inside list-disc text-sm">
+                  {tenant.readOnly.map((key) => (
+                    <li key={key}>{key}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
 
-      <section aria-labelledby="billing-heading" className="flex flex-col gap-2">
-        <h2 id="billing-heading" className="text-sm font-semibold">
-          Billing
-        </h2>
-        <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-2">
-          <div className="flex items-center justify-between rounded border border-border px-3 py-1.5">
-            <dt className="text-muted-foreground">Downgraded at</dt>
-            <dd className="font-medium">{formatDate(tenant.downgradedAt)}</dd>
-          </div>
-          <div className="flex items-center justify-between rounded border border-border px-3 py-1.5">
-            <dt className="text-muted-foreground">Billing anchor day</dt>
-            <dd className="font-medium">{tenant.billingAnchorDay}</dd>
-          </div>
-          <div className="flex items-center justify-between rounded border border-border px-3 py-1.5">
-            <dt className="text-muted-foreground">Trial ends</dt>
-            <dd className="font-medium">{formatDate(tenant.billing.trialEndsAt)}</dd>
-          </div>
-          <div className="flex items-center justify-between rounded border border-border px-3 py-1.5">
-            <dt className="text-muted-foreground">Grace ends</dt>
-            <dd className="font-medium">{formatDate(tenant.billing.graceExpiresAt)}</dd>
-          </div>
-        </dl>
-      </section>
+          <section aria-labelledby="billing-heading" className={card}>
+            <h2 id="billing-heading" className="text-sm font-semibold">
+              Billing
+            </h2>
+            <dl className="grid grid-cols-1 gap-1.5 text-sm sm:grid-cols-2">
+              <div className={cell}>
+                <dt className="text-muted-foreground">Downgraded at</dt>
+                <dd className="font-medium">{formatDate(tenant.downgradedAt)}</dd>
+              </div>
+              <div className={cell}>
+                <dt className="text-muted-foreground">Billing anchor day</dt>
+                <dd className="font-medium">{tenant.billingAnchorDay}</dd>
+              </div>
+              <div className={cell}>
+                <dt className="text-muted-foreground">Trial ends</dt>
+                <dd className="font-medium">{formatDate(tenant.billing.trialEndsAt)}</dd>
+              </div>
+              <div className={cell}>
+                <dt className="text-muted-foreground">Grace ends</dt>
+                <dd className="font-medium">{formatDate(tenant.billing.graceExpiresAt)}</dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+
+        <TenantSidePanels tenantId={tenant.id} />
+      </div>
     </div>
   );
 }

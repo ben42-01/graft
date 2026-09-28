@@ -274,6 +274,7 @@ export function CatalogueEditor({
 
         <div>
           <Button
+            loading={busy}
             type="button"
             size="sm"
             disabled={busy || (enabled && !ready)}

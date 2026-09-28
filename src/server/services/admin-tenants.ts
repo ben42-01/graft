@@ -116,10 +116,26 @@ export const MAX_SEARCH_LENGTH = 60;
 
 const objectIdHex = /^[0-9a-f]{24}$/i;
 
+/**
+ * Billing-state filters for the Subscriptions screen. `subscribed` = a Stripe
+ * subscription is attached; `trial` / `grace` = the window is still open;
+ * `frozen` = at least one resource is read-only after a downgrade; `none` = no
+ * Stripe customer at all.
+ */
+export const ADMIN_BILLING_FILTERS = [
+  "subscribed",
+  "trial",
+  "grace",
+  "frozen",
+  "none",
+] as const;
+
 export const adminTenantListQuerySchema = z.object({
   q: z.string().max(MAX_SEARCH_LENGTH).optional(),
   // AC4 — an unknown tier is a 400 at the boundary, not an empty list.
   tier: z.enum(TIERS).optional(),
+  // Admin console addition: the Subscriptions screen's status filter.
+  billing: z.enum(ADMIN_BILLING_FILTERS).optional(),
   limit: z.string().optional(),
   cursor: z.string().optional(),
 });
@@ -202,10 +218,31 @@ export function toTenantDetail(doc: AdminTenantDoc): TenantDetail {
 type TenantFilter = Filter<AdminTenantDoc>;
 
 /** Built here, from validated input only — a client filter never reaches Mongo. */
-export function buildTenantFilter(query: AdminTenantListQuery): TenantFilter {
+export function buildTenantFilter(
+  query: AdminTenantListQuery,
+  now: Date = new Date(),
+): TenantFilter {
   const filter: TenantFilter = {};
 
   if (query.tier) filter.tier = query.tier;
+
+  switch (query.billing) {
+    case "subscribed":
+      filter["billing.stripeSubscriptionId"] = { $nin: [null, ""] };
+      break;
+    case "trial":
+      filter["billing.trialEndsAt"] = { $gt: now };
+      break;
+    case "grace":
+      filter["billing.graceExpiresAt"] = { $gt: now };
+      break;
+    case "frozen":
+      filter["readOnly.0"] = { $exists: true };
+      break;
+    case "none":
+      filter["billing.stripeCustomerId"] = { $in: [null, ""] };
+      break;
+  }
 
   if (query.cursor) {
     // `decodeCursor` refuses anything this API did not issue, so a crafted

@@ -378,7 +378,7 @@ function PluginsStep({
       <CardContent className="flex flex-col gap-3">
         <p className="text-sm text-muted-foreground">The Free plan includes up to 3 plugins.</p>
         {catalogue === null ? (
-          <LoadingState label="Loading plugins…" />
+          <LoadingState label="Loading plugins…" variant="list" />
         ) : (
           catalogue.map((plugin) => (
             <div key={plugin.id} className="flex items-center gap-2">
@@ -406,7 +406,12 @@ function PluginsStep({
         <Button type="button" variant="ghost" onClick={onBack} disabled={busy}>
           Back
         </Button>
-        <Button type="button" onClick={() => void handleContinue()} disabled={busy}>
+        <Button
+          loading={busy}
+          type="button"
+          onClick={() => void handleContinue()}
+          disabled={busy}
+        >
           {busy ? "Enabling…" : "Continue"}
         </Button>
       </CardFooter>
@@ -526,6 +531,7 @@ function EntityStep({
           Back
         </Button>
         <Button
+          loading={busy}
           type="button"
           onClick={() => void handleContinue()}
           disabled={busy || !name.trim()}
@@ -631,6 +637,7 @@ function FormStep({
           Back
         </Button>
         <Button
+          loading={busy}
           type="button"
           onClick={() => void handleContinue()}
           disabled={busy || !name.trim()}
@@ -705,7 +712,12 @@ function DashboardStep({
         <Button type="button" variant="ghost" onClick={onBack} disabled={busy}>
           Back
         </Button>
-        <Button type="button" onClick={() => void handleContinue()} disabled={busy}>
+        <Button
+          loading={busy}
+          type="button"
+          onClick={() => void handleContinue()}
+          disabled={busy}
+        >
           {busy ? "Creating…" : "Continue"}
         </Button>
       </CardFooter>
@@ -816,7 +828,8 @@ export default function OnboardingPage() {
     });
   };
 
-  if (loadStatus === "loading") return <LoadingState label="Loading your onboarding…" />;
+  if (loadStatus === "loading")
+    return <LoadingState label="Loading your onboarding…" variant="page" />;
   if (loadStatus === "error") {
     return (
       <ErrorState description="We couldn't load your onboarding progress. Please try again." />

@@ -1,0 +1,2332 @@
+{
+  "endpoints": [
+    {
+      "id": "GET /api/.well-known/jwks.json",
+      "method": "GET",
+      "path": "/api/.well-known/jwks.json",
+      "group": "system",
+      "params": [],
+      "auth": "public",
+      "summary": "(GRAFT-03.1 AC1, AC8).",
+      "source": "src/app/api/.well-known/jwks.json/route.ts",
+      "examples": [
+        {
+          "name": "JWKS",
+          "file": "bruno/auth/jwks.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/health",
+      "method": "GET",
+      "path": "/api/health",
+      "group": "system",
+      "params": [],
+      "auth": "public",
+      "summary": "Liveness — is the process up. No dependencies touched (docs/BACKEND.md §8).",
+      "source": "src/app/api/health/route.ts",
+      "examples": [
+        {
+          "name": "Liveness",
+          "file": "bruno/health/liveness.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Envelope shape (success)",
+          "file": "bruno/security/envelope-shape.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/ready",
+      "method": "GET",
+      "path": "/api/ready",
+      "group": "system",
+      "params": [],
+      "auth": "public",
+      "summary": "Readiness — can this instance actually serve traffic (docs/BACKEND.md §8). Checks Mongo and Redis; 503 when either is down so the uptime checker and any load balancer see the same truth.",
+      "source": "src/app/api/ready/route.ts",
+      "examples": [
+        {
+          "name": "Readiness",
+          "file": "bruno/health/readiness.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/activities",
+      "method": "GET",
+      "path": "/api/v1/admin/activities",
+      "group": "admin",
+      "params": [],
+      "auth": "platform-admin",
+      "summary": "the read/search surface for the tenant activity log (GRAFT-29.2), on top of the collection GRAFT-29.1 writes.",
+      "source": "src/app/api/v1/admin/activities/route.ts",
+      "examples": [
+        {
+          "name": "A bad tenantId, action or date range is a 400, never an empty list",
+          "file": "bruno/admin/activities-filter-validation.bru",
+          "pathParams": {},
+          "query": {
+            "tenantId": "nope"
+          },
+          "body": null
+        },
+        {
+          "name": "A signed-in non-admin gets 404 and no activity data — not even their own tenant's",
+          "file": "bruno/admin/activities-list-not-admin.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A platform admin lists and filters the cross-tenant activity log",
+          "file": "bruno/admin/activities-list.bru",
+          "pathParams": {},
+          "query": {
+            "tenantId": "000000000000000000000002"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/activities/summary",
+      "method": "GET",
+      "path": "/api/v1/admin/activities/summary",
+      "group": "admin",
+      "params": [],
+      "auth": "platform-admin",
+      "summary": "aggregates for the Activity Monitor (src/server/services/admin-activity-summary.ts): volume over time, failure rate, and breakdowns by family, action, actor type and tenant.",
+      "source": "src/app/api/v1/admin/activities/summary/route.ts",
+      "examples": [
+        {
+          "name": "A platform admin reads activity aggregates for the monitor",
+          "file": "bruno/admin/activities-summary.bru",
+          "pathParams": {},
+          "query": {
+            "tenantId": "000000000000000000000002",
+            "from": "2026-01-12T00:00:00.000Z",
+            "to": "2026-01-14T23:59:59.999Z"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/audit",
+      "method": "GET",
+      "path": "/api/v1/admin/audit",
+      "group": "admin",
+      "params": [],
+      "auth": "platform-admin",
+      "summary": "the platform-admin audit log, for the admin console's Audit screen (src/server/services/admin-audit-read.ts).",
+      "source": "src/app/api/v1/admin/audit/route.ts",
+      "examples": [
+        {
+          "name": "A platform admin reads the admin audit log",
+          "file": "bruno/admin/audit-list.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/entities",
+      "method": "GET",
+      "path": "/api/v1/admin/entities",
+      "group": "admin",
+      "params": [],
+      "auth": "platform-admin",
+      "summary": "entity definitions across every tenant, with record counts, for the admin console's Entities screen (src/server/services/admin-entities.ts). Schema metadata only; record data is never read.",
+      "source": "src/app/api/v1/admin/entities/route.ts",
+      "examples": [
+        {
+          "name": "A platform admin lists entity definitions across tenants",
+          "file": "bruno/admin/entities-list.bru",
+          "pathParams": {},
+          "query": {
+            "tenantId": "000000000000000000000001"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/overview",
+      "method": "GET",
+      "path": "/api/v1/admin/overview",
+      "group": "admin",
+      "params": [],
+      "auth": "platform-admin",
+      "summary": "the platform dashboard behind `/admin` (src/server/services/admin-overview.ts). Counts and daily series only.",
+      "source": "src/app/api/v1/admin/overview/route.ts",
+      "examples": [
+        {
+          "name": "A tenant owner/admin is refused by every admin console endpoint",
+          "file": "bruno/admin/console-endpoints-not-admin.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A platform admin reads the platform overview",
+          "file": "bruno/admin/overview.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/session",
+      "method": "GET",
+      "path": "/api/v1/admin/session",
+      "group": "admin",
+      "params": [],
+      "auth": "platform-admin",
+      "summary": "the probe the admin console's gate calls (GRAFT-27.1 AC1).",
+      "source": "src/app/api/v1/admin/session/route.ts",
+      "examples": [
+        {
+          "name": "The admin surface needs a session before it needs a flag",
+          "file": "bruno/admin/session-no-token.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A tenant owner/admin is not a platform admin — 404, never 403",
+          "file": "bruno/admin/session-not-admin.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A platform admin reads the admin session probe",
+          "file": "bruno/admin/session.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "The admin surface does not confirm which of its paths exist",
+          "file": "bruno/security/admin-surface-is-not-an-oracle.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/stats",
+      "method": "GET",
+      "path": "/api/v1/admin/stats",
+      "group": "admin",
+      "params": [],
+      "auth": "platform-admin",
+      "summary": "tenant counts for the `/admin` dashboard's stat widgets. Read-only, same gate and audit posture as every other admin route (src/server/auth/platform-admin.ts): `assertPlatformAdmin` first, refuses with 404, writes `admin.stats.read` with no `targetTenantId` (the read is about no…",
+      "source": "src/app/api/v1/admin/stats/route.ts",
+      "examples": [
+        {
+          "name": "A tenant owner/admin cannot read the stats widget data",
+          "file": "bruno/admin/stats-not-admin.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A platform admin reads the tenant stats widget data",
+          "file": "bruno/admin/stats.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/tenants",
+      "method": "GET",
+      "path": "/api/v1/admin/tenants",
+      "group": "admin",
+      "params": [],
+      "auth": "platform-admin",
+      "summary": "every tenant in the database (GRAFT-27.2 AC1–AC4).",
+      "source": "src/app/api/v1/admin/tenants/route.ts",
+      "examples": [
+        {
+          "name": "A signed-in non-admin gets 404 and no tenant data — not even their own",
+          "file": "bruno/admin/tenants-list-not-admin.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Search and tier filter — a pattern in q is text, an unknown tier is a 400",
+          "file": "bruno/admin/tenants-list-search.bru",
+          "pathParams": {},
+          "query": {
+            "q": "downgraded"
+          },
+          "body": null
+        },
+        {
+          "name": "A platform admin lists every tenant, across memberships",
+          "file": "bruno/admin/tenants-list.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/tenants/:tenantId",
+      "method": "GET",
+      "path": "/api/v1/admin/tenants/:tenantId",
+      "group": "admin",
+      "params": [
+        "tenantId"
+      ],
+      "auth": "platform-admin",
+      "summary": "one tenant's tier and billing state (GRAFT-27.2 AC5, AC6).",
+      "source": "src/app/api/v1/admin/tenants/[tenantId]/route.ts",
+      "examples": [
+        {
+          "name": "A bad tenant id is a 400 and a missing one a 404 — never a 500",
+          "file": "bruno/admin/tenant-detail-not-found.bru",
+          "pathParams": {
+            "tenantId": "00000000000000000000ffff"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A platform admin reads one tenant's tier, entitlements and billing state",
+          "file": "bruno/admin/tenant-detail.bru",
+          "pathParams": {
+            "tenantId": "000000000000000000000004"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "The admin surface never leaks a Stripe id, a secret or an email",
+          "file": "bruno/security/admin-no-stripe-ids-leaked.bru",
+          "pathParams": {
+            "tenantId": "000000000000000000000006"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/admin/tenants/:tenantId/tier",
+      "method": "POST",
+      "path": "/api/v1/admin/tenants/:tenantId/tier",
+      "group": "admin",
+      "params": [
+        "tenantId"
+      ],
+      "auth": "platform-admin",
+      "summary": "the manual tier override (GRAFT-27.4). The one mutation on the v1 platform-admin surface.",
+      "source": "src/app/api/v1/admin/tenants/[tenantId]/tier/route.ts",
+      "examples": [
+        {
+          "name": "An override down to Free freezes over-limit meters and deletes nothing",
+          "file": "bruno/admin/tenant-tier-override-downgrade.bru",
+          "pathParams": {
+            "tenantId": "000000000000000000000009"
+          },
+          "query": {},
+          "body": "{\n  \"tier\": \"free\",\n  \"reason\": \"refund issued — dropping to free\"\n}"
+        },
+        {
+          "name": "A tenant owner cannot change their own tenant's tier — 404, not 403",
+          "file": "bruno/admin/tenant-tier-override-not-admin.bru",
+          "pathParams": {
+            "tenantId": "000000000000000000000009"
+          },
+          "query": {},
+          "body": "{\n  \"tier\": \"premium\",\n  \"reason\": \"I would like to be on premium please\"\n}"
+        },
+        {
+          "name": "A tier override without a good reason, or onto an unknown tier, is refused",
+          "file": "bruno/admin/tenant-tier-override-validation.bru",
+          "pathParams": {
+            "tenantId": "000000000000000000000009"
+          },
+          "query": {},
+          "body": "{\n  \"tier\": \"premium\"\n}"
+        },
+        {
+          "name": "A platform admin overrides a tenant onto Premium, through applyUpgrade",
+          "file": "bruno/admin/tenant-tier-override.bru",
+          "pathParams": {
+            "tenantId": "00000000000000000000000a"
+          },
+          "query": {},
+          "body": "{\n  \"tier\": \"premium\",\n  \"reason\": \"comped for launch partner\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/admin/users",
+      "method": "GET",
+      "path": "/api/v1/admin/users",
+      "group": "admin",
+      "params": [],
+      "auth": "platform-admin",
+      "summary": "every user account across every tenant, for the admin console's Users screen (src/server/services/admin-users.ts).",
+      "source": "src/app/api/v1/admin/users/route.ts",
+      "examples": [
+        {
+          "name": "A platform admin searches users across every tenant",
+          "file": "bruno/admin/users-list.bru",
+          "pathParams": {},
+          "query": {
+            "q": "both@qa"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/auth/login",
+      "method": "POST",
+      "path": "/api/v1/auth/login",
+      "group": "auth",
+      "params": [],
+      "auth": "public",
+      "summary": "exchange credentials for a session (AC3, AC8).",
+      "source": "src/app/api/v1/auth/login/route.ts",
+      "examples": [
+        {
+          "name": "Login before verification is refused",
+          "file": "bruno/auth/login-unverified.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"email\": \"unverified@qa.test\",\n  \"password\": \"{{qaPassword}}\"\n}"
+        },
+        {
+          "name": "Login mints a session for the first tenant",
+          "file": "bruno/auth/login.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"email\": \"both@qa.test\",\n  \"password\": \"{{qaPassword}}\"\n}"
+        },
+        {
+          "name": "A spent budget answers 429 RATE_LIMITED with the full header set",
+          "file": "bruno/security/rate-limit-429.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"email\": \"{{rlEmail}}\",\n  \"password\": \"definitely-not-the-password\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/auth/logout",
+      "method": "POST",
+      "path": "/api/v1/auth/logout",
+      "group": "auth",
+      "params": [],
+      "auth": "public",
+      "summary": "204, and the session is over (GRAFT-03.1 AC6).",
+      "source": "src/app/api/v1/auth/logout/route.ts",
+      "examples": [
+        {
+          "name": "A logged-out token is denied before it expires",
+          "file": "bruno/auth/logout-denied-token.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Logout",
+          "file": "bruno/auth/logout.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Invalid JWT",
+          "file": "bruno/security/invalid-jwt.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/auth/refresh",
+      "method": "POST",
+      "path": "/api/v1/auth/refresh",
+      "group": "auth",
+      "params": [],
+      "auth": "public",
+      "summary": "rotate the session (GRAFT-03.1 AC2, AC3).",
+      "source": "src/app/api/v1/auth/refresh/route.ts",
+      "examples": [
+        {
+          "name": "Cross-tenant refresh is refused",
+          "file": "bruno/auth/refresh-cross-tenant.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Reuse kills the whole family",
+          "file": "bruno/auth/refresh-family-revoked.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A rotated refresh token is dead",
+          "file": "bruno/auth/refresh-replay.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Refresh reuse revokes the family",
+          "file": "bruno/auth/refresh-reuse-detection.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Refresh rotates the session",
+          "file": "bruno/auth/refresh.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/auth/signup",
+      "method": "POST",
+      "path": "/api/v1/auth/signup",
+      "group": "auth",
+      "params": [],
+      "auth": "public",
+      "summary": "account + tenant bootstrap (GRAFT-03.2 AC1–AC5).",
+      "source": "src/app/api/v1/auth/signup/route.ts",
+      "examples": [
+        {
+          "name": "Signup reaches the trial-granting write path",
+          "file": "bruno/auth/signup-starts-trial.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"email\": \"trial-owner@qa-signup.test\",\n  \"password\": \"{{qaPassword}}\",\n  \"businessName\": \"QA Trial Signup Co\"\n}"
+        },
+        {
+          "name": "Signup creates an account and its tenant",
+          "file": "bruno/auth/signup.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"email\": \"new-owner@qa-signup.test\",\n  \"password\": \"{{qaPassword}}\",\n  \"businessName\": \"QA Signup Co\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/auth/switch-tenant",
+      "method": "POST",
+      "path": "/api/v1/auth/switch-tenant",
+      "group": "auth",
+      "params": [],
+      "auth": "session",
+      "summary": "mint a token for another workspace (AC6).",
+      "source": "src/app/api/v1/auth/switch-tenant/route.ts",
+      "examples": [
+        {
+          "name": "Switching tenant mints a token for the new tenant",
+          "file": "bruno/billing/switch-tenant.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"tenantId\": \"000000000000000000000002\"\n}"
+        },
+        {
+          "name": "Switching into a tenant you do not belong to is refused",
+          "file": "bruno/security/forbidden-cross-tenant.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"tenantId\": \"000000000000000000000004\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/auth/verify-email",
+      "method": "POST",
+      "path": "/api/v1/auth/verify-email",
+      "group": "auth",
+      "params": [],
+      "auth": "public",
+      "summary": "spend the verification token (AC3).",
+      "source": "src/app/api/v1/auth/verify-email/route.ts",
+      "examples": [
+        {
+          "name": "Verify email — spend the seeded token",
+          "file": "bruno/auth/verify-email.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"token\": \"qa0verify0000000000000000000000000000000001\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/billing/checkout",
+      "method": "POST",
+      "path": "/api/v1/billing/checkout",
+      "group": "billing",
+      "params": [],
+      "auth": "session",
+      "summary": "starts a Stripe Checkout session for Premium monthly/annual (GRAFT-15 AC1, AC7). Owner-only; the actual tier transition happens asynchronously once Stripe calls the webhook (src/app/api/v1/webhooks/stripe/route.ts) — this endpoint only ever hands back a URL to redirect to.",
+      "source": "src/app/api/v1/billing/checkout/route.ts",
+      "examples": [
+        {
+          "name": "A member cannot start checkout — owner-only",
+          "file": "bruno/billing/checkout-authz.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"plan\": \"monthly\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/dashboards",
+      "method": "GET",
+      "path": "/api/v1/dashboards",
+      "group": "dashboards",
+      "params": [],
+      "auth": "session",
+      "summary": "(GRAFT-13). Thin by contract (docs/BACKEND.md §1) — all quota and validation decisions live in src/server/services/dashboards.ts.",
+      "source": "src/app/api/v1/dashboards/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/dashboards",
+      "method": "POST",
+      "path": "/api/v1/dashboards",
+      "group": "dashboards",
+      "params": [],
+      "auth": "session",
+      "summary": "(GRAFT-13). Thin by contract (docs/BACKEND.md §1) — all quota and validation decisions live in src/server/services/dashboards.ts.",
+      "source": "src/app/api/v1/dashboards/route.ts",
+      "examples": [
+        {
+          "name": "Creating a dashboard stores pure JSON widget config, nothing else",
+          "file": "bruno/dashboards/crud.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"name\": \"Ops Overview\",\n  \"widgets\": [\n    {\n      \"id\": \"w1\",\n      \"type\": \"kpi\",\n      \"config\": { \"source\": \"meter\", \"meter\": \"records\", \"label\": \"Records used\" },\n      \"layout\": { \"x\": 0, \"y\": 0, \"w\": 1, \"h\": 1 }\n    }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/dashboards/:dashboardId",
+      "method": "GET",
+      "path": "/api/v1/dashboards/:dashboardId",
+      "group": "dashboards",
+      "params": [
+        "dashboardId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-13).",
+      "source": "src/app/api/v1/dashboards/[dashboardId]/route.ts",
+      "examples": [
+        {
+          "name": "Another tenant's dashboard is not found, not forbidden",
+          "file": "bruno/dashboards/tenant-isolation.bru",
+          "pathParams": {
+            "dashboardId": "000000000000000000000047"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "PATCH /api/v1/dashboards/:dashboardId",
+      "method": "PATCH",
+      "path": "/api/v1/dashboards/:dashboardId",
+      "group": "dashboards",
+      "params": [
+        "dashboardId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-13).",
+      "source": "src/app/api/v1/dashboards/[dashboardId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "DELETE /api/v1/dashboards/:dashboardId",
+      "method": "DELETE",
+      "path": "/api/v1/dashboards/:dashboardId",
+      "group": "dashboards",
+      "params": [
+        "dashboardId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-13).",
+      "source": "src/app/api/v1/dashboards/[dashboardId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/entities",
+      "method": "GET",
+      "path": "/api/v1/entities",
+      "group": "entities",
+      "params": [],
+      "auth": "session",
+      "summary": "tenant-defined entity CRUD, list side (GRAFT-06).",
+      "source": "src/app/api/v1/entities/route.ts",
+      "examples": [
+        {
+          "name": "Listing entities returns the tenant's own definitions",
+          "file": "bruno/entities/list.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/entities",
+      "method": "POST",
+      "path": "/api/v1/entities",
+      "group": "entities",
+      "params": [],
+      "auth": "session",
+      "summary": "tenant-defined entity CRUD, list side (GRAFT-06).",
+      "source": "src/app/api/v1/entities/route.ts",
+      "examples": [
+        {
+          "name": "Creating an entity compiles it at schemaVersion 1",
+          "file": "bruno/entities/create.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"key\": \"products\",\n  \"name\": \"Products\",\n  \"fields\": [\n    { \"key\": \"title\", \"label\": \"Title\", \"type\": \"text\", \"required\": true },\n    { \"key\": \"price\", \"label\": \"Price\", \"type\": \"number\", \"required\": true, \"min\": 0 }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/entities/:entityId",
+      "method": "GET",
+      "path": "/api/v1/entities/:entityId",
+      "group": "entities",
+      "params": [
+        "entityId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-06).",
+      "source": "src/app/api/v1/entities/[entityId]/route.ts",
+      "examples": [
+        {
+          "name": "Another tenant's entity is not found, not forbidden",
+          "file": "bruno/entities/tenant-isolation.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000016"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "PATCH /api/v1/entities/:entityId",
+      "method": "PATCH",
+      "path": "/api/v1/entities/:entityId",
+      "group": "entities",
+      "params": [
+        "entityId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-06).",
+      "source": "src/app/api/v1/entities/[entityId]/route.ts",
+      "examples": [
+        {
+          "name": "Adding a required field bumps schemaVersion",
+          "file": "bruno/entities/update.bru",
+          "pathParams": {
+            "entityId": "{{createdEntityId}}"
+          },
+          "query": {},
+          "body": "{\n  \"fields\": [\n    { \"key\": \"title\", \"label\": \"Title\", \"type\": \"text\", \"required\": true },\n    { \"key\": \"price\", \"label\": \"Price\", \"type\": \"number\", \"required\": true, \"min\": 0 },\n    { \"key\": \"sku\", \"label\": \"SKU\", \"type\": \"text\", \"required\": true }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "id": "DELETE /api/v1/entities/:entityId",
+      "method": "DELETE",
+      "path": "/api/v1/entities/:entityId",
+      "group": "entities",
+      "params": [
+        "entityId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-06).",
+      "source": "src/app/api/v1/entities/[entityId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/entities/:entityId/import-uploads",
+      "method": "POST",
+      "path": "/api/v1/entities/:entityId/import-uploads",
+      "group": "entities",
+      "params": [
+        "entityId"
+      ],
+      "auth": "session",
+      "summary": "step one of the import file upload (GRAFT-25.1 AC9, docs/BACKEND.md §4).",
+      "source": "src/app/api/v1/entities/[entityId]/import-uploads/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/entities/:entityId/import-uploads/:mediaId",
+      "method": "POST",
+      "path": "/api/v1/entities/:entityId/import-uploads/:mediaId",
+      "group": "entities",
+      "params": [
+        "entityId",
+        "mediaId"
+      ],
+      "auth": "session",
+      "summary": "step two of the import file upload (GRAFT-25.1 AC9).",
+      "source": "src/app/api/v1/entities/[entityId]/import-uploads/[mediaId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/entities/:entityId/imports",
+      "method": "POST",
+      "path": "/api/v1/entities/:entityId/imports",
+      "group": "entities",
+      "params": [
+        "entityId"
+      ],
+      "auth": "session",
+      "summary": "start a batch record import (GRAFT-25.1, docs/TIERS.md §2.3).",
+      "source": "src/app/api/v1/entities/[entityId]/imports/route.ts",
+      "examples": [
+        {
+          "name": "A dry run reports every row and writes nothing",
+          "file": "bruno/records/import-dry-run.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000016"
+          },
+          "query": {},
+          "body": "{\n  \"mediaId\": \"{{dryRunMediaId}}\",\n  \"format\": \"csv\",\n  \"mapping\": {},\n  \"dryRun\": true\n}"
+        },
+        {
+          "name": "A Free tenant cannot import — the csv_import gate refuses before anything is read",
+          "file": "bruno/records/import-free-tier-refused.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000015"
+          },
+          "query": {},
+          "body": "{\n  \"mediaId\": \"0000000000000000000000ff\",\n  \"format\": \"csv\",\n  \"mapping\": {},\n  \"dryRun\": false\n}"
+        },
+        {
+          "name": "A CSV import applies the good rows and reports the bad ones by row number",
+          "file": "bruno/records/import-happy-path.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000016"
+          },
+          "query": {},
+          "body": "{\n  \"mediaId\": \"{{importMediaId}}\",\n  \"format\": \"csv\",\n  \"mapping\": { \"Full Name\": \"name\", \"Email\": \"email\", \"Phone\": \"phone\" },\n  \"dryRun\": false\n}"
+        },
+        {
+          "name": "Premium refuses 10,001 rows and accepts exactly 10,000",
+          "file": "bruno/records/import-row-limit.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000016"
+          },
+          "query": {},
+          "body": "{\n  \"mediaId\": \"{{overLimitMediaId}}\",\n  \"format\": \"csv\",\n  \"mapping\": {},\n  \"dryRun\": true\n}"
+        },
+        {
+          "name": "An import cannot cross a tenant boundary, in either direction",
+          "file": "bruno/records/import-tenant-isolation.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000015"
+          },
+          "query": {},
+          "body": "{\n  \"mediaId\": \"{{dryRunMediaId}}\",\n  \"format\": \"csv\",\n  \"mapping\": {},\n  \"dryRun\": true\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/entities/:entityId/imports/:importId",
+      "method": "GET",
+      "path": "/api/v1/entities/:entityId/imports/:importId",
+      "group": "entities",
+      "params": [
+        "entityId",
+        "importId"
+      ],
+      "auth": "session",
+      "summary": "re-read one import result (GRAFT-25.1).",
+      "source": "src/app/api/v1/entities/[entityId]/imports/[importId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/entities/:entityId/records",
+      "method": "GET",
+      "path": "/api/v1/entities/:entityId/records",
+      "group": "entities",
+      "params": [
+        "entityId"
+      ],
+      "auth": "session",
+      "summary": "record CRUD, list side (GRAFT-07).",
+      "source": "src/app/api/v1/entities/[entityId]/records/route.ts",
+      "examples": [
+        {
+          "name": "An unpaid payment-enabled submission is still there afterwards",
+          "file": "bruno/forms/payment-link-submit-persists.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000015"
+          },
+          "query": {
+            "filter": "{{paymentSubmitFilter}}"
+          },
+          "body": null
+        },
+        {
+          "name": "A raw Mongo operator in the filter is rejected, not executed",
+          "file": "bruno/records/filter-whitelist.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000015"
+          },
+          "query": {
+            "filter": "{\"$where\":\"1==1\"}"
+          },
+          "body": null
+        },
+        {
+          "name": "Listing is cursor-paginated with a round-trippable cursor",
+          "file": "bruno/records/pagination.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000015"
+          },
+          "query": {
+            "limit": "2"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/entities/:entityId/records",
+      "method": "POST",
+      "path": "/api/v1/entities/:entityId/records",
+      "group": "entities",
+      "params": [
+        "entityId"
+      ],
+      "auth": "session",
+      "summary": "record CRUD, list side (GRAFT-07).",
+      "source": "src/app/api/v1/entities/[entityId]/records/route.ts",
+      "examples": [
+        {
+          "name": "Creating a record validates against the entity's compiled schema",
+          "file": "bruno/records/crud.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000015"
+          },
+          "query": {},
+          "body": "{\n  \"name\": \"Ada King\",\n  \"email\": \"ada.king@example.com\",\n  \"phone\": \"+353 1 000 0009\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/entities/:entityId/records/:recordId",
+      "method": "GET",
+      "path": "/api/v1/entities/:entityId/records/:recordId",
+      "group": "entities",
+      "params": [
+        "entityId",
+        "recordId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-07).",
+      "source": "src/app/api/v1/entities/[entityId]/records/[recordId]/route.ts",
+      "examples": [
+        {
+          "name": "Another tenant's record is not found, not forbidden",
+          "file": "bruno/security/forbidden-cross-tenant-records.bru",
+          "pathParams": {
+            "entityId": "000000000000000000000016",
+            "recordId": "00000000000000000000002c"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "PATCH /api/v1/entities/:entityId/records/:recordId",
+      "method": "PATCH",
+      "path": "/api/v1/entities/:entityId/records/:recordId",
+      "group": "entities",
+      "params": [
+        "entityId",
+        "recordId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-07).",
+      "source": "src/app/api/v1/entities/[entityId]/records/[recordId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "DELETE /api/v1/entities/:entityId/records/:recordId",
+      "method": "DELETE",
+      "path": "/api/v1/entities/:entityId/records/:recordId",
+      "group": "entities",
+      "params": [
+        "entityId",
+        "recordId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-07).",
+      "source": "src/app/api/v1/entities/[entityId]/records/[recordId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/entities/:entityId/records/:recordId/media",
+      "method": "POST",
+      "path": "/api/v1/entities/:entityId/records/:recordId/media",
+      "group": "entities",
+      "params": [
+        "entityId",
+        "recordId"
+      ],
+      "auth": "session",
+      "summary": "step one of a record image upload.",
+      "source": "src/app/api/v1/entities/[entityId]/records/[recordId]/media/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/entities/:entityId/records/:recordId/media/:mediaId",
+      "method": "POST",
+      "path": "/api/v1/entities/:entityId/records/:recordId/media/:mediaId",
+      "group": "entities",
+      "params": [
+        "entityId",
+        "recordId",
+        "mediaId"
+      ],
+      "auth": "session",
+      "summary": "step two: the bytes have landed, so verify them, charge `storage_mb` and point the field at the object. DELETE .../records/:recordId/media/:mediaId — clear the field and delete the object.",
+      "source": "src/app/api/v1/entities/[entityId]/records/[recordId]/media/[mediaId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "DELETE /api/v1/entities/:entityId/records/:recordId/media/:mediaId",
+      "method": "DELETE",
+      "path": "/api/v1/entities/:entityId/records/:recordId/media/:mediaId",
+      "group": "entities",
+      "params": [
+        "entityId",
+        "recordId",
+        "mediaId"
+      ],
+      "auth": "session",
+      "summary": "step two: the bytes have landed, so verify them, charge `storage_mb` and point the field at the object. DELETE .../records/:recordId/media/:mediaId — clear the field and delete the object.",
+      "source": "src/app/api/v1/entities/[entityId]/records/[recordId]/media/[mediaId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/forms",
+      "method": "GET",
+      "path": "/api/v1/forms",
+      "group": "forms",
+      "params": [],
+      "auth": "session",
+      "summary": "form CRUD, list side (GRAFT-08).",
+      "source": "src/app/api/v1/forms/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/forms",
+      "method": "POST",
+      "path": "/api/v1/forms",
+      "group": "forms",
+      "params": [],
+      "auth": "session",
+      "summary": "form CRUD, list side (GRAFT-08).",
+      "source": "src/app/api/v1/forms/route.ts",
+      "examples": [
+        {
+          "name": "Creating a form binds it to an entity with a real field subset",
+          "file": "bruno/forms/create.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"entityId\": \"000000000000000000000015\",\n  \"name\": \"QA Booking Request\",\n  \"slug\": \"qa-booking-request\",\n  \"visibility\": \"public\",\n  \"fields\": [{ \"key\": \"name\" }, { \"key\": \"email\" }]\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/forms/:formId",
+      "method": "GET",
+      "path": "/api/v1/forms/:formId",
+      "group": "forms",
+      "params": [
+        "formId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-08).",
+      "source": "src/app/api/v1/forms/[formId]/route.ts",
+      "examples": [
+        {
+          "name": "Another tenant's form is not found, not forbidden",
+          "file": "bruno/forms/tenant-isolation.bru",
+          "pathParams": {
+            "formId": "000000000000000000000032"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "PATCH /api/v1/forms/:formId",
+      "method": "PATCH",
+      "path": "/api/v1/forms/:formId",
+      "group": "forms",
+      "params": [
+        "formId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-08).",
+      "source": "src/app/api/v1/forms/[formId]/route.ts",
+      "examples": [
+        {
+          "name": "Notes and links for customers can be set on a form",
+          "file": "bruno/forms/content-blocks-config.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": "{\n  \"content\": [\n    {\n      \"id\": \"policy\",\n      \"kind\": \"notice\",\n      \"title\": \"Cancellation policy\",\n      \"body\": \"Cancel up to 24 hours before for a full refund.\",\n      \"after\": null\n    },\n    {\n      \"id\": \"terms\",\n      \"kind\": \"link\",\n      \"label\": \"Terms of hire\",\n      \"url\": \"https://example.com/terms\",\n      \"requireAgreement\": true,\n      \"after\": null\n    }\n  ]\n}"
+        },
+        {
+          "name": "A link that is not an http(s) web address is refused",
+          "file": "bruno/forms/content-blocks-rejects-unsafe-link.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": "{\n  \"content\": [\n    {\n      \"id\": \"evil\",\n      \"kind\": \"link\",\n      \"label\": \"Click me\",\n      \"url\": \"javascript:alert(document.cookie)\",\n      \"requireAgreement\": false,\n      \"after\": null\n    }\n  ]\n}"
+        },
+        {
+          "name": "Payment links can be set on a form and turned off again",
+          "file": "bruno/forms/payment-link-config.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": "{\n  \"payment\": {\n    \"mode\": \"link\",\n    \"link\": { \"url\": \"https://buy.stripe.com/qa-config-check?prefilled_email=x\" },\n    \"required\": true\n  }\n}"
+        },
+        {
+          "name": "Only an https buy.stripe.com link is accepted as a payment link",
+          "file": "bruno/forms/payment-link-rejects-bad-url.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": "{\n  \"payment\": {\n    \"mode\": \"link\",\n    \"link\": { \"url\": \"https://buy.stripe.com.evil.test/x\" },\n    \"required\": true\n  }\n}"
+        },
+        {
+          "name": "Another tenant's payment link is neither writable nor readable",
+          "file": "bruno/forms/payment-link-tenant-isolation.bru",
+          "pathParams": {
+            "formId": "000000000000000000000020"
+          },
+          "query": {},
+          "body": "{\n  \"payment\": {\n    \"mode\": \"link\",\n    \"link\": { \"url\": \"https://buy.stripe.com/attacker-link\" },\n    \"required\": true\n  }\n}"
+        }
+      ]
+    },
+    {
+      "id": "DELETE /api/v1/forms/:formId",
+      "method": "DELETE",
+      "path": "/api/v1/forms/:formId",
+      "group": "forms",
+      "params": [
+        "formId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-08).",
+      "source": "src/app/api/v1/forms/[formId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "PUT /api/v1/forms/:formId/carousel",
+      "method": "PUT",
+      "path": "/api/v1/forms/:formId/carousel",
+      "group": "forms",
+      "params": [
+        "formId"
+      ],
+      "auth": "session",
+      "summary": "set the whole carousel at once.",
+      "source": "src/app/api/v1/forms/[formId]/carousel/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/forms/:formId/media",
+      "method": "POST",
+      "path": "/api/v1/forms/:formId/media",
+      "group": "forms",
+      "params": [
+        "formId"
+      ],
+      "auth": "session",
+      "summary": "step one of a carousel image upload.",
+      "source": "src/app/api/v1/forms/[formId]/media/route.ts",
+      "examples": [
+        {
+          "name": "An SVG is refused — it is a script host, not a photo",
+          "file": "bruno/forms/carousel-rejects-svg.bru",
+          "pathParams": {
+            "formId": "{{createdFormId}}"
+          },
+          "query": {},
+          "body": "{\n  \"contentType\": \"image/svg+xml\",\n  \"sizeBytes\": 2048\n}"
+        },
+        {
+          "name": "Another tenant's form cannot be given carousel images",
+          "file": "bruno/forms/carousel-tenant-isolation.bru",
+          "pathParams": {
+            "formId": "000000000000000000000032"
+          },
+          "query": {},
+          "body": "{\n  \"contentType\": \"image/png\",\n  \"sizeBytes\": 2048\n}"
+        },
+        {
+          "name": "Requesting a carousel upload returns a presigned URL, not a byte sink",
+          "file": "bruno/forms/carousel-upload-ticket.bru",
+          "pathParams": {
+            "formId": "{{createdFormId}}"
+          },
+          "query": {},
+          "body": "{\n  \"contentType\": \"image/png\",\n  \"sizeBytes\": 20480\n}"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/forms/:formId/media/:mediaId",
+      "method": "POST",
+      "path": "/api/v1/forms/:formId/media/:mediaId",
+      "group": "forms",
+      "params": [
+        "formId",
+        "mediaId"
+      ],
+      "auth": "session",
+      "summary": "step two: the bytes have landed, so verify them, charge `storage_mb` and append the slide. DELETE /api/v1/forms/:formId/media/:mediaId — detach the slide and delete the object.",
+      "source": "src/app/api/v1/forms/[formId]/media/[mediaId]/route.ts",
+      "examples": [
+        {
+          "name": "Confirming an upload that never landed is refused",
+          "file": "bruno/forms/carousel-confirm-without-upload.bru",
+          "pathParams": {
+            "formId": "{{createdFormId}}",
+            "mediaId": "{{carouselMediaId}}"
+          },
+          "query": {},
+          "body": "{\n  \"alt\": \"A product photo that was never uploaded\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "DELETE /api/v1/forms/:formId/media/:mediaId",
+      "method": "DELETE",
+      "path": "/api/v1/forms/:formId/media/:mediaId",
+      "group": "forms",
+      "params": [
+        "formId",
+        "mediaId"
+      ],
+      "auth": "session",
+      "summary": "step two: the bytes have landed, so verify them, charge `storage_mb` and append the slide. DELETE /api/v1/forms/:formId/media/:mediaId — detach the slide and delete the object.",
+      "source": "src/app/api/v1/forms/[formId]/media/[mediaId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/forms/:formId/publish",
+      "method": "POST",
+      "path": "/api/v1/forms/:formId/publish",
+      "group": "forms",
+      "params": [
+        "formId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-08 AC2, AC4).",
+      "source": "src/app/api/v1/forms/[formId]/publish/route.ts",
+      "examples": [
+        {
+          "name": "Publishing assigns a globally-unique publicSlug and reserves quota",
+          "file": "bruno/forms/publish.bru",
+          "pathParams": {
+            "formId": "{{createdFormId}}"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/forms/:formId/unpublish",
+      "method": "POST",
+      "path": "/api/v1/forms/:formId/unpublish",
+      "group": "forms",
+      "params": [
+        "formId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-08 AC3).",
+      "source": "src/app/api/v1/forms/[formId]/unpublish/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/inventory/allocations",
+      "method": "GET",
+      "path": "/api/v1/inventory/allocations",
+      "group": "inventory",
+      "params": [],
+      "auth": "session",
+      "summary": "what the master schedule reads (docs/BMS_EXTENSION.md §2.3).",
+      "source": "src/app/api/v1/inventory/allocations/route.ts",
+      "examples": []
+    },
+    {
+      "id": "PATCH /api/v1/inventory/allocations/:allocationId",
+      "method": "PATCH",
+      "path": "/api/v1/inventory/allocations/:allocationId",
+      "group": "inventory",
+      "params": [
+        "allocationId"
+      ],
+      "auth": "session",
+      "summary": "move a hold along the lifecycle: confirm it, release it, or cancel a confirmed booking. DELETE /api/v1/inventory/allocations/:allocationId — the same as releasing, for a client that would rather say \"delete\".",
+      "source": "src/app/api/v1/inventory/allocations/[allocationId]/route.ts",
+      "examples": [
+        {
+          "name": "Confirming a hold drops its lease",
+          "file": "bruno/inventory/confirm.bru",
+          "pathParams": {
+            "allocationId": "{{heldAllocationId}}"
+          },
+          "query": {},
+          "body": "{\n  \"status\": \"confirmed\"\n}"
+        },
+        {
+          "name": "Cancelling a booking gives the capacity back",
+          "file": "bruno/inventory/release.bru",
+          "pathParams": {
+            "allocationId": "{{heldAllocationId}}"
+          },
+          "query": {},
+          "body": "{\n  \"status\": \"cancelled\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "DELETE /api/v1/inventory/allocations/:allocationId",
+      "method": "DELETE",
+      "path": "/api/v1/inventory/allocations/:allocationId",
+      "group": "inventory",
+      "params": [
+        "allocationId"
+      ],
+      "auth": "session",
+      "summary": "move a hold along the lifecycle: confirm it, release it, or cancel a confirmed booking. DELETE /api/v1/inventory/allocations/:allocationId — the same as releasing, for a client that would rather say \"delete\".",
+      "source": "src/app/api/v1/inventory/allocations/[allocationId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/inventory/pools",
+      "method": "GET",
+      "path": "/api/v1/inventory/pools",
+      "group": "inventory",
+      "params": [],
+      "auth": "session",
+      "summary": "(docs/BMS_EXTENSION.md §2.1, Step 1).",
+      "source": "src/app/api/v1/inventory/pools/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/inventory/pools",
+      "method": "POST",
+      "path": "/api/v1/inventory/pools",
+      "group": "inventory",
+      "params": [],
+      "auth": "session",
+      "summary": "(docs/BMS_EXTENSION.md §2.1, Step 1).",
+      "source": "src/app/api/v1/inventory/pools/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/inventory/pools/:poolId",
+      "method": "GET",
+      "path": "/api/v1/inventory/pools/:poolId",
+      "group": "inventory",
+      "params": [
+        "poolId"
+      ],
+      "auth": "session",
+      "summary": "",
+      "source": "src/app/api/v1/inventory/pools/[poolId]/route.ts",
+      "examples": [
+        {
+          "name": "A seeded pool reports its strategy, capacity and turnaround",
+          "file": "bruno/inventory/pool-get.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000065"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "PATCH /api/v1/inventory/pools/:poolId",
+      "method": "PATCH",
+      "path": "/api/v1/inventory/pools/:poolId",
+      "group": "inventory",
+      "params": [
+        "poolId"
+      ],
+      "auth": "session",
+      "summary": "",
+      "source": "src/app/api/v1/inventory/pools/[poolId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "DELETE /api/v1/inventory/pools/:poolId",
+      "method": "DELETE",
+      "path": "/api/v1/inventory/pools/:poolId",
+      "group": "inventory",
+      "params": [
+        "poolId"
+      ],
+      "auth": "session",
+      "summary": "",
+      "source": "src/app/api/v1/inventory/pools/[poolId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/inventory/pools/:poolId/availability",
+      "method": "GET",
+      "path": "/api/v1/inventory/pools/:poolId/availability",
+      "group": "inventory",
+      "params": [
+        "poolId"
+      ],
+      "auth": "session",
+      "summary": "",
+      "source": "src/app/api/v1/inventory/pools/[poolId]/availability/route.ts",
+      "examples": [
+        {
+          "name": "A booking starting exactly when the turnaround ends is allowed",
+          "file": "bruno/inventory/availability-after-buffer.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000065"
+          },
+          "query": {
+            "startAt": "2030-06-15T14:30:00.000Z",
+            "endAt": "2030-06-15T16:00:00.000Z",
+            "quantity": "1"
+          },
+          "body": null
+        },
+        {
+          "name": "The window is available again once the booking is cancelled",
+          "file": "bruno/inventory/availability-after-release.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000065"
+          },
+          "query": {
+            "startAt": "2030-06-15T10:00:00.000Z",
+            "endAt": "2030-06-15T14:00:00.000Z",
+            "quantity": "1"
+          },
+          "body": null
+        },
+        {
+          "name": "The turnaround buffer blocks a booking that is too soon after",
+          "file": "bruno/inventory/availability-buffer.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000065"
+          },
+          "query": {
+            "startAt": "2030-06-15T14:15:00.000Z",
+            "endAt": "2030-06-15T16:00:00.000Z",
+            "quantity": "1"
+          },
+          "body": null
+        },
+        {
+          "name": "An unbooked window is available",
+          "file": "bruno/inventory/availability-free.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000065"
+          },
+          "query": {
+            "startAt": "2030-06-15T10:00:00.000Z",
+            "endAt": "2030-06-15T14:00:00.000Z",
+            "quantity": "1"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/inventory/pools/:poolId/holds",
+      "method": "POST",
+      "path": "/api/v1/inventory/pools/:poolId/holds",
+      "group": "inventory",
+      "params": [
+        "poolId"
+      ],
+      "auth": "session",
+      "summary": "the pessimistic time-lock of docs/BMS_EXTENSION.md §2.1.",
+      "source": "src/app/api/v1/inventory/pools/[poolId]/holds/route.ts",
+      "examples": [
+        {
+          "name": "The same window cannot be held twice",
+          "file": "bruno/inventory/hold-conflict.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000065"
+          },
+          "query": {},
+          "body": "{\n  \"startAt\": \"2030-06-15T10:00:00.000Z\",\n  \"endAt\": \"2030-06-15T14:00:00.000Z\",\n  \"quantity\": 1\n}"
+        },
+        {
+          "name": "A checkout takes a pessimistic hold with a lease",
+          "file": "bruno/inventory/hold.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000065"
+          },
+          "query": {},
+          "body": "{\n  \"startAt\": \"2030-06-15T10:00:00.000Z\",\n  \"endAt\": \"2030-06-15T14:00:00.000Z\",\n  \"quantity\": 1\n}"
+        },
+        {
+          "name": "Another tenant's pool cannot be read or held",
+          "file": "bruno/inventory/tenant-isolation.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000066"
+          },
+          "query": {},
+          "body": "{\n  \"startAt\": \"2030-07-01T10:00:00.000Z\",\n  \"endAt\": \"2030-07-01T12:00:00.000Z\",\n  \"quantity\": 1\n}"
+        },
+        {
+          "name": "A range that ends before it starts is refused",
+          "file": "bruno/inventory/validation.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000065"
+          },
+          "query": {},
+          "body": "{\n  \"startAt\": \"2030-06-20T14:00:00.000Z\",\n  \"endAt\": \"2030-06-20T10:00:00.000Z\",\n  \"quantity\": 1\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/invoices",
+      "method": "GET",
+      "path": "/api/v1/invoices",
+      "group": "invoices",
+      "params": [],
+      "auth": "session",
+      "summary": "(docs/BMS_EXTENSION.md §2.2).",
+      "source": "src/app/api/v1/invoices/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/invoices",
+      "method": "POST",
+      "path": "/api/v1/invoices",
+      "group": "invoices",
+      "params": [],
+      "auth": "session",
+      "summary": "(docs/BMS_EXTENSION.md §2.2).",
+      "source": "src/app/api/v1/invoices/route.ts",
+      "examples": [
+        {
+          "name": "A second live invoice of the same kind is refused",
+          "file": "bruno/orders/invoice-duplicate.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"orderId\": \"{{createdOrderId}}\",\n  \"kind\": \"deposit\"\n}"
+        },
+        {
+          "name": "An invoice snapshots the order and takes the next number",
+          "file": "bruno/orders/invoice-issue.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"orderId\": \"{{createdOrderId}}\",\n  \"kind\": \"deposit\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/invoices/:invoiceId",
+      "method": "GET",
+      "path": "/api/v1/invoices/:invoiceId",
+      "group": "invoices",
+      "params": [
+        "invoiceId"
+      ],
+      "auth": "session",
+      "summary": "",
+      "source": "src/app/api/v1/invoices/[invoiceId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "PATCH /api/v1/invoices/:invoiceId",
+      "method": "PATCH",
+      "path": "/api/v1/invoices/:invoiceId",
+      "group": "invoices",
+      "params": [
+        "invoiceId"
+      ],
+      "auth": "session",
+      "summary": "",
+      "source": "src/app/api/v1/invoices/[invoiceId]/route.ts",
+      "examples": [
+        {
+          "name": "An issued invoice is voided, never edited or deleted",
+          "file": "bruno/orders/invoice-void.bru",
+          "pathParams": {
+            "invoiceId": "{{issuedInvoiceId}}"
+          },
+          "query": {},
+          "body": "{\n  \"status\": \"void\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/me",
+      "method": "GET",
+      "path": "/api/v1/me",
+      "group": "me",
+      "params": [],
+      "auth": "session",
+      "summary": "identity and entitlement in one read (AC7).",
+      "source": "src/app/api/v1/me/route.ts",
+      "examples": [
+        {
+          "name": "/me reflects the token's tenant, not the newest one",
+          "file": "bruno/auth/me.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A trialling tenant reports days remaining on /me",
+          "file": "bruno/billing/trial-days-remaining.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/media/:mediaId",
+      "method": "GET",
+      "path": "/api/v1/media/:mediaId",
+      "group": "media",
+      "params": [
+        "mediaId"
+      ],
+      "auth": "session",
+      "summary": "the bytes behind any image this tenant owns.",
+      "source": "src/app/api/v1/media/[mediaId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/meters/:meter",
+      "method": "GET",
+      "path": "/api/v1/meters/:meter",
+      "group": "meters",
+      "params": [
+        "meter"
+      ],
+      "auth": "session",
+      "summary": "a tenant's own usage against one meter, for the KPI widget (GRAFT-13 AC3). Every tier can read its own meters; this is a peek, never an increment (src/server/services/meters.ts `peekQuota`), and it is already tenant-scoped by `ctx` — there is no cross-tenant path here.",
+      "source": "src/app/api/v1/meters/[meter]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/onboarding",
+      "method": "GET",
+      "path": "/api/v1/onboarding",
+      "group": "onboarding",
+      "params": [],
+      "auth": "session",
+      "summary": "the wizard's step + answers, tenant-scoped (GRAFT-12 AC2, AC7). Thin by contract (docs/BACKEND.md §1): every decision lives in src/server/services/onboarding.ts.",
+      "source": "src/app/api/v1/onboarding/route.ts",
+      "examples": [
+        {
+          "name": "Closing the browser and returning resumes at the same step with prior input intact",
+          "file": "bruno/onboarding/resume.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A tenant with no onboarding history reads step \"profile\", data {}",
+          "file": "bruno/onboarding/state.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Another tenant's onboarding progress is invisible and unaffected",
+          "file": "bruno/onboarding/tenant-isolation.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "PATCH /api/v1/onboarding",
+      "method": "PATCH",
+      "path": "/api/v1/onboarding",
+      "group": "onboarding",
+      "params": [],
+      "auth": "session",
+      "summary": "the wizard's step + answers, tenant-scoped (GRAFT-12 AC2, AC7). Thin by contract (docs/BACKEND.md §1): every decision lives in src/server/services/onboarding.ts.",
+      "source": "src/app/api/v1/onboarding/route.ts",
+      "examples": [
+        {
+          "name": "A later step's PATCH merges with earlier steps instead of overwriting them",
+          "file": "bruno/onboarding/merge.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"step\": \"plugins\",\n  \"data\": { \"template\": { \"templateId\": \"trades-services\" } }\n}"
+        },
+        {
+          "name": "PATCH persists the step and the step's answers",
+          "file": "bruno/onboarding/patch-persists.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"step\": \"template\",\n  \"data\": { \"profile\": { \"name\": \"Acme Free\", \"industry\": \"trades\" } }\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/orders",
+      "method": "GET",
+      "path": "/api/v1/orders",
+      "group": "orders",
+      "params": [],
+      "auth": "session",
+      "summary": "(docs/BMS_EXTENSION.md §2.2).",
+      "source": "src/app/api/v1/orders/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/orders",
+      "method": "POST",
+      "path": "/api/v1/orders",
+      "group": "orders",
+      "params": [],
+      "auth": "session",
+      "summary": "(docs/BMS_EXTENSION.md §2.2).",
+      "source": "src/app/api/v1/orders/route.ts",
+      "examples": [
+        {
+          "name": "An order is drafted and priced from its line items",
+          "file": "bruno/orders/create.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"currency\": \"EUR\",\n  \"lineItems\": [\n    {\n      \"kind\": \"resource\",\n      \"description\": \"24ft Pontoon Boat — 4 hours\",\n      \"quantity\": 1,\n      \"unitAmountMinor\": 60000\n    },\n    {\n      \"kind\": \"addon\",\n      \"description\": \"Life jackets\",\n      \"quantity\": 4,\n      \"unitAmountMinor\": 500\n    }\n  ],\n  \"deposit\": { \"percent\": 30 }\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/orders/:orderId",
+      "method": "GET",
+      "path": "/api/v1/orders/:orderId",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "",
+      "source": "src/app/api/v1/orders/[orderId]/route.ts",
+      "examples": [
+        {
+          "name": "Another tenant's order is not found",
+          "file": "bruno/orders/tenant-isolation.bru",
+          "pathParams": {
+            "orderId": "000000000000000000000099"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "PATCH /api/v1/orders/:orderId",
+      "method": "PATCH",
+      "path": "/api/v1/orders/:orderId",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "",
+      "source": "src/app/api/v1/orders/[orderId]/route.ts",
+      "examples": [
+        {
+          "name": "An order awaiting payment can no longer be re-priced",
+          "file": "bruno/orders/update-refused-after-pending.bru",
+          "pathParams": {
+            "orderId": "{{createdOrderId}}"
+          },
+          "query": {},
+          "body": "{\n  \"lineItems\": [\n    { \"kind\": \"fee\", \"description\": \"Sneaky repricing\", \"quantity\": 1, \"unitAmountMinor\": 1 }\n  ]\n}"
+        }
+      ]
+    },
+    {
+      "id": "DELETE /api/v1/orders/:orderId",
+      "method": "DELETE",
+      "path": "/api/v1/orders/:orderId",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "",
+      "source": "src/app/api/v1/orders/[orderId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/orders/:orderId/ledger",
+      "method": "GET",
+      "path": "/api/v1/orders/:orderId/ledger",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "the order, every invoice against it, and what is still outstanding (docs/BMS_EXTENSION.md §2.3's \"Invoicing & Ledger\" panel).",
+      "source": "src/app/api/v1/orders/[orderId]/ledger/route.ts",
+      "examples": [
+        {
+          "name": "The ledger shows what was invoiced and what is outstanding",
+          "file": "bruno/orders/ledger.bru",
+          "pathParams": {
+            "orderId": "{{createdOrderId}}"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/orders/:orderId/payments",
+      "method": "POST",
+      "path": "/api/v1/orders/:orderId/payments",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "record money received (docs/BMS_EXTENSION.md §2.2, \"Split & Deposit Payments\").",
+      "source": "src/app/api/v1/orders/[orderId]/payments/route.ts",
+      "examples": [
+        {
+          "name": "Covering the deposit confirms the order",
+          "file": "bruno/orders/payment-confirms.bru",
+          "pathParams": {
+            "orderId": "{{createdOrderId}}"
+          },
+          "query": {},
+          "body": "{\n  \"amountMinor\": 8600,\n  \"reference\": \"pi_qa_deposit_balance\"\n}"
+        },
+        {
+          "name": "A part payment is recorded but does not confirm the order",
+          "file": "bruno/orders/payment-partial.bru",
+          "pathParams": {
+            "orderId": "{{createdOrderId}}"
+          },
+          "query": {},
+          "body": "{\n  \"amountMinor\": 10000,\n  \"reference\": \"pi_qa_partial\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/orders/:orderId/transitions",
+      "method": "POST",
+      "path": "/api/v1/orders/:orderId/transitions",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "the state machine's only door (docs/BMS_EXTENSION.md §2.2).",
+      "source": "src/app/api/v1/orders/[orderId]/transitions/route.ts",
+      "examples": [
+        {
+          "name": "An illegal state transition is refused by name",
+          "file": "bruno/orders/transition-illegal.bru",
+          "pathParams": {
+            "orderId": "{{createdOrderId}}"
+          },
+          "query": {},
+          "body": "{\n  \"status\": \"in_progress\"\n}"
+        },
+        {
+          "name": "A draft moves to awaiting payment",
+          "file": "bruno/orders/transition-pending.bru",
+          "pathParams": {
+            "orderId": "{{createdOrderId}}"
+          },
+          "query": {},
+          "body": "{\n  \"status\": \"pending_payment\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/payments/stripe-connect",
+      "method": "GET",
+      "path": "/api/v1/payments/stripe-connect",
+      "group": "payments",
+      "params": [],
+      "auth": "session",
+      "summary": "whether this workspace can take card payments through Stripe Checkout, refreshed from Stripe while onboarding is unfinished. DELETE /api/v1/payments/stripe-connect — forget the connected account (owner/admin). The Stripe account itself stays the tenant's.",
+      "source": "src/app/api/v1/payments/stripe-connect/route.ts",
+      "examples": []
+    },
+    {
+      "id": "DELETE /api/v1/payments/stripe-connect",
+      "method": "DELETE",
+      "path": "/api/v1/payments/stripe-connect",
+      "group": "payments",
+      "params": [],
+      "auth": "session",
+      "summary": "whether this workspace can take card payments through Stripe Checkout, refreshed from Stripe while onboarding is unfinished. DELETE /api/v1/payments/stripe-connect — forget the connected account (owner/admin). The Stripe account itself stays the tenant's.",
+      "source": "src/app/api/v1/payments/stripe-connect/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/payments/stripe-connect/onboarding",
+      "method": "POST",
+      "path": "/api/v1/payments/stripe-connect/onboarding",
+      "group": "payments",
+      "params": [],
+      "auth": "session",
+      "summary": "a Stripe-hosted onboarding link for this workspace's connected account, creating the account on first use (owner/admin). The body names an in-app page to come back to; anything else is refused, so this can never be used as an open redirect.",
+      "source": "src/app/api/v1/payments/stripe-connect/onboarding/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/plugins",
+      "method": "GET",
+      "path": "/api/v1/plugins",
+      "group": "plugins",
+      "params": [],
+      "auth": "session",
+      "summary": "the plugin catalogue, per-tenant (GRAFT-14 AC1, AC4).",
+      "source": "src/app/api/v1/plugins/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/plugins/:pluginId/disable",
+      "method": "POST",
+      "path": "/api/v1/plugins/:pluginId/disable",
+      "group": "plugins",
+      "params": [
+        "pluginId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-14 AC2, AC6).",
+      "source": "src/app/api/v1/plugins/[pluginId]/disable/route.ts",
+      "examples": [
+        {
+          "name": "Disabling a plugin on one tenant does not touch another tenant's state",
+          "file": "bruno/plugins/tenant-isolation.bru",
+          "pathParams": {
+            "pluginId": "contacts"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/plugins/:pluginId/enable",
+      "method": "POST",
+      "path": "/api/v1/plugins/:pluginId/enable",
+      "group": "plugins",
+      "params": [
+        "pluginId"
+      ],
+      "auth": "session",
+      "summary": "(GRAFT-14 AC1, AC3, AC4, AC6, AC7).",
+      "source": "src/app/api/v1/plugins/[pluginId]/enable/route.ts",
+      "examples": [
+        {
+          "name": "Enabling a plugin provisions its declared entity and form",
+          "file": "bruno/plugins/enable.bru",
+          "pathParams": {
+            "pluginId": "scheduling"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A Free tenant cannot enable a Premium-tier plugin",
+          "file": "bruno/plugins/tier-gating.bru",
+          "pathParams": {
+            "pluginId": "invoicing"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/public/forms/:tenantSlug/:formSlug/catalogue",
+      "method": "GET",
+      "path": "/api/v1/public/forms/:tenantSlug/:formSlug/catalogue",
+      "group": "public",
+      "params": [
+        "tenantSlug",
+        "formSlug"
+      ],
+      "auth": "public",
+      "summary": "one page of the records a published form invites visitors to browse.",
+      "source": "src/app/api/v1/public/forms/[tenantSlug]/[formSlug]/catalogue/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/public/forms/:tenantSlug/:formSlug/submissions",
+      "method": "POST",
+      "path": "/api/v1/public/forms/:tenantSlug/:formSlug/submissions",
+      "group": "public",
+      "params": [
+        "tenantSlug",
+        "formSlug"
+      ],
+      "auth": "public",
+      "summary": "(GRAFT-09).",
+      "source": "src/app/api/v1/public/forms/[tenantSlug]/[formSlug]/submissions/route.ts",
+      "examples": [
+        {
+          "name": "A payment-enabled form hands the submitter a payment URL",
+          "file": "bruno/forms/payment-link-submit.bru",
+          "pathParams": {
+            "tenantSlug": "qa-free",
+            "formSlug": "qa-payment-form"
+          },
+          "query": {},
+          "body": "{\n  \"data\": {\n    \"name\": \"{{paymentSubmitName}}\",\n    \"email\": \"payment-submit@qa.test\",\n    \"phone\": \"+353 1 000 0098\"\n  },\n  \"_t\": {{paymentSubmitRenderedAt}}\n}"
+        },
+        {
+          "name": "A honeypot hit is accepted like a real submission but writes nothing",
+          "file": "bruno/forms/public-submit-spam.bru",
+          "pathParams": {
+            "tenantSlug": "qa-free",
+            "formSlug": "qa-public-form"
+          },
+          "query": {},
+          "body": "{\n  \"data\": {\n    \"name\": \"{{spamSubmitName}}\",\n    \"email\": \"spam-submit@qa.test\",\n    \"phone\": \"+353 1 000 0098\"\n  },\n  \"_hp\": \"http://a-real-browser-never-fills-this.example\",\n  \"_t\": {{spamSubmitRenderedAt}}\n}"
+        },
+        {
+          "name": "A valid public submission is accepted and actually persists",
+          "file": "bruno/forms/public-submit.bru",
+          "pathParams": {
+            "tenantSlug": "qa-free",
+            "formSlug": "qa-public-form"
+          },
+          "query": {},
+          "body": "{\n  \"data\": {\n    \"name\": \"{{publicSubmitName}}\",\n    \"email\": \"public-submit@qa.test\",\n    \"phone\": \"+353 1 000 0099\"\n  },\n  \"_t\": {{publicSubmitRenderedAt}}\n}"
+        },
+        {
+          "name": "A tenant at its submission quota is refused with an upgrade-prompt payload",
+          "file": "bruno/forms/quota-hard-stop.bru",
+          "pathParams": {
+            "tenantSlug": "qa-at-quota",
+            "formSlug": "qa-quota-form"
+          },
+          "query": {},
+          "body": "{\n  \"data\": {\n    \"name\": \"Should Not Be Written\",\n    \"email\": \"quota-hard-stop@qa.test\"\n  },\n  \"_t\": {{quotaHardStopRenderedAt}}\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/public/media/:mediaId",
+      "method": "GET",
+      "path": "/api/v1/public/media/:mediaId",
+      "group": "public",
+      "params": [
+        "mediaId"
+      ],
+      "auth": "public",
+      "summary": "the bytes behind a public form's carousel image.",
+      "source": "src/app/api/v1/public/media/[mediaId]/route.ts",
+      "examples": [
+        {
+          "name": "An unknown media id is a 404, unauthenticated and unrevealing",
+          "file": "bruno/forms/carousel-public-media-not-found.bru",
+          "pathParams": {
+            "mediaId": "0000000000000000000000ff"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/reports/usage",
+      "method": "GET",
+      "path": "/api/v1/reports/usage",
+      "group": "reports",
+      "params": [],
+      "auth": "session",
+      "summary": "the Chart widget's data source (GRAFT-13 AC3, AC5). Thin: the Premium gate and the meter read both live in src/server/services/reports.ts, so this route cannot forget either one.",
+      "source": "src/app/api/v1/reports/usage/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/setup",
+      "method": "GET",
+      "path": "/api/v1/setup",
+      "group": "setup",
+      "params": [],
+      "auth": "session",
+      "summary": "the guided setup run in progress, tenant-scoped. Thin by contract (docs/BACKEND.md §1): every decision lives in src/server/services/setup-runs.ts.",
+      "source": "src/app/api/v1/setup/route.ts",
+      "examples": [
+        {
+          "name": "Reopening setup resumes the same run",
+          "file": "bruno/setup/run-resume.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/setup",
+      "method": "POST",
+      "path": "/api/v1/setup",
+      "group": "setup",
+      "params": [],
+      "auth": "session",
+      "summary": "the guided setup run in progress, tenant-scoped. Thin by contract (docs/BACKEND.md §1): every decision lives in src/server/services/setup-runs.ts.",
+      "source": "src/app/api/v1/setup/route.ts",
+      "examples": [
+        {
+          "name": "Starting a guided setup run opens it at the first step",
+          "file": "bruno/setup/run-start.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "PATCH /api/v1/setup",
+      "method": "PATCH",
+      "path": "/api/v1/setup",
+      "group": "setup",
+      "params": [],
+      "auth": "session",
+      "summary": "the guided setup run in progress, tenant-scoped. Thin by contract (docs/BACKEND.md §1): every decision lives in src/server/services/setup-runs.ts.",
+      "source": "src/app/api/v1/setup/route.ts",
+      "examples": [
+        {
+          "name": "A later step keeps what an earlier step answered",
+          "file": "bruno/setup/run-merge.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"recordCount\": 2,\n  \"step\": \"records\"\n}"
+        },
+        {
+          "name": "A step's outcome merges into the run without clearing earlier answers",
+          "file": "bruno/setup/run-patch.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"thingLabel\": \"Kilns\",\n  \"intent\": \"bookings\",\n  \"step\": \"shape\"\n}"
+        },
+        {
+          "name": "An intent the flow does not have is refused",
+          "file": "bruno/setup/run-rejects-unknown-intent.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"intent\": \"invoicing\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/webhooks/stripe",
+      "method": "POST",
+      "path": "/api/v1/webhooks/stripe",
+      "group": "webhooks",
+      "params": [],
+      "auth": "public",
+      "summary": "Stripe's only entry point into tier state (GRAFT-15).",
+      "source": "src/app/api/v1/webhooks/stripe/route.ts",
+      "examples": [
+        {
+          "name": "customer.subscription.deleted downgrades a Premium tenant without deleting any form",
+          "file": "bruno/billing/webhook-downgrade.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Replaying the same webhook event id produces exactly one tier change",
+          "file": "bruno/billing/webhook-idempotency.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "An unsigned or wrongly-signed webhook payload is rejected and changes nothing",
+          "file": "bruno/billing/webhook-signature.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/webhooks/stripe-connect",
+      "method": "POST",
+      "path": "/api/v1/webhooks/stripe-connect",
+      "group": "webhooks",
+      "params": [],
+      "auth": "public",
+      "summary": "events from tenants' *connected* accounts: a Checkout Session paid on a form, an account finishing onboarding. A separate endpoint (and signing secret) from billing's /webhooks/stripe, which carries Graft's own subscription events and is a protected path this deliberately does n…",
+      "source": "src/app/api/v1/webhooks/stripe-connect/route.ts",
+      "examples": []
+    },
+    {
+      "id": "GET /api/v1/workspace-templates",
+      "method": "GET",
+      "path": "/api/v1/workspace-templates",
+      "group": "workspace-templates",
+      "params": [],
+      "auth": "session",
+      "summary": "the business templates a tenant can set their workspace up from (\"Graft Hotel\", \"Graft Salon\", …), as gallery cards.",
+      "source": "src/app/api/v1/workspace-templates/route.ts",
+      "examples": [
+        {
+          "name": "The template gallery lists the ten business templates",
+          "file": "bruno/workspace-templates/list.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/workspace-templates/:templateId",
+      "method": "GET",
+      "path": "/api/v1/workspace-templates/:templateId",
+      "group": "workspace-templates",
+      "params": [
+        "templateId"
+      ],
+      "auth": "session",
+      "summary": "one template's full blueprint: its toggles, modules, renameable nouns and optional fields, which is everything the setup wizard asks about.",
+      "source": "src/app/api/v1/workspace-templates/[templateId]/route.ts",
+      "examples": []
+    },
+    {
+      "id": "POST /api/v1/workspace-templates/:templateId/apply",
+      "method": "POST",
+      "path": "/api/v1/workspace-templates/:templateId/apply",
+      "group": "workspace-templates",
+      "params": [
+        "templateId"
+      ],
+      "auth": "session",
+      "summary": "set the workspace up: every entity, sample record, bookable pool and form the template resolves to. Send `runId` (from a failed attempt's error details) to resume that run instead of starting another.",
+      "source": "src/app/api/v1/workspace-templates/[templateId]/apply/route.ts",
+      "examples": [
+        {
+          "name": "Applying again with a finished run's id changes nothing",
+          "file": "bruno/workspace-templates/apply-resume-completed.bru",
+          "pathParams": {
+            "templateId": "hotel"
+          },
+          "query": {},
+          "body": "{\n  \"runId\": \"{{templateRunId}}\"\n}"
+        },
+        {
+          "name": "Applying a template builds a bookable workspace and publishes its form",
+          "file": "bruno/workspace-templates/apply.bru",
+          "pathParams": {
+            "templateId": "hotel"
+          },
+          "query": {},
+          "body": "{\n  \"answers\": {\n    \"depositPercent\": 20,\n    \"termsUrl\": \"https://example.com/terms\"\n  }\n}"
+        },
+        {
+          "name": "A payment link that is not Stripe's is refused before anything is built",
+          "file": "bruno/workspace-templates/rejects-foreign-payment-link.bru",
+          "pathParams": {
+            "templateId": "salon"
+          },
+          "query": {},
+          "body": "{\n  \"answers\": { \"paymentLink\": \"https://buy.stripe.com.evil.test/pay\" }\n}"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/workspace-templates/:templateId/preview",
+      "method": "POST",
+      "path": "/api/v1/workspace-templates/:templateId/preview",
+      "group": "workspace-templates",
+      "params": [
+        "templateId"
+      ],
+      "auth": "session",
+      "summary": "what applying the template with these answers would create, what it costs against the tenant's plan, which extras still fit, and any names that had to be suffixed. Writes nothing.",
+      "source": "src/app/api/v1/workspace-templates/[templateId]/preview/route.ts",
+      "examples": [
+        {
+          "name": "Previewing a template prices it and writes nothing",
+          "file": "bruno/workspace-templates/preview.bru",
+          "pathParams": {
+            "templateId": "hotel"
+          },
+          "query": {},
+          "body": "{\n  \"answers\": {\n    \"nouns\": { \"room\": { \"singular\": \"Cabin\", \"plural\": \"Cabins\" } },\n    \"modules\": [\"housekeeping\"],\n    \"depositPercent\": 20\n  }\n}"
+        },
+        {
+          "name": "A template that does not exist is a 404",
+          "file": "bruno/workspace-templates/rejects-unknown-template.bru",
+          "pathParams": {
+            "templateId": "castle"
+          },
+          "query": {},
+          "body": "{}"
+        }
+      ]
+    }
+  ]
+}

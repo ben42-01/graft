@@ -90,7 +90,7 @@ export default function AccountPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!me) return <LoadingState label="Loading your account…" />;
+  if (!me) return <LoadingState label="Loading your account…" variant="page" />;
 
   const tier: Tier = isTier(me.tenant.tier) ? me.tenant.tier : "free";
   const limits = effectiveLimits(tier, me.tenant.limits);
@@ -232,6 +232,7 @@ export default function AccountPage() {
           </CardContent>
           <CardFooter className="flex flex-wrap gap-3">
             <Button
+              loading={submitting}
               type="button"
               data-testid={`upgrade-premium-${plan}`}
               disabled={submitting}

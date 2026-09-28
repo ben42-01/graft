@@ -53,6 +53,18 @@
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
+
+  /* Chart series (admin console). Validated with the dataviz palette checker
+   * against both surfaces: tiers are the first three categorical slots (the
+   * only three that clear every all-pairs CVD gate); outcomes are blue vs red,
+   * because green vs red fails deuteranopia (ΔE 4.2). Every chart pairs these
+   * with a legend, so colour never carries meaning alone. */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-ok: #2a78d6;
+  --chart-fail: #d03b3b;
+  --chart-brand: #16a34a;
 }
 
 .dark {
@@ -74,6 +86,13 @@
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);
+
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-ok: #3987e5;
+  --chart-fail: #e66767;
+  --chart-brand: #4ade80;
 }
 
 /* Registers the tokens above as `bg-background`, `text-foreground`,
@@ -97,6 +116,12 @@
   --color-border: var(--border);
   --color-input: var(--input);
   --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-ok: var(--chart-ok);
+  --color-chart-fail: var(--chart-fail);
+  --color-chart-brand: var(--chart-brand);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -121,5 +146,16 @@
    * that asks for them by name (`src/app/dev/status/page.tsx`). */
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* Navigation progress bar (components/shell/navigation-progress.tsx): eases
+   towards 90% and holds there until the navigation lands. */
+@keyframes graft-nav-progress {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(0.9);
   }
 }

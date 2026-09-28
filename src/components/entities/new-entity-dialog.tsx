@@ -213,6 +213,7 @@ export function NewEntityDialog({
            * submit?" a real question. */}
           <p className="text-xs text-muted-foreground">{invalid ?? " "}</p>
           <Button
+            loading={busy}
             type="button"
             disabled={busy || invalid !== null}
             onClick={() => void submit()}

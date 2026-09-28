@@ -432,11 +432,17 @@ export function ImportWizard({
               Close
             </Button>
           ) : step.name === "file" ? (
-            <Button type="button" disabled={!file || busy} onClick={() => void upload()}>
+            <Button
+              loading={busy}
+              type="button"
+              disabled={!file || busy}
+              onClick={() => void upload()}
+            >
               {busy ? "Uploading…" : "Next"}
             </Button>
           ) : step.name === "map" ? (
             <Button
+              loading={busy}
               type="button"
               disabled={missing.length > 0 || busy}
               onClick={() => void preview()}
@@ -445,6 +451,7 @@ export function ImportWizard({
             </Button>
           ) : (
             <Button
+              loading={busy}
               type="button"
               disabled={busy || step.result.imported === 0}
               onClick={() => void commit()}

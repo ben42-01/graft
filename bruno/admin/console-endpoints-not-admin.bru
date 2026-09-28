@@ -1,0 +1,65 @@
+meta {
+  name: A tenant owner/admin is refused by every admin console endpoint
+  type: http
+  seq: 21
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/overview
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{platformTenantOwnerToken}}
+}
+
+script:pre-request {
+  // Same negative-case account as session-not-admin.bru: holds the tenant
+  // roles owner AND admin, and no platform flag.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(
+    `${baseUrl}/api/v1/auth/login`,
+    { email: "owner@qa-platform.test", password: bru.getEnvVar("qaPassword") },
+    { headers: { "content-type": "application/json" } },
+  );
+  const token = login.data.data.accessToken;
+  bru.setVar("platformTenantOwnerToken", token);
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const statuses = {};
+  for (const path of [
+    "/api/v1/admin/users",
+    "/api/v1/admin/users?role=nonsense",
+    "/api/v1/admin/entities",
+    "/api/v1/admin/audit",
+    "/api/v1/admin/activities/summary",
+    "/api/v1/admin/activities/summary?action=nope.nope",
+  ]) {
+    const response = await axios.get(`${baseUrl}${path}`, auth);
+    statuses[path] = { status: response.status, hasData: response.data?.data !== undefined };
+  }
+  bru.setVar("consoleStatuses", JSON.stringify(statuses));
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.data: isUndefined
+}
+
+tests {
+  test("every console endpoint 404s — even for a malformed query, so no 400 oracle", function () {
+    const statuses = JSON.parse(bru.getVar("consoleStatuses"));
+    for (const [path, result] of Object.entries(statuses)) {
+      expect(result.status, path).to.equal(404);
+      expect(result.hasData, path).to.equal(false);
+    }
+  });
+}
+
+docs {
+  Inverted isolation test for the admin console endpoints (overview, users,
+  entities, audit, activities/summary): the gate runs before validation, so a
+  non-admin gets the same 404 for a well-formed and a malformed query alike.
+}

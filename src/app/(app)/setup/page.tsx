@@ -178,7 +178,7 @@ export default function SetupPage() {
     [patchRun],
   );
 
-  if (state.status === "loading") return <LoadingState label="Loading setup…" />;
+  if (state.status === "loading") return <LoadingState label="Loading setup…" variant="page" />;
   if (state.status === "error") return <ErrorState description="We couldn't load setup." />;
 
   if (state.status === "idle") {

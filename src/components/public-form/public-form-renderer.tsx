@@ -376,6 +376,7 @@ export function PublicFormRenderer({
           ) : null}
 
           <Button
+            loading={state.status === "submitting"}
             type="submit"
             size="lg"
             className="mt-2 h-12 rounded-full text-base"
