@@ -27,7 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingState } from "@/components/shell/loading-state";
 import { useMe } from "@/lib/session";
-import { PRICING, annualSavingLabel, formatPrice } from "@/lib/pricing";
+import { PRICING, annualSavingLabel, formatPrice, seatsNote } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 import { FEATURE_LABEL, LIMIT_LABEL, TIER_LABEL, formatLimit } from "@/lib/tier-copy";
 import {
@@ -48,12 +48,12 @@ const PRICE_COPY: Record<CheckoutPlan, { amount: string; period: string; note: s
   monthly: {
     amount: formatPrice(PRICING.premium.monthly.amount),
     period: "/ month per workspace",
-    note: `Includes ${PRICING.premium.seatsIncluded} seats`,
+    note: seatsNote(),
   },
   annual: {
     amount: formatPrice(PRICING.premium.annual.amount),
     period: "/ year per workspace",
-    note: annualSavingLabel() ?? `Includes ${PRICING.premium.seatsIncluded} seats`,
+    note: annualSavingLabel() ?? seatsNote(),
   },
 };
 

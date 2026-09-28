@@ -56,7 +56,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
-import { PRICING, annualSavingLabel, formatPrice } from "@/lib/pricing";
+import { PRICING, annualSavingLabel, formatPrice, seatsNote } from "@/lib/pricing";
 import { GraftLockup, GraftMark } from "@/components/brand/graft-logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
@@ -98,7 +98,7 @@ const TIER_BLURB: Record<Tier, string> = {
   enterprise: "For organisations with their own identity, domain and integrations.",
 };
 
-const SEATS_NOTE = `includes ${PRICING.premium.seatsIncluded} seats`;
+const SEATS_NOTE = seatsNote().toLowerCase();
 const ANNUAL_SAVING = annualSavingLabel();
 
 /** Pricing copy — figures from `@/lib/pricing`, wording hand-written. */
@@ -114,14 +114,12 @@ const PRICE_COPY: Record<
     monthly: {
       amount: formatPrice(PRICING.premium.monthly.amount),
       period: "/ month per tenant",
-      note: `Includes ${PRICING.premium.seatsIncluded} seats`,
+      note: seatsNote(),
     },
     annual: {
       amount: formatPrice(PRICING.premium.annual.amount),
       period: "/ year per tenant",
-      note: ANNUAL_SAVING
-        ? `${ANNUAL_SAVING} · ${SEATS_NOTE}`
-        : `Includes ${PRICING.premium.seatsIncluded} seats`,
+      note: ANNUAL_SAVING ? `${ANNUAL_SAVING} · ${SEATS_NOTE}` : seatsNote(),
     },
   },
   enterprise: {

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { PRICING, annualSavingLabel, formatPrice, type PricingConfig } from ".";
+import { TIER_LIMITS } from "@/server/tiers";
+import {
+  PREMIUM_SEATS,
+  PRICING,
+  annualSavingLabel,
+  formatPrice,
+  seatsNote,
+  type PricingConfig,
+} from ".";
 
 function withPrices(monthly: number, annual: number): PricingConfig {
   return {
@@ -49,5 +57,17 @@ describe("annualSavingLabel", () => {
 
   it("is null when annual saves nothing", () => {
     expect(annualSavingLabel(withPrices(1900, 22800))).toBeNull();
+  });
+});
+
+describe("seatsNote", () => {
+  it("matches the enforced Premium seat limit", () => {
+    expect(PREMIUM_SEATS).toBe(TIER_LIMITS.premium.seats);
+    expect(seatsNote()).toBe(`Includes ${TIER_LIMITS.premium.seats} seats`);
+  });
+
+  it("handles one and unlimited", () => {
+    expect(seatsNote(1)).toBe("Includes 1 seat");
+    expect(seatsNote(null)).toBe("Includes unlimited seats");
   });
 });
