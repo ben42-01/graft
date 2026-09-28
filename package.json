@@ -29,7 +29,7 @@
     "test:watch": "vitest",
     "test:component": "vitest run --config vitest.component.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "test:api": "cd bruno && bru run --env ci -r",
+    "test:api": "cd bruno && bru run --env ci -r --delay 400",
     "test:api:local": "cd bruno && bru run --env local -r",
     "test:e2e": "playwright test",
     "verify": "npm run lint && npm run typecheck && npm run test && npm run test:component && npm run test:integration",
