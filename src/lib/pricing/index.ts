@@ -12,6 +12,7 @@
  * page can never round its way to a figure Stripe doesn't bill; the discount
  * label is derived from it instead.
  */
+import { TIER_LIMITS } from "@/server/tiers";
 import raw from "./pricing.json";
 
 export type BillingPeriod = "monthly" | "annual";
@@ -21,12 +22,24 @@ export type PricingConfig = {
   premium: {
     monthly: { amount: number };
     annual: { amount: number };
-    seatsIncluded: number;
   };
   enterprise: { monthlyFrom: number };
 };
 
 export const PRICING: PricingConfig = raw as PricingConfig;
+
+/**
+ * Seats Premium includes. Read from the plan limits the server enforces, not
+ * from pricing.json, so the price card can never promise a different number
+ * than the seat limit (it once said 5 while the limit was 15).
+ */
+export const PREMIUM_SEATS: number | null = TIER_LIMITS.premium.seats;
+
+/** "Includes 15 seats" / "Includes unlimited seats". */
+export function seatsNote(seats: number | null = PREMIUM_SEATS): string {
+  if (seats === null) return "Includes unlimited seats";
+  return `Includes ${seats} ${seats === 1 ? "seat" : "seats"}`;
+}
 
 const CURRENCY_SYMBOL: Record<PricingConfig["currency"], string> = { EUR: "€" };
 

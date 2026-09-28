@@ -1,9 +1,12 @@
 {
   "currency": "EUR",
   "premium": {
-    "monthly": { "amount": 1900 },
-    "annual": { "amount": 19000 },
-    "seatsIncluded": 5
+    "monthly": {
+      "amount": 1900
+    },
+    "annual": {
+      "amount": 19000
+    }
   },
   "enterprise": {
     "monthlyFrom": 29900

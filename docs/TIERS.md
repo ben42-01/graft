@@ -22,7 +22,7 @@ The Free tier must be genuinely useful (a solo business can run on it), but grow
 
 | Limit | Free | Premium | Enterprise |
 |---|---|---|---|
-| Users / seats | 1 | 15 (add-on seats available) | Unlimited |
+| Users / seats | 1 | 15 (add-on seats: not yet available) | Unlimited |
 | Plugins enabled | 3 core | All standard | All + custom plugins |
 | Custom entities | 3 | 25 | Unlimited |
 | Records per tenant | 2,000 | 100,000 | Unlimited (fair use) |
@@ -88,11 +88,11 @@ The Free tier must be genuinely useful (a solo business can run on it), but grow
 
 | | Free | Premium | Enterprise |
 |---|---|---|---|
-| Monthly | €0 | €19 / mo per tenant (incl. 5 seats) + €5/extra seat | Custom (from €299/mo) |
+| Monthly | €0 | €19 / mo per tenant (incl. 15 seats) | Custom (from €299/mo) |
 | Annual | €0 | €190 / yr (2 months free) | Custom |
 | Add-ons | — | +1,000 submissions €5; +10 GB storage €3 | Included / negotiated |
 
-The displayed Premium and Enterprise figures live in `src/lib/pricing/pricing.json` (lowered from €29/€290 on 2026-09-28). Stripe charges what the configured price IDs say, so a change means editing that file *and* creating matching Stripe prices — see docs/STRIPE.md, "Changing prices".
+Seats shown on the price card come from `TIER_LIMITS` in `src/server/tiers.ts` (the enforced limit), not from the pricing file; they were 5 in the copy and 15 in code until 2026-09-28, when the enforced 15 was kept. The displayed Premium and Enterprise prices live in `src/lib/pricing/pricing.json` (lowered from €29/€290 on 2026-09-28). Stripe charges what the configured price IDs say, so a change means editing that file *and* creating matching Stripe prices — see docs/STRIPE.md, "Changing prices".
 
 Regional pricing and VAT handling via Stripe Tax. 14-day Premium trial on sign-up (no card required); trial expiry downgrades gracefully to Free (data retained, features locked, over-limit resources set read-only — never deleted).
 
