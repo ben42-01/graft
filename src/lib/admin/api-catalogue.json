@@ -1117,6 +1117,15 @@
           },
           "query": {},
           "body": null
+        },
+        {
+          "name": "Applying Graft Shop with no payment link builds its order form in cart mode",
+          "file": "bruno/workspace-templates/apply-shop-cart.bru",
+          "pathParams": {
+            "formId": "{{shopCartFormId}}"
+          },
+          "query": {},
+          "body": null
         }
       ]
     },

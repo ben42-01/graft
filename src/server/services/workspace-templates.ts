@@ -454,6 +454,7 @@ export async function applyWorkspaceTemplate(
                 fields: form.catalogue.fields,
                 imageField: form.catalogue.imageField,
                 selectionKey: form.catalogue.selectionKey,
+                multiple: form.catalogue.multiple,
               }
             : null,
           booking: form.booking,

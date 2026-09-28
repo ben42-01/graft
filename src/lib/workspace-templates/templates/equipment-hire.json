@@ -219,7 +219,8 @@
         "entityRef": "items",
         "fields": ["name", "description", "category", "daily_rate"],
         "imageField": "photo",
-        "selectionKey": "selected_item"
+        "selectionKey": "selected_item",
+        "multiple": true
       },
       "booking": {
         "when": [{ "toggle": "bookable", "equals": true }],

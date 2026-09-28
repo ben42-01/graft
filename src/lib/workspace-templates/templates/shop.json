@@ -384,7 +384,8 @@
         "entityRef": "products",
         "fields": ["name", "description", "category", "price", "unit"],
         "imageField": "photo",
-        "selectionKey": "selected_item"
+        "selectionKey": "selected_item",
+        "multiple": true
       },
       "booking": {
         "when": [{ "toggle": "bookable", "equals": true }],
