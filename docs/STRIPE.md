@@ -14,6 +14,25 @@ That path stores no tenant credential, calls no Stripe API, and receives no
 webhook — it handles a public URL and nothing else. The two never meet, and no
 key or webhook secret below is ever read by it.
 
+## Connect Checkout: itemised vs single-line sessions
+
+When a form uses Checkout mode (`src/server/services/stripe-connect.ts`,
+`checkoutLines`), the session Graft opens on the tenant's connected account
+shows the customer:
+
+- **Itemised** — one Stripe line per order line (name, quantity, unit price)
+  when the whole order is charged at once: no deposit, nothing paid yet. A
+  line whose `unitAmountMinor × quantity` doesn't reproduce its `amountMinor`
+  (duration-priced hire) goes as quantity 1 at its amount.
+- **One line** for the amount due otherwise: `Deposit — <form name>` for a
+  deposit, `Balance — <form name>` after any partial payment, and
+  `Order — <form name>` when the order has more than Stripe's 100-line limit or
+  its lines can't be sent as they are (a discount line — Stripe takes no
+  negative lines).
+
+Whatever the shape, the session total always equals the amount due on the
+order; the Connect webhook records the payment against the order id either way.
+
 ## Why a dedicated Stripe account
 
 Billing must be tested against a Stripe account of its own, not whatever
