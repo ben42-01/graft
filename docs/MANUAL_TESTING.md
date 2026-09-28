@@ -92,8 +92,8 @@ mode with the product catalog already created:
 | | id |
 |---|---|
 | Product "Graft Premium" | `prod_V77uHDhlwYEXYh` |
-| Price "Premium Monthly" (€29/mo) | `price_1U6teV74G5LPLMfkPmhx7aJ2` |
-| Price "Premium Annual" (€290/yr) | `price_1U6teV74G5LPLMfkS069E7c7` |
+| Price "Premium Monthly" (€29/mo — being replaced by €19, docs/STRIPE.md) | `price_1U6teV74G5LPLMfkPmhx7aJ2` |
+| Price "Premium Annual" (€290/yr — being replaced by €190, docs/STRIPE.md) | `price_1U6teV74G5LPLMfkS069E7c7` |
 
 `.env.dev` has the real secret key and price IDs; the webhook secret is still
 the fixture placeholder. **Follow the runbook in `docs/STRIPE.md`** — it was

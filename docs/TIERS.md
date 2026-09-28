@@ -84,13 +84,15 @@ The Free tier must be genuinely useful (a solo business can run on it), but grow
 
 ---
 
-## 3. Pricing (proposed, to validate)
+## 3. Pricing
 
 | | Free | Premium | Enterprise |
 |---|---|---|---|
-| Monthly | €0 | €29 / mo per tenant (incl. 5 seats) + €5/extra seat | Custom (from €299/mo) |
-| Annual | €0 | €290 / yr (2 months free) | Custom |
+| Monthly | €0 | €19 / mo per tenant (incl. 5 seats) + €5/extra seat | Custom (from €299/mo) |
+| Annual | €0 | €190 / yr (2 months free) | Custom |
 | Add-ons | — | +1,000 submissions €5; +10 GB storage €3 | Included / negotiated |
+
+The displayed Premium and Enterprise figures live in `src/lib/pricing/pricing.json` (lowered from €29/€290 on 2026-09-28). Stripe charges what the configured price IDs say, so a change means editing that file *and* creating matching Stripe prices — see docs/STRIPE.md, "Changing prices".
 
 Regional pricing and VAT handling via Stripe Tax. 14-day Premium trial on sign-up (no card required); trial expiry downgrades gracefully to Free (data retained, features locked, over-limit resources set read-only — never deleted).
 

@@ -10,11 +10,9 @@
  * Tier limits/features render straight from `src/server/tiers.ts`'s
  * `TIER_LIMITS`/`TIER_FEATURES` (AC2) — a plain data import, not a new API,
  * and never duplicated as hardcoded numbers that could drift from the
- * server's source of truth. Only the price *copy* below is hand-written:
- * `docs/TIERS.md` §3 marks those figures "proposed, to validate", and the
- * human requester confirmed on 2026-08-19 to hardcode them as-is pending
- * that validation (€29/mo Premium incl. 5 seats / €290/yr, Enterprise "from
- * €299/mo") — see the issue's Context section.
+ * server's source of truth. Prices come from
+ * `src/lib/pricing/pricing.json` (2026-09-28: Premium moved from €29/€290 to
+ * €19/mo, €190/yr); only the surrounding wording is written here.
  *
  * Checkout wiring (AC3-AC5): `POST /api/v1/billing/checkout`
  * (`src/server/services/billing.ts`) is owner-only and already enforces
@@ -58,6 +56,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
+import { PRICING, annualSavingLabel, formatPrice } from "@/lib/pricing";
 import { GraftLockup, GraftMark } from "@/components/brand/graft-logo";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
@@ -99,7 +98,10 @@ const TIER_BLURB: Record<Tier, string> = {
   enterprise: "For organisations with their own identity, domain and integrations.",
 };
 
-/** Pricing copy — hand-written, see the file doc comment above. */
+const SEATS_NOTE = `includes ${PRICING.premium.seatsIncluded} seats`;
+const ANNUAL_SAVING = annualSavingLabel();
+
+/** Pricing copy — figures from `@/lib/pricing`, wording hand-written. */
 const PRICE_COPY: Record<
   Tier,
   Record<CheckoutPlan, { amount: string; period: string; note: string }>
@@ -110,18 +112,24 @@ const PRICE_COPY: Record<
   },
   premium: {
     monthly: {
-      amount: "€29",
+      amount: formatPrice(PRICING.premium.monthly.amount),
       period: "/ month per tenant",
-      note: "Includes 5 seats",
+      note: `Includes ${PRICING.premium.seatsIncluded} seats`,
     },
     annual: {
-      amount: "€290",
+      amount: formatPrice(PRICING.premium.annual.amount),
       period: "/ year per tenant",
-      note: "2 months free · includes 5 seats",
+      note: ANNUAL_SAVING
+        ? `${ANNUAL_SAVING} · ${SEATS_NOTE}`
+        : `Includes ${PRICING.premium.seatsIncluded} seats`,
     },
   },
   enterprise: {
-    monthly: { amount: "From €299", period: "/ month", note: "Custom terms" },
+    monthly: {
+      amount: `From ${formatPrice(PRICING.enterprise.monthlyFrom)}`,
+      period: "/ month",
+      note: "Custom terms",
+    },
     annual: { amount: "Custom", period: "annual agreement", note: "Custom terms" },
   },
 };

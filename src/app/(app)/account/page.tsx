@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { LoadingState } from "@/components/shell/loading-state";
 import { useMe } from "@/lib/session";
+import { PRICING, annualSavingLabel, formatPrice } from "@/lib/pricing";
 import { cn } from "@/lib/utils";
 import { FEATURE_LABEL, LIMIT_LABEL, TIER_LABEL, formatLimit } from "@/lib/tier-copy";
 import {
@@ -44,8 +45,16 @@ type CheckoutPlan = "monthly" | "annual";
 const SALES_EMAIL = "team.agora.hub@gmail.com";
 
 const PRICE_COPY: Record<CheckoutPlan, { amount: string; period: string; note: string }> = {
-  monthly: { amount: "€29", period: "/ month per workspace", note: "Includes 5 seats" },
-  annual: { amount: "€290", period: "/ year per workspace", note: "2 months free" },
+  monthly: {
+    amount: formatPrice(PRICING.premium.monthly.amount),
+    period: "/ month per workspace",
+    note: `Includes ${PRICING.premium.seatsIncluded} seats`,
+  },
+  annual: {
+    amount: formatPrice(PRICING.premium.annual.amount),
+    period: "/ year per workspace",
+    note: annualSavingLabel() ?? `Includes ${PRICING.premium.seatsIncluded} seats`,
+  },
 };
 
 /** A tier's published limits, overridden by whatever `/me` reports for this
