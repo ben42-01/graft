@@ -51,7 +51,7 @@ import { createLogger } from "@/server/log";
 import { allocateInSession, availabilityQuerySchema } from "./availability";
 import type { InventoryPoolDoc } from "./inventory";
 import { draftOrderFields, type OrderDoc } from "./orders";
-import { resourceLineItem } from "./pricing";
+import { resourceLineItem, type LineItem } from "./pricing";
 import type { BookingConfig } from "./forms";
 import type { RecordDoc } from "./records";
 
@@ -207,74 +207,104 @@ export function mongoBookingBridgeStore(): BookingBridgeStore {
 
 export type BridgeResult = {
   orderId: ObjectId;
-  /** Null when the resource has no pool — see the module docs. */
+  /** Null when the resource has no pool — see the module docs. In cart mode,
+   * the first line's allocation; every line's is on the order. */
   allocationId: ObjectId | null;
 };
 
 /**
- * Raises the allocation and the order for one submission, inside the
- * submission's transaction.
- *
- * Returns `null` when there is nothing to bridge — no booking config, or a
- * catalogue submission with no selection — so the caller writes exactly the
- * submission it would have written before this module existed.
+ * One line of a cart (GRAFT-30.2), already proved to be in the form's own
+ * catalogue by `resolveCart`. Deliberately carries no price: the price is
+ * read off the record inside the transaction, never taken from the visitor.
  */
-export async function bridgeBooking(
+export type CartLine = { recordId: ObjectId; quantity: number };
+
+type BridgeInput = {
+  store: BookingBridgeStore;
+  requestId: string;
+  tenantId: ObjectId;
+  booking: BookingConfig | null | undefined;
+  /** The catalogue record the visitor picked — the thing being booked. */
+  selectedRecordId: ObjectId | null;
+  /** Cart mode: every record the visitor picked, with how many of each. When
+   * set, it replaces `selectedRecordId` and the form's own quantity. */
+  cart?: CartLine[] | null;
+  /** The record this submission became, which carries who is booking. */
+  submissionRecordId: ObjectId;
+  data: Record<string, unknown>;
+  now: Date;
+};
+
+/**
+ * Prices one record for the booking window and, when it has a pool, holds the
+ * capacity for it. Shared by the single-selection path and the cart path so
+ * both read the rate, name the line and hold capacity exactly one way.
+ *
+ * `field` is the request key a failure is reported against. A cart names the
+ * line (`_cart.<i>`) on a capacity conflict too, so the visitor knows which
+ * item to change; the single path keeps propagating the engine's own error
+ * unchanged, as it always has.
+ */
+async function priceLine(
   session: ClientSession,
-  input: {
-    store: BookingBridgeStore;
-    requestId: string;
-    tenantId: ObjectId;
-    booking: BookingConfig | null | undefined;
-    /** The catalogue record the visitor picked — the thing being booked. */
-    selectedRecordId: ObjectId | null;
-    /** The record this submission became, which carries who is booking. */
-    submissionRecordId: ObjectId;
-    data: Record<string, unknown>;
-    now: Date;
-  },
-): Promise<BridgeResult | null> {
-  const { store, tenantId, booking, selectedRecordId, now } = input;
-  if (!booking || !selectedRecordId) return null;
-
-  const log = createLogger({ requestId: input.requestId });
-  const plan = planBooking(booking, input.data, now);
-
-  const resource = await store.findRecord(session, tenantId, selectedRecordId);
-  // `resolveSelection` has already proved this record is in the form's
-  // catalogue, so an absent one here means it was deleted between that read
-  // and this transaction. Nothing can be priced against it.
+  input: BridgeInput & { booking: BookingConfig },
+  plan: BookingPlan,
+  recordId: ObjectId,
+  quantity: number,
+  field: string,
+  nameConflict: boolean,
+): Promise<{ lineItem: LineItem; allocationId: ObjectId | null }> {
+  const { store, tenantId, booking, now } = input;
+  const resource = await store.findRecord(session, tenantId, recordId);
+  // The resolver has already proved this record is in the form's catalogue,
+  // so an absent one here means it was deleted between that read and this
+  // transaction. Nothing can be priced against it.
   if (!resource) {
     throw new AppError("VALIDATION_FAILED", "Invalid request body", {
       source: "body",
-      fields: { _selection: "That item is no longer available" },
+      fields: { [field]: "That item is no longer available" },
     });
   }
 
-  const pool = await store.findPoolByRecord(session, tenantId, selectedRecordId);
+  const pool = await store.findPoolByRecord(session, tenantId, recordId);
 
   let allocationId: ObjectId | null = null;
   if (pool) {
     // A capacity refusal throws out of the whole transaction — the customer
     // is told the slot is taken and nothing is written, which is the only
     // honest answer available.
-    const allocation = await allocateInSession(session, {
-      tenantId,
-      pool,
-      startAt: plan.startAt,
-      endAt: plan.endAt,
-      quantity: plan.quantity,
-      // The submission's record: what the allocation is *for*, resolvable
-      // back to the customer who asked for it.
-      holderId: input.submissionRecordId,
-      expiresAt: null,
-      now,
-    });
-    allocationId = allocation._id;
+    try {
+      const allocation = await allocateInSession(session, {
+        tenantId,
+        pool,
+        startAt: plan.startAt,
+        endAt: plan.endAt,
+        quantity,
+        // The submission's record: what the allocation is *for*, resolvable
+        // back to the customer who asked for it.
+        holderId: input.submissionRecordId,
+        expiresAt: null,
+        now,
+      });
+      allocationId = allocation._id;
+    } catch (error) {
+      if (nameConflict && error instanceof AppError && error.code === "CONFLICT") {
+        const details = error.details && typeof error.details === "object" ? error.details : {};
+        throw new AppError(
+          "CONFLICT",
+          "Not enough of that item is available for the requested time",
+          {
+            ...details,
+            fields: { [field]: "Not enough of this item is available for that time" },
+          },
+        );
+      }
+      throw error;
+    }
   } else {
-    log.info("booking.bridge.no_pool", {
+    createLogger({ requestId: input.requestId }).info("booking.bridge.no_pool", {
       tenantId: tenantId.toHexString(),
-      recordId: selectedRecordId.toHexString(),
+      recordId: recordId.toHexString(),
     });
   }
 
@@ -285,11 +315,58 @@ export async function bridgeBooking(
     rateKey: booking.rateKey,
     startAt: plan.startAt,
     endAt: plan.endAt,
-    quantity: plan.quantity,
-    recordId: selectedRecordId.toHexString(),
+    quantity,
+    recordId: recordId.toHexString(),
     ...(pool ? { poolId: pool._id.toHexString() } : {}),
     ...(allocationId ? { allocationId: allocationId.toHexString() } : {}),
   });
+  return { lineItem, allocationId };
+}
+
+/**
+ * Raises the allocation and the order for one submission, inside the
+ * submission's transaction.
+ *
+ * Returns `null` when there is nothing to bridge — no booking config, or a
+ * catalogue submission with no selection — so the caller writes exactly the
+ * submission it would have written before this module existed.
+ *
+ * In cart mode (GRAFT-30.2) it raises one allocation per pooled line and
+ * **one** order with a line per item, every line sharing the booking's window
+ * and priced off its own record. The lines are walked in cart order, so the
+ * first line that cannot be honoured is the one named, and its throw takes
+ * every earlier line's allocation down with the transaction.
+ */
+export async function bridgeBooking(
+  session: ClientSession,
+  input: BridgeInput,
+): Promise<BridgeResult | null> {
+  const { store, tenantId, booking, selectedRecordId, now } = input;
+  const cart = input.cart ?? null;
+  if (!booking) return null;
+  if (!cart && !selectedRecordId) return null;
+  if (cart && cart.length === 0) return null;
+
+  const plan = planBooking(booking, input.data, now);
+  const withBooking = { ...input, booking };
+
+  const priced = cart
+    ? await pricedCart(session, withBooking, plan, cart)
+    : [
+        await priceLine(
+          session,
+          withBooking,
+          plan,
+          selectedRecordId!,
+          plan.quantity,
+          "_selection",
+          false,
+        ),
+      ];
+
+  const allocationIds = priced.flatMap((line) =>
+    line.allocationId ? [line.allocationId] : [],
+  );
 
   const orderId = new ObjectId();
   await store.insertOrder(session, {
@@ -302,14 +379,46 @@ export async function bridgeBooking(
       // something this path can invent on their behalf.
       customerRecordId: input.submissionRecordId,
       currency: await store.currencyFor(session, tenantId),
-      lineItems: [lineItem],
+      lineItems: priced.map((line) => line.lineItem),
+      // A percentage of the *order total* — `depositFor` rounds it down.
       deposit: booking.depositPercent !== null ? { percent: booking.depositPercent } : null,
-      allocationIds: allocationId ? [allocationId] : [],
+      allocationIds,
       notes: null,
     }),
     createdAt: now,
     updatedAt: now,
   });
 
-  return { orderId, allocationId };
+  return { orderId, allocationId: allocationIds[0] ?? null };
+}
+
+/** One priced line per cart entry, in order — sequential, not parallel: the
+ * lines share one session, and a transaction's operations must not overlap. */
+async function pricedCart(
+  session: ClientSession,
+  input: BridgeInput & { booking: BookingConfig },
+  plan: BookingPlan,
+  cart: CartLine[],
+): Promise<Array<{ lineItem: LineItem; allocationId: ObjectId | null }>> {
+  const priced: Array<{ lineItem: LineItem; allocationId: ObjectId | null }> = [];
+  for (const [index, line] of cart.entries()) {
+    priced.push(
+      await priceLine(
+        session,
+        input,
+        plan,
+        line.recordId,
+        line.quantity,
+        `_cart.${index}`,
+        true,
+      ),
+    );
+  }
+  // Record ids and counts only — never anything the visitor typed.
+  createLogger({ requestId: input.requestId }).info("booking.bridge.cart", {
+    tenantId: input.tenantId.toHexString(),
+    lines: cart.length,
+    recordIds: cart.map((line) => line.recordId.toHexString()),
+  });
+  return priced;
 }
