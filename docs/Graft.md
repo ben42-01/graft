@@ -196,6 +196,25 @@ The public page learns the booking's `rateBasis` and `rateKey` (for an
 estimated total) only in cart mode and only when `rateKey` is already one of
 the catalogue's public `fields`; otherwise it gets `null`.
 
+**From the visitor's side.** Each catalogue row has an **Add** button; once
+added, it becomes a quantity stepper (at least 1 — below that is **Remove** —
+and at most the server's bound) and a remove button. The cart sits at the foot
+of the screen and survives searching and paging the list. It holds up to 20
+different items; at 20 the remaining **Add** buttons are disabled and say
+why. It shows each line and its quantity, then either an **"Estimated total,
+confirmed at checkout"** (only for flat pricing with a public rate) or just
+the item count. **Continue to your details** stays disabled until the cart has
+something in it. The details step keeps the cart editable above the questions.
+Submitting sends `_cart` as `{ recordId, quantity }` per line and nothing
+about money; if the server refuses one line (say, sold out for those dates),
+that line is marked with the reason, the rest of the cart and the answers are
+kept, and the visitor can remove it and send again. Every control names its
+item for screen readers, and each change is announced politely. The cart
+lives only in that page: nothing is kept across visits or devices. The owner
+turns cart mode on with **Let customers choose several items** in the
+catalogue editor, which is disabled, with the reason shown, on a form with no
+booking config or one that takes payment by link.
+
 ---
 
 ## 5. Tiers

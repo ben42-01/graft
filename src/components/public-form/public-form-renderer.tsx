@@ -30,6 +30,13 @@
  * field and overwrites whatever `data` says about it — so the input for that
  * key is not rendered at all, since asking a visitor to type a record id
  * would be offering them a control whose value is discarded.
+ *
+ * Cart mode (`catalogue.multiple`, GRAFT-30.3) keeps the same two steps, but
+ * step one fills a cart instead of picking one row: the visitor adds items
+ * and quantities, reviews them, then continues to the details. The cart
+ * travels as `_cart` — `{ recordId, quantity }` per line, never a price — in
+ * place of `_selection`, and a line the server refuses (`_cart.<i>`) is
+ * marked in the cart while the rest of it is kept.
  */
 import { useCallback, useRef, useState } from "react";
 import { CheckIcon, ExternalLinkIcon, LockIcon } from "lucide-react";
@@ -54,6 +61,12 @@ import {
 } from "@/components/ui/select";
 import { DateField } from "@/components/ui/date-field";
 import {
+  CartSummary,
+  cartPayload,
+  useCart,
+  type CartPricing,
+} from "@/components/public-form/cart";
+import {
   CatalogueBrowser,
   ResourceRow,
   nameOf,
@@ -67,7 +80,11 @@ import {
 } from "@/lib/entities/record-values";
 import type { FieldDef } from "@/server/services/entities";
 
-export type CatalogueShape = { selectionKey: string | null } | null;
+export type CatalogueShape = {
+  selectionKey: string | null;
+  /** Cart mode (GRAFT-30.1): several items, each with a quantity. */
+  multiple?: boolean;
+} | null;
 
 type FormValues = Record<string, unknown>;
 
@@ -88,6 +105,7 @@ export function PublicFormRenderer({
   catalogue = null,
   timeFields = [],
   content = [],
+  cartPricing = null,
   navigate = (url: string) => window.location.assign(url),
 }: {
   tenantSlug: string;
@@ -103,6 +121,11 @@ export function PublicFormRenderer({
   timeFields?: string[];
   /** Notes and links the business placed between the fields. */
   content?: ContentBlock[];
+  /**
+   * Cart mode's public pricing hint (GRAFT-30.1 AC7), for the estimated total
+   * only. Display, never payload.
+   */
+  cartPricing?: CartPricing;
   /**
    * How the browser leaves for payment (AC9). A seam, not a feature: jsdom
    * has no navigation, so a component test needs somewhere to observe that
@@ -120,9 +143,18 @@ export function PublicFormRenderer({
   );
   const topRef = useRef<HTMLDivElement>(null);
   const selectedId = selected?.id ?? null;
-  const choosing = catalogue !== null && selected === null && catalogueStep === "choosing";
-  // A booking needs a resource to book; an enquiry form can go without.
-  const canSkip = catalogue !== null && timeFields.length === 0;
+  const multiple = catalogue?.multiple === true;
+  const cart = useCart();
+  // Cart mode's "continue to details". Emptying the cart on the details step
+  // sends the visitor back to choose, since there is nothing to submit.
+  const [cartConfirmed, setCartConfirmed] = useState(false);
+  const choosing =
+    catalogue !== null &&
+    catalogueStep === "choosing" &&
+    (multiple ? !(cartConfirmed && cart.lines.length > 0) : selected === null);
+  // A booking needs a resource to book; an enquiry form can go without. A
+  // cart always needs its items.
+  const canSkip = catalogue !== null && timeFields.length === 0 && !multiple;
   const markUnavailable = useCallback(() => setCatalogueStep("unavailable"), []);
 
   function choose(card: CatalogueCard | null) {
@@ -130,6 +162,11 @@ export function PublicFormRenderer({
     if (card === null) setCatalogueStep("choosing");
     // Back to the top of the form, where the chosen resource now sits — the
     // visitor may have scrolled a long way down the list to find it.
+    topRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  }
+
+  function confirmCart(confirmed: boolean) {
+    setCartConfirmed(confirmed);
     topRef.current?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   }
 
@@ -178,6 +215,9 @@ export function PublicFormRenderer({
       return;
     }
 
+    // What is sent is what any `_cart.<i>` error indexes into, even if the
+    // visitor edits the cart while the request is in flight.
+    const sentLines = multiple ? cart.lines : [];
     setState({ status: "submitting" });
     try {
       const response = await fetch(
@@ -190,7 +230,8 @@ export function PublicFormRenderer({
             data: payload.data,
             _hp: honeypotRef.current?.value || undefined,
             _t: renderedAt.current,
-            _selection: selectedId ?? undefined,
+            _selection: multiple ? undefined : (selectedId ?? undefined),
+            _cart: sentLines.length > 0 ? cartPayload(sentLines) : undefined,
             _agreed: agreed.size > 0 ? [...agreed] : undefined,
           }),
         },
@@ -205,6 +246,7 @@ export function PublicFormRenderer({
               serverAgreements[key.slice("_agreed.".length)] = message;
           }
           if (Object.keys(serverAgreements).length > 0) setAgreementErrors(serverAgreements);
+          if (multiple) cart.applyServerErrors(fieldErrors, sentLines);
           for (const [key, message] of Object.entries(fieldErrors)) {
             const fieldKey = key.split(".")[0];
             if (fields.some((f) => f.key === fieldKey)) {
@@ -241,9 +283,17 @@ export function PublicFormRenderer({
           <CheckIcon className="size-6" />
         </span>
         <p className="text-lg font-semibold">Thanks — your submission was received.</p>
-        {selected ? (
+        {selected && !multiple ? (
           <p className="text-sm text-muted-foreground">
             You chose <strong className="text-foreground">{nameOf(selected)}</strong>
+          </p>
+        ) : null}
+        {multiple && cart.lines.length > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            You chose{" "}
+            <strong className="text-foreground">
+              {cart.lines.map((line) => `${line.quantity} × ${nameOf(line.card)}`).join(", ")}
+            </strong>
           </p>
         ) : null}
         {state.payment ? (
@@ -279,6 +329,7 @@ export function PublicFormRenderer({
               accent={accent}
               onSelect={choose}
               onUnavailable={markUnavailable}
+              cart={multiple ? cart : undefined}
             />
             {canSkip ? (
               <p className="mt-4 text-center text-sm">
@@ -294,7 +345,43 @@ export function PublicFormRenderer({
           </div>
         ) : null}
 
-        {selected ? (
+        {multiple && catalogueStep !== "unavailable" ? (
+          // While choosing, the cart rides at the bottom of the screen: the
+          // list above it grows as it is scrolled, so a summary placed after
+          // it would never be reached.
+          <div
+            className={
+              choosing
+                ? "sticky bottom-4 z-10 flex max-h-[60vh] flex-col gap-3 overflow-y-auto rounded-xl bg-background shadow-lg"
+                : "flex flex-col gap-3"
+            }
+          >
+            <CartSummary cart={cart} pricing={cartPricing} />
+            {choosing ? (
+              <Button
+                type="button"
+                size="lg"
+                className="h-12 rounded-full text-base"
+                style={buttonStyle}
+                disabled={cart.lines.length === 0}
+                onClick={() => confirmCart(true)}
+              >
+                Continue to your details
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="outline"
+                className="self-start rounded-full"
+                onClick={() => confirmCart(false)}
+              >
+                Add more items
+              </Button>
+            )}
+          </div>
+        ) : null}
+
+        {selected && !multiple ? (
           <ResourceRow
             card={selected}
             accent={accent}

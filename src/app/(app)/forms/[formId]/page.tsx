@@ -330,6 +330,8 @@ export default function FormPage() {
           entities={state.entities}
           submissionFields={state.entity?.fields ?? form.fields}
           submissionEntityId={form.entityId}
+          hasBooking={form.booking != null}
+          linkPayment={form.payment?.mode === "link"}
           busy={busy}
           onSave={(catalogue) => void patch({ catalogue }, () => void load())}
         />

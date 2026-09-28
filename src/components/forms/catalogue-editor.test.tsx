@@ -201,3 +201,47 @@ describe("CatalogueEditor", () => {
     expect(screen.getByRole("checkbox", { name: "Cost price" })).not.toBeChecked();
   });
 });
+
+/**
+ * GRAFT-30.3 AC6 — the cart switch. Offered only where the server would take
+ * it (GRAFT-30.1): a booking config, and no payment link. When it is not, the
+ * reason is on screen, not just a greyed-out box.
+ */
+describe("CatalogueEditor — cart mode switch", () => {
+  const saved = {
+    entityId: "cat1",
+    fields: ["name", "price"],
+    imageField: null,
+    pageSize: 12,
+    selectionKey: "chosen_item",
+  };
+  const cartSwitch = () =>
+    screen.getByRole("checkbox", { name: "Let customers choose several items" });
+
+  it("is disabled, with the reason, on a form without a booking config", () => {
+    render(<CatalogueEditor {...props} catalogue={saved} hasBooking={false} />);
+
+    expect(cartSwitch()).toBeDisabled();
+    expect(cartSwitch()).toHaveAccessibleDescription(/Set up bookings on this form first/);
+  });
+
+  it("is disabled, with the reason, on a form that takes payment by link", () => {
+    render(<CatalogueEditor {...props} catalogue={saved} hasBooking linkPayment />);
+
+    expect(cartSwitch()).toBeDisabled();
+    expect(cartSwitch()).toHaveAccessibleDescription(/Not available with a payment link/);
+  });
+
+  it("saves catalogue.multiple: true when turned on", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(<CatalogueEditor {...props} catalogue={saved} hasBooking onSave={onSave} />);
+
+    expect(cartSwitch()).toBeEnabled();
+    expect(cartSwitch()).not.toBeChecked();
+    await user.click(cartSwitch());
+    await user.click(screen.getByRole("button", { name: "Save catalogue" }));
+
+    expect(onSave).toHaveBeenCalledWith({ ...saved, multiple: true });
+  });
+});

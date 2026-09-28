@@ -19,6 +19,12 @@
  *     these" rather than "shown on the card", because that is the actual
  *     consequence and the builder is the only person who can weigh it.
  *
+ * Cart mode ("Let customers choose several items", GRAFT-30.3) is offered
+ * only where the server would accept it (GRAFT-30.1): it needs a booking
+ * config, because a cart is priced from the booking's rate, and it cannot sit
+ * beside a payment link, whose fixed price cannot equal a cart total. The
+ * switch says which of those is in the way rather than just greying out.
+ *
  * Everything is saved with an explicit button. An autosaving control that
  * publishes data to the internet as you tick boxes is not a forgiving shape.
  */
@@ -47,11 +53,7 @@ export type CatalogueView = {
   imageField: string | null;
   pageSize: number;
   selectionKey: string | null;
-  /**
-   * Cart mode (GRAFT-30.1). Optional because the server defaults it to
-   * `false`; this editor has no control for it yet, and passes a stored value
-   * back through unchanged on save.
-   */
+  /** Cart mode (GRAFT-30.1). Optional because the server defaults it to `false`. */
   multiple?: boolean;
 };
 
@@ -64,6 +66,8 @@ export function CatalogueEditor({
   submissionFields,
   /** That entity's own id — excluded below, see `browsable`. */
   submissionEntityId,
+  hasBooking = false,
+  linkPayment = false,
   busy,
   onSave,
 }: {
@@ -71,6 +75,10 @@ export function CatalogueEditor({
   entities: EntityOption[];
   submissionFields: FieldLike[];
   submissionEntityId: string;
+  /** Whether the form has a booking config — cart mode needs one. */
+  hasBooking?: boolean;
+  /** Whether the form takes payment by link — cart mode cannot. */
+  linkPayment?: boolean;
   busy: boolean;
   onSave: (next: CatalogueView | null) => void;
 }) {
@@ -113,6 +121,13 @@ export function CatalogueEditor({
     }));
 
   const ready = draft.entityId !== "";
+
+  // The same two rules the server enforces on save (GRAFT-30.1), said first.
+  const cartBlockedBy = !hasBooking
+    ? "Set up bookings on this form first — a cart is priced from the booking's rate."
+    : linkPayment
+      ? "Not available with a payment link: a link charges a fixed price, which can't match a cart's total. Use Stripe Checkout or no payment instead."
+      : null;
 
   return (
     <Card>
@@ -275,6 +290,24 @@ export function CatalogueEditor({
                 </div>
               </>
             ) : null}
+
+            <div>
+              <label className="flex items-center gap-2 text-sm font-medium">
+                <Checkbox
+                  checked={draft.multiple === true}
+                  disabled={cartBlockedBy !== null}
+                  aria-describedby="catalogue-multiple-help"
+                  onCheckedChange={(checked) =>
+                    setDraft((prev) => ({ ...prev, multiple: checked === true }))
+                  }
+                />
+                Let customers choose several items
+              </label>
+              <p id="catalogue-multiple-help" className="mt-1 text-xs text-muted-foreground">
+                {cartBlockedBy ??
+                  "Customers add items to a cart, each with a quantity, and send them in one go. The total is worked out when they check out."}
+              </p>
+            </div>
           </>
         ) : null}
 
