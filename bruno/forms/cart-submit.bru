@@ -1,0 +1,144 @@
+meta {
+  name: A cart submission raises one order with a priced line per item
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{baseUrl}}/api/v1/orders/{{cartOrderId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumAccessToken}}
+}
+
+script:pre-request {
+  // The submission happens here so the request this file *asserts on* is the
+  // order read-back, synchronously — an async `test()` body is not counted by
+  // the Bruno CLI. The submission's own outcome is carried across in vars and
+  // asserted in synchronous tests below.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+
+  // Reuses the premium owner's token from cart-config.bru (seq 24) when it is
+  // there — every extra login spends the suite's shared global-ip budget.
+  let token = bru.getVar("premiumAccessToken");
+  if (!token) {
+    const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+      email: "owner@qa-premium.test",
+      password: bru.getEnvVar("qaPassword"),
+    });
+    token = login.data.data.accessToken;
+    bru.setVar("premiumAccessToken", token);
+  }
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+
+  // A per-run customer, so the read-back finds *this* submission and no other.
+  const customer = `QA Cart ${Date.now()}`;
+  const start = new Date(Date.now() + 30 * 86400000);
+  start.setUTCHours(9, 0, 0, 0);
+  const end = new Date(start.getTime() + 4 * 3600000);
+
+  const submit = await axios.post(
+    `${baseUrl}/api/v1/public/forms/qa-premium/qa-premium-cart-shop/submissions`,
+    {
+      data: {
+        customer,
+        // The server owns this key in cart mode; this value must not survive.
+        item: "forged by the visitor",
+        starts_at: start.toISOString(),
+        ends_at: end.toISOString(),
+      },
+      _t: Date.now() - 3000,
+      _cart: [
+        // Sourdough loaf, €5 flat, and Veg box, €22 flat (scripts/seed-qa.ts).
+        { recordId: "000000000000000000000038", quantity: 2 },
+        { recordId: "000000000000000000000039", quantity: 1 },
+      ],
+    },
+    { validateStatus: () => true },
+  );
+  bru.setVar("cartSubmitStatus", submit.status);
+
+  const filter = encodeURIComponent(JSON.stringify({ customer }));
+  const records = await axios.get(
+    `${baseUrl}/api/v1/entities/00000000000000000000001d/records?filter=${filter}`,
+    auth,
+  );
+  const rows = records.data?.data ?? [];
+  bru.setVar("cartRecordCount", rows.length);
+  bru.setVar("cartRecordItem", rows[0]?.data?.item ?? "");
+
+  const orders = await axios.get(`${baseUrl}/api/v1/orders?limit=20`, auth);
+  const mine = (orders.data?.data ?? []).filter(
+    (order) => rows[0] && order.customerRecordId === rows[0].id,
+  );
+  bru.setVar("cartOrderCount", mine.length);
+  // An id that cannot exist, so a missing order fails as a 404 below rather
+  // than reading some other order.
+  bru.setVar("cartOrderId", mine[0]?.id ?? "ffffffffffffffffffffffff");
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq draft
+  res.body.data.currency: eq EUR
+  res.body.data.lineItems: length 2
+  res.body.data.totalMinor: eq 3200
+  res.body.error: isUndefined
+}
+
+tests {
+  const order = res.getBody().data;
+
+  test("AC1 — the cart submission was accepted", function () {
+    expect(String(bru.getVar("cartSubmitStatus"))).to.equal("201");
+  });
+
+  test("AC1 — exactly one order was raised for the submission", function () {
+    expect(String(bru.getVar("cartRecordCount"))).to.equal("1");
+    expect(String(bru.getVar("cartOrderCount"))).to.equal("1");
+  });
+
+  test("AC1 — a line per item, each priced off its own record and carrying its recordId", function () {
+    expect(order.lineItems[0]).to.include({
+      recordId: "000000000000000000000038",
+      quantity: 2,
+      unitAmountMinor: 500,
+      amountMinor: 1000,
+    });
+    expect(order.lineItems[1]).to.include({
+      recordId: "000000000000000000000039",
+      quantity: 1,
+      unitAmountMinor: 2200,
+      amountMinor: 2200,
+    });
+  });
+
+  test("AC1 — each pooled line holds its own allocation", function () {
+    expect(order.allocationIds).to.have.lengthOf(2);
+    expect(order.lineItems[0].allocationId).to.be.a("string");
+    expect(order.lineItems[1].allocationId).to.be.a("string");
+  });
+
+  test("AC7 — the form's 30% deposit applies to the order total", function () {
+    expect(order.depositMinor).to.equal(960);
+  });
+
+  test("AC8 — the submission record holds a readable summary, not the visitor's value", function () {
+    expect(bru.getVar("cartRecordItem")).to.equal("2 × Sourdough loaf, 1 × Veg box");
+  });
+}
+
+docs {
+  GRAFT-30.2 AC1 (and AC7, AC8 on the same submission). Submits a two-line
+  cart to formPremiumCartShop (qa-premium/qa-premium-cart-shop,
+  scripts/seed-qa.ts), a premium-tenant form seeded in cart mode with flat
+  pricing and a 30% deposit, then reads the order back through the
+  authenticated orders API: one draft order, two lines (2 × €5 = 1000 minor,
+  1 × €22 = 2200 minor), total 3200, deposit 960. The order is found by its
+  `customerRecordId`, the record this submission became. Reuses
+  `premiumAccessToken` from cart-config.bru (seq 24) when present.
+}

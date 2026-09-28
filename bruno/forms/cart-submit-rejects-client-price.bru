@@ -1,0 +1,64 @@
+meta {
+  name: A cart line carrying a price is refused, not stripped
+  type: http
+  seq: 29
+}
+
+post {
+  url: {{baseUrl}}/api/v1/public/forms/qa-premium/qa-premium-cart-shop/submissions
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "data": {
+      "customer": "QA Cart Price Forger",
+      "starts_at": "{{cartPriceStart}}",
+      "ends_at": "{{cartPriceEnd}}"
+    },
+    "_t": {{cartPriceRenderedAt}},
+    "_cart": [
+      {
+        "recordId": "000000000000000000000039",
+        "quantity": 1,
+        "price": 0.01,
+        "amount": 1,
+        "unitAmountMinor": 1
+      }
+    ]
+  }
+}
+
+script:pre-request {
+  const start = new Date(Date.now() + 32 * 86400000);
+  start.setUTCHours(9, 0, 0, 0);
+  bru.setVar("cartPriceStart", start.toISOString());
+  bru.setVar("cartPriceEnd", new Date(start.getTime() + 3600000).toISOString());
+  bru.setVar("cartPriceRenderedAt", Date.now() - 3000);
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  test("AC2 — the refusal names the offending cart line", function () {
+    const fields = res.getBody().error.details.fields;
+    expect(fields).to.have.property("_cart.0");
+    expect(fields["_cart.0"]).to.be.a("string");
+  });
+}
+
+docs {
+  GRAFT-30.2 AC2. The client never sends a price: a cart line is
+  `{ recordId, quantity }` and nothing else (`.strict()`), so a line carrying
+  `price`, `amount` or `unitAmountMinor` is a 400 on `_cart.0` rather than
+  having the extra keys silently dropped. The snapshot half of AC2 (a rate
+  change after submission does not re-price the order) is proven against a
+  real replica set in src/server/services/booking-bridge.integration.test.ts,
+  and each forbidden key individually in src/server/services/public-forms.test.ts.
+}

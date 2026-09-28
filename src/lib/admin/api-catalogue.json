@@ -1479,6 +1479,19 @@
       "source": "src/app/api/v1/inventory/pools/[poolId]/availability/route.ts",
       "examples": [
         {
+          "name": "A cart line its pool cannot hold refuses the whole cart",
+          "file": "bruno/forms/cart-submit-capacity-all-or-nothing.bru",
+          "pathParams": {
+            "poolId": "000000000000000000000067"
+          },
+          "query": {
+            "startAt": "{{cartCapacityStart}}",
+            "endAt": "{{cartCapacityEnd}}",
+            "quantity": "1000"
+          },
+          "body": null
+        },
+        {
           "name": "A booking starting exactly when the turnaround ends is allowed",
           "file": "bruno/inventory/availability-after-buffer.bru",
           "pathParams": {
@@ -1809,6 +1822,15 @@
       "source": "src/app/api/v1/orders/[orderId]/route.ts",
       "examples": [
         {
+          "name": "A cart submission raises one order with a priced line per item",
+          "file": "bruno/forms/cart-submit.bru",
+          "pathParams": {
+            "orderId": "{{cartOrderId}}"
+          },
+          "query": {},
+          "body": null
+        },
+        {
           "name": "Another tenant's order is not found",
           "file": "bruno/orders/tenant-isolation.bru",
           "pathParams": {
@@ -2068,6 +2090,36 @@
       "summary": "(GRAFT-09).",
       "source": "src/app/api/v1/public/forms/[tenantSlug]/[formSlug]/submissions/route.ts",
       "examples": [
+        {
+          "name": "Cart bounds — empty, oversized, duplicate and out-of-range quantity are refused",
+          "file": "bruno/forms/cart-submit-bounds.bru",
+          "pathParams": {
+            "tenantSlug": "qa-premium",
+            "formSlug": "qa-premium-cart-form"
+          },
+          "query": {},
+          "body": "{\n  \"data\": { \"customer\": \"QA Cart Bounds\" },\n  \"_t\": {{cartBoundsRenderedAt}},\n  \"_cart\": []\n}"
+        },
+        {
+          "name": "A cart line carrying a price is refused, not stripped",
+          "file": "bruno/forms/cart-submit-rejects-client-price.bru",
+          "pathParams": {
+            "tenantSlug": "qa-premium",
+            "formSlug": "qa-premium-cart-shop"
+          },
+          "query": {},
+          "body": "{\n  \"data\": {\n    \"customer\": \"QA Cart Price Forger\",\n    \"starts_at\": \"{{cartPriceStart}}\",\n    \"ends_at\": \"{{cartPriceEnd}}\"\n  },\n  \"_t\": {{cartPriceRenderedAt}},\n  \"_cart\": [\n    {\n      \"recordId\": \"000000000000000000000039\",\n      \"quantity\": 1,\n      \"price\": 0.01,\n      \"amount\": 1,\n      \"unitAmountMinor\": 1\n    }\n  ]\n}"
+        },
+        {
+          "name": "A cart line naming another tenant's record is refused",
+          "file": "bruno/forms/cart-submit-tenant-isolation.bru",
+          "pathParams": {
+            "tenantSlug": "qa-premium",
+            "formSlug": "qa-premium-cart-shop"
+          },
+          "query": {},
+          "body": "{\n  \"data\": {\n    \"customer\": \"QA Cart Cross Tenant\",\n    \"starts_at\": \"{{cartIsolationStart}}\",\n    \"ends_at\": \"{{cartIsolationEnd}}\"\n  },\n  \"_t\": {{cartIsolationRenderedAt}},\n  \"_cart\": [\n    { \"recordId\": \"000000000000000000000038\", \"quantity\": 1 },\n    { \"recordId\": \"000000000000000000000029\", \"quantity\": 1 }\n  ]\n}"
+        },
         {
           "name": "A payment-enabled form hands the submitter a payment URL",
           "file": "bruno/forms/payment-link-submit.bru",

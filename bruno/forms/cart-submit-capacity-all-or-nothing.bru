@@ -1,0 +1,116 @@
+meta {
+  name: A cart line its pool cannot hold refuses the whole cart
+  type: http
+  seq: 30
+}
+
+get {
+  url: {{baseUrl}}/api/v1/inventory/pools/000000000000000000000067/availability?startAt={{cartCapacityStart}}&endAt={{cartCapacityEnd}}&quantity=1000
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{premiumAccessToken}}
+}
+
+script:pre-request {
+  // The refused submission happens here so the request this file asserts on
+  // is the loaf pool's availability *afterwards*, synchronously. The
+  // submission's own outcome is carried across in vars.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+
+  let token = bru.getVar("premiumAccessToken");
+  if (!token) {
+    const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+      email: "owner@qa-premium.test",
+      password: bru.getEnvVar("qaPassword"),
+    });
+    token = login.data.data.accessToken;
+    bru.setVar("premiumAccessToken", token);
+  }
+  const auth = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+
+  // Its own window, one day after cart-submit.bru's, so nothing else in the
+  // suite has touched the loaf's capacity here.
+  const start = new Date(Date.now() + 31 * 86400000);
+  start.setUTCHours(9, 0, 0, 0);
+  const end = new Date(start.getTime() + 4 * 3600000);
+  bru.setVar("cartCapacityStart", encodeURIComponent(start.toISOString()));
+  bru.setVar("cartCapacityEnd", encodeURIComponent(end.toISOString()));
+
+  const customer = `QA Cart Capacity ${Date.now()}`;
+  const submit = await axios.post(
+    `${baseUrl}/api/v1/public/forms/qa-premium/qa-premium-cart-shop/submissions`,
+    {
+      data: { customer, starts_at: start.toISOString(), ends_at: end.toISOString() },
+      _t: Date.now() - 3000,
+      _cart: [
+        // The loaf fits (pool of 1000) and is held first, inside the same
+        // transaction; the oven's pool holds one, so two of it cannot fit.
+        { recordId: "000000000000000000000038", quantity: 1 },
+        { recordId: "00000000000000000000003a", quantity: 2 },
+      ],
+    },
+    { validateStatus: () => true },
+  );
+  bru.setVar("cartCapacityStatus", submit.status);
+  bru.setVar("cartCapacityCode", submit.data?.error?.code ?? "");
+  bru.setVar(
+    "cartCapacityFields",
+    JSON.stringify(Object.keys(submit.data?.error?.details?.fields ?? {})),
+  );
+
+  // No record: the submission's record is written in the same transaction.
+  const filter = encodeURIComponent(JSON.stringify({ customer }));
+  const records = await axios.get(
+    `${baseUrl}/api/v1/entities/00000000000000000000001d/records?filter=${filter}`,
+    auth,
+  );
+  bru.setVar("cartCapacityRecordCount", records.data?.data?.length ?? -1);
+
+  // No order: nothing in this suite ever books the oven successfully, so any
+  // order carrying an oven line could only have come from the refused cart.
+  const orders = await axios.get(`${baseUrl}/api/v1/orders?limit=50`, auth);
+  const withOven = (orders.data?.data ?? []).filter((order) =>
+    order.lineItems.some((line) => line.recordId === "00000000000000000000003a"),
+  );
+  bru.setVar("cartCapacityOvenOrders", withOven.length);
+  bru.setVar("cartCapacityOrdersStatus", orders.status);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.available: eq true
+  res.body.data.remaining: eq 1000
+  res.body.error: isUndefined
+}
+
+tests {
+  test("AC3 — the cart is refused with the bridge's capacity-conflict code", function () {
+    expect(String(bru.getVar("cartCapacityStatus"))).to.equal("409");
+    expect(bru.getVar("cartCapacityCode")).to.equal("CONFLICT");
+  });
+
+  test("AC3 — the refusal names the line that cannot be held", function () {
+    expect(JSON.parse(bru.getVar("cartCapacityFields"))).to.deep.equal(["_cart.1"]);
+  });
+
+  test("AC3 — no record and no order were written for any line", function () {
+    expect(String(bru.getVar("cartCapacityRecordCount"))).to.equal("0");
+    expect(String(bru.getVar("cartCapacityOrdersStatus"))).to.equal("200");
+    expect(String(bru.getVar("cartCapacityOvenOrders"))).to.equal("0");
+  });
+}
+
+docs {
+  GRAFT-30.2 AC3. A two-line cart on formPremiumCartShop where the first line
+  (1 × loaf) fits and the second (2 × oven, whose pool holds one) does not.
+  The submission is a 409 CONFLICT naming `_cart.1`, and the request asserted
+  on is the loaf pool's (000000000000000000000067) availability for that
+  window afterwards: all 1000 still free, so the loaf allocation made earlier
+  in the same transaction was rolled back with it. No submission record and no
+  order exist either. The meter and submission rows are checked against a real
+  replica set in src/server/services/booking-bridge.integration.test.ts.
+}

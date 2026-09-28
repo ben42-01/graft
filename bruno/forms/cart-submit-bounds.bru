@@ -1,0 +1,106 @@
+meta {
+  name: Cart bounds — empty, oversized, duplicate and out-of-range quantity are refused
+  type: http
+  seq: 32
+}
+
+post {
+  url: {{baseUrl}}/api/v1/public/forms/qa-premium/qa-premium-cart-form/submissions
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "data": { "customer": "QA Cart Bounds" },
+    "_t": {{cartBoundsRenderedAt}},
+    "_cart": []
+  }
+}
+
+script:pre-request {
+  // The four other bounds are sent here and their outcomes carried across in
+  // vars, so every assertion below is synchronous. Against formPremiumCart
+  // (qa-premium-cart-form), not the cart shop: the bounds are the request
+  // schema's and hold before any form's own rules, and the public-form rate
+  // limit is per form — this keeps the shop's budget for the other cart files.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const renderedAt = Date.now() - 3000;
+  bru.setVar("cartBoundsRenderedAt", renderedAt);
+
+  const id = (n) => n.toString(16).padStart(24, "0");
+  const attempt = async (name, cart) => {
+    const response = await axios.post(
+      `${baseUrl}/api/v1/public/forms/qa-premium/qa-premium-cart-form/submissions`,
+      { data: { customer: "QA Cart Bounds" }, _t: renderedAt, _cart: cart },
+      { validateStatus: () => true },
+    );
+    bru.setVar(`${name}Status`, response.status);
+    bru.setVar(`${name}Code`, response.data?.error?.code ?? "");
+    bru.setVar(
+      `${name}Fields`,
+      JSON.stringify(Object.keys(response.data?.error?.details?.fields ?? {})),
+    );
+  };
+
+  await attempt(
+    "cartTooMany",
+    Array.from({ length: 21 }, (_, i) => ({ recordId: id(0x1000 + i), quantity: 1 })),
+  );
+  await attempt("cartDuplicate", [
+    { recordId: "000000000000000000000038", quantity: 1 },
+    { recordId: "000000000000000000000038", quantity: 2 },
+  ]);
+  await attempt("cartQuantityZero", [{ recordId: "000000000000000000000038", quantity: 0 }]);
+  await attempt("cartQuantityTooBig", [
+    { recordId: "000000000000000000000038", quantity: 100001 },
+  ]);
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  const expectRefused = (name, fields) => {
+    expect(String(bru.getVar(`${name}Status`))).to.equal("400");
+    expect(bru.getVar(`${name}Code`)).to.equal("VALIDATION_FAILED");
+    expect(JSON.parse(bru.getVar(`${name}Fields`))).to.deep.equal(fields);
+  };
+
+  test("AC5 — an empty cart is refused on `_cart`", function () {
+    expect(res.getBody().error.details.fields).to.have.property("_cart");
+  });
+
+  test("AC5 — more than 20 lines is refused on `_cart`", function () {
+    expectRefused("cartTooMany", ["_cart"]);
+  });
+
+  test("AC5 — the same record twice is refused, naming the repeat", function () {
+    expectRefused("cartDuplicate", ["_cart.1"]);
+  });
+
+  test("AC5 — a quantity of 0 is refused", function () {
+    expectRefused("cartQuantityZero", ["_cart.0.quantity"]);
+  });
+
+  test("AC5 — a quantity above 100,000 is refused", function () {
+    expectRefused("cartQuantityTooBig", ["_cart.0.quantity"]);
+  });
+}
+
+docs {
+  GRAFT-30.2 AC5. The cart's bounds live in the request schema
+  (`submitFormSchema._cart`, src/server/services/public-forms.ts), so each is
+  a 400 VALIDATION_FAILED before anything about the form's catalogue is read:
+  an empty cart, 21 lines (the ceiling is 20), a duplicate `recordId`, and a
+  quantity outside 1–100,000. Sent to formPremiumCart
+  (qa-premium/qa-premium-cart-form) so the five requests spend that form's
+  public-form rate-limit budget (10/min per ip + form) rather than the cart
+  shop's. The accepted edges (1, 100,000, exactly 20 lines) are unit-tested in
+  src/server/services/public-forms.test.ts.
+}

@@ -1,0 +1,93 @@
+meta {
+  name: A cart line naming another tenant's record is refused
+  type: http
+  seq: 31
+}
+
+post {
+  url: {{baseUrl}}/api/v1/public/forms/qa-premium/qa-premium-cart-shop/submissions
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "data": {
+      "customer": "QA Cart Cross Tenant",
+      "starts_at": "{{cartIsolationStart}}",
+      "ends_at": "{{cartIsolationEnd}}"
+    },
+    "_t": {{cartIsolationRenderedAt}},
+    "_cart": [
+      { "recordId": "000000000000000000000038", "quantity": 1 },
+      { "recordId": "000000000000000000000029", "quantity": 1 }
+    ]
+  }
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const start = new Date(Date.now() + 33 * 86400000);
+  start.setUTCHours(9, 0, 0, 0);
+  const end = new Date(start.getTime() + 3600000);
+  bru.setVar("cartIsolationStart", start.toISOString());
+  bru.setVar("cartIsolationEnd", end.toISOString());
+  bru.setVar("cartIsolationRenderedAt", Date.now() - 3000);
+
+  // The same tenant, but a record of another entity (the premium tenant's
+  // "Do Not Leak" customer): not in this form's catalogue, so refused too.
+  const otherEntity = await axios.post(
+    `${baseUrl}/api/v1/public/forms/qa-premium/qa-premium-cart-shop/submissions`,
+    {
+      data: {
+        customer: "QA Cart Cross Entity",
+        starts_at: start.toISOString(),
+        ends_at: end.toISOString(),
+      },
+      _t: Date.now() - 3000,
+      _cart: [{ recordId: "00000000000000000000002c", quantity: 1 }],
+    },
+    { validateStatus: () => true },
+  );
+  bru.setVar("cartOtherEntityStatus", otherEntity.status);
+  bru.setVar(
+    "cartOtherEntityField",
+    otherEntity.data?.error?.details?.fields?.["_cart.0"] ?? "",
+  );
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.requestId: isDefined
+  res.body.data: isUndefined
+}
+
+tests {
+  const fields = res.getBody().error.details.fields;
+
+  test("AC4 — another tenant's record is refused on its own line, as unavailable", function () {
+    expect(fields).to.deep.equal({ "_cart.1": "That item is no longer available" });
+  });
+
+  test("AC4 — nothing about the other tenant's record leaks into the error", function () {
+    expect(JSON.stringify(res.getBody())).to.not.include("Ada Lovelace");
+  });
+
+  test("AC4 — a record of another entity in the same tenant is refused the same way", function () {
+    expect(String(bru.getVar("cartOtherEntityStatus"))).to.equal("400");
+    expect(bru.getVar("cartOtherEntityField")).to.equal("That item is no longer available");
+  });
+}
+
+docs {
+  GRAFT-30.2 AC4, the cross-tenant case. Line 1 names recordFreeFirst
+  (000000000000000000000029), a record of the *free* tenant: the catalogue
+  lookup is scoped by the form's tenant and its catalogue entity, so the id
+  is simply not found and the refusal is indistinguishable from a deleted
+  item — a 400 on `_cart.1`, nothing written. The pre-request also tries a
+  premium-tenant record of another entity (00000000000000000000002c). The
+  deleted-record case, and "nothing is written", are proven against a real
+  replica set in src/server/services/booking-bridge.integration.test.ts.
+}
