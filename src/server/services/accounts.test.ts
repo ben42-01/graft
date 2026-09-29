@@ -96,6 +96,11 @@ function fakeStore() {
     async removeMembership() {
       return false;
     },
+    // GRAFT-33.2 — part of the port; the accounts tests reach it only through
+    // an injected `claimInvite`, so it is not exercised here.
+    async addMembership() {
+      return false;
+    },
   };
 
   return { store, users, tenants, verifications };
@@ -894,5 +899,103 @@ describe("activity log wiring — GRAFT-29.4 AC1", () => {
         login({ email: signupInput.email, password: "wrong" }, { ...deps, emit: explode }),
       ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     });
+  });
+});
+
+describe("signup with an inviteToken (GRAFT-33.2 AC6)", () => {
+  const INVITED_TENANT = "0000000000000000000000aa";
+  const inviteInput = {
+    email: "invitee@example.test",
+    password: PASSWORD,
+    inviteToken: "i".repeat(43),
+  };
+  const claimed = (release = vi.fn(async () => {})) => ({
+    tenantId: INVITED_TENANT,
+    tenantSlug: "harbour-boats",
+    role: "admin" as const,
+    release,
+  });
+
+  it("creates a user whose only membership is the invited one — no tenant, no trial, no business name", async () => {
+    const startTrialSpy = vi.fn(async () => undefined);
+    const { userId, tenantId } = await signup(inviteInput, {
+      ...deps,
+      startTrial: startTrialSpy,
+      claimInvite: async () => claimed(),
+    });
+    expect(tenantId).toBe(INVITED_TENANT);
+    expect(fake.users.get(userId)!.memberships).toEqual([
+      { tenantId: INVITED_TENANT, roles: ["admin"] },
+    ]);
+    expect(fake.tenants.size).toBe(0);
+    expect(startTrialSpy).not.toHaveBeenCalled();
+    expect(emitted).toHaveLength(1);
+  });
+
+  it("hands the invite the signup email, so a bound invite can be checked", async () => {
+    const claim = vi.fn(async () => claimed());
+    await signup(inviteInput, { ...deps, claimInvite: claim });
+    expect(claim).toHaveBeenCalledWith(inviteInput.inviteToken, "invitee@example.test");
+  });
+
+  it("an invalid token is VALIDATION_FAILED on inviteToken and nothing is created", async () => {
+    const error = await rejection(() =>
+      signup(inviteInput, {
+        ...deps,
+        claimInvite: async () => {
+          throw new AppError("NOT_FOUND", "Invite not found");
+        },
+      }),
+    );
+    expect(error.code).toBe("VALIDATION_FAILED");
+    expect(error.details).toMatchObject({ fields: { inviteToken: expect.any(String) } });
+    expect(fake.users.size).toBe(0);
+    expect(fake.tenants.size).toBe(0);
+  });
+
+  it("other refusals (wrong email, no seat) pass through untouched", async () => {
+    const error = await rejection(() =>
+      signup(inviteInput, {
+        ...deps,
+        claimInvite: async () => {
+          throw new AppError("QUOTA_EXCEEDED", "full", { meter: "seats" });
+        },
+      }),
+    );
+    expect(error.code).toBe("QUOTA_EXCEEDED");
+    expect(fake.users.size).toBe(0);
+  });
+
+  it("a duplicate email is CONFLICT before the invite is claimed", async () => {
+    await signup(signupInput, { ...deps });
+    const claim = vi.fn(async () => claimed());
+    const error = await rejection(() =>
+      signup({ ...inviteInput, email: signupInput.email }, { ...deps, claimInvite: claim }),
+    );
+    expect(error.code).toBe("CONFLICT");
+    expect(claim).not.toHaveBeenCalled();
+  });
+
+  it("a failed user insert releases the claim", async () => {
+    const release = vi.fn(async () => {});
+    const accounts = {
+      ...fake.store,
+      insertUser: async () => {
+        throw new DuplicateKeyError("email");
+      },
+    };
+    const error = await rejection(() =>
+      signup(inviteInput, { ...deps, accounts, claimInvite: async () => claimed(release) }),
+    );
+    expect(error.code).toBe("CONFLICT");
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("without a token, a business name is still required", async () => {
+    const error = await rejection(() =>
+      signup({ email: "a@example.test", password: PASSWORD } as never, deps),
+    );
+    expect(error.code).toBe("VALIDATION_FAILED");
+    expect(error.details).toMatchObject({ fields: { businessName: expect.any(String) } });
   });
 });

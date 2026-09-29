@@ -541,6 +541,13 @@
           "body": "{\n  \"email\": \"trial-owner@qa-signup.test\",\n  \"password\": \"{{qaPassword}}\",\n  \"businessName\": \"QA Trial Signup Co\"\n}"
         },
         {
+          "name": "Signup through an invite creates no workspace; a bad token creates nothing",
+          "file": "bruno/auth/signup-with-invite.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"email\": \"joined-by-invite@qa-signup.test\",\n  \"password\": \"{{qaPassword}}\",\n  \"inviteToken\": \"{{signupInviteToken}}\"\n}"
+        },
+        {
           "name": "Signup creates an account and its tenant",
           "file": "bruno/auth/signup.bru",
           "pathParams": {},
@@ -2223,6 +2230,29 @@
       ]
     },
     {
+      "id": "GET /api/v1/public/invites/:token",
+      "method": "GET",
+      "path": "/api/v1/public/invites/:token",
+      "group": "public",
+      "params": [
+        "token"
+      ],
+      "auth": "public",
+      "summary": "what the invite landing page needs to say \"Join Harbour Boats as a Member\" (GRAFT-33.2 AC7). Unauthenticated, and rate limited on the ip-keyed public scopes by the /public/ row in rate-limit/policy.ts. Anything invalid is one 404 with no reason.",
+      "source": "src/app/api/v1/public/invites/[token]/route.ts",
+      "examples": [
+        {
+          "name": "The public lookup names the workspace and role, and 404s on anything else",
+          "file": "bruno/team/public-invite-lookup.bru",
+          "pathParams": {
+            "token": "{{teamLookupToken}}"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "GET /api/v1/public/media/:mediaId",
       "method": "GET",
       "path": "/api/v1/public/media/:mediaId",
@@ -2413,6 +2443,46 @@
           },
           "query": {},
           "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/team/invites/accept",
+      "method": "POST",
+      "path": "/api/v1/team/invites/accept",
+      "group": "team",
+      "params": [],
+      "auth": "session",
+      "summary": "a signed-in user takes the seat an invite link offers (GRAFT-33.2 AC1–AC5, AC8). Authenticated, on the ordinary authenticated rate-limit scopes; the tenant and role come from the invite row, never from anything in the request.",
+      "source": "src/app/api/v1/team/invites/accept/route.ts",
+      "examples": [
+        {
+          "name": "An existing member cannot use an invite to change their role",
+          "file": "bruno/team/accept-already-member.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"token\": \"{{teamMemberToken}}\"\n}"
+        },
+        {
+          "name": "An invite is single use, and every dead token gets the same 404",
+          "file": "bruno/team/accept-single-use.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"token\": \"{{teamSingleToken}}\"\n}"
+        },
+        {
+          "name": "An invite bound to another email is refused and stays pending",
+          "file": "bruno/team/accept-wrong-email.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"token\": \"{{teamWrongToken}}\"\n}"
+        },
+        {
+          "name": "A signed-in user accepts an invite and can switch into the workspace",
+          "file": "bruno/team/accept.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"token\": \"{{teamAcceptToken}}\",\n  \"tenantId\": \"000000000000000000000001\"\n}"
         }
       ]
     },

@@ -1,0 +1,114 @@
+meta {
+  name: A signed-in user accepts an invite and can switch into the workspace
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/v1/team/invites/accept
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamAcceptJwt}}
+}
+
+body:json {
+  {
+    "token": "{{teamAcceptToken}}",
+    "tenantId": "000000000000000000000001"
+  }
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = async (email) =>
+    (await axios.post(`${baseUrl}/api/v1/auth/login`, {
+      email,
+      password: bru.getEnvVar("qaPassword"),
+    })).data.data.accessToken;
+  const owner = await login("owner@qa-premium.test");
+  const made = await axios.post(
+    `${baseUrl}/api/v1/team/invites`,
+    { role: "member" },
+    { headers: { Authorization: `Bearer ${owner}` } },
+  );
+  bru.setVar("teamAcceptToken", made.data.data.url.split("/invite/")[1]);
+  bru.setVar("teamAcceptInviteId", made.data.data.invite.id);
+  bru.setVar("teamAcceptOwner", owner);
+  // invitee-accept@qa-platform.test belongs to qa-platform only.
+  bru.setVar("teamAcceptJwt", await login("invitee-accept@qa-platform.test"));
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.tenantId: eq "000000000000000000000002"
+  res.body.data.role: eq member
+  res.body.data.tenantSlug: isString
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const switched = await axios.post(
+    `${baseUrl}/api/v1/auth/switch-tenant`,
+    { tenantId: "000000000000000000000002" },
+    {
+      headers: { Authorization: `Bearer ${bru.getVar("teamAcceptJwt")}` },
+      validateStatus: () => true,
+    },
+  );
+  const claims =
+    switched.status === 200
+      ? JSON.parse(
+          Buffer.from(switched.data.data.accessToken.split(".")[1], "base64url").toString(),
+        )
+      : {};
+  const team = await axios.get(`${baseUrl}/api/v1/team`, {
+    headers: { Authorization: `Bearer ${bru.getVar("teamAcceptOwner")}` },
+  });
+  bru.setVar(
+    "teamAcceptAfter",
+    JSON.stringify({
+      switchStatus: switched.status,
+      tid: claims.tid,
+      roles: claims.roles,
+      pending: team.data.data.invites.map((i) => i.id),
+      members: team.data.data.members.map((m) => `${m.email} ${m.roles}`),
+    }),
+  );
+}
+
+tests {
+  const after = JSON.parse(bru.getVar("teamAcceptAfter"));
+
+  test("AC1 — the response is tenant, slug and role, and nothing else", function () {
+    expect(Object.keys(res.getBody().data).sort()).to.eql(["role", "tenantId", "tenantSlug"]);
+  });
+
+  test("AC1 — switch-tenant to the workspace succeeds with roles [member]", function () {
+    expect(after.switchStatus).to.equal(200);
+    expect(after.tid).to.equal("000000000000000000000002");
+    expect(after.roles).to.eql(["member"]);
+  });
+
+  test("AC1 — the invite is no longer pending and the user is on the team", function () {
+    expect(after.pending).to.not.include(bru.getVar("teamAcceptInviteId"));
+    expect(after.members).to.include("invitee-accept@qa-platform.test member");
+  });
+
+  test("cross-tenant — the tenantId named in the body was ignored", function () {
+    // The body asked for qa-free (…001); only the invite's own tenant (…002) was granted.
+    expect(res.getBody().data.tenantId).to.equal("000000000000000000000002");
+  });
+}
+
+docs {
+  AC1 and the cross-tenant rule. Accepting is single-use and permanent, so this
+  fixture user (scripts/seed-qa.ts, userInviteeAccept) is used by this file
+  alone. Async work is done in scripts, not in `test()` bodies, which the
+  Bruno gate does not count.
+}

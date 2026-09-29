@@ -1,0 +1,78 @@
+meta {
+  name: The public lookup names the workspace and role, and 404s on anything else
+  type: http
+  seq: 13
+}
+
+get {
+  url: {{baseUrl}}/api/v1/public/invites/{{teamLookupToken}}
+  body: none
+  auth: none
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const auth = { headers: { Authorization: `Bearer ${login.data.data.accessToken}` } };
+  const make = async (body) =>
+    (await axios.post(`${baseUrl}/api/v1/team/invites`, body, auth)).data.data;
+  const bound = await make({ role: "admin", email: "lookup@qa-premium.test" });
+  const revoked = await make({ role: "member" });
+  await axios.delete(`${baseUrl}/api/v1/team/invites/${revoked.invite.id}`, auth);
+  bru.setVar("teamLookupToken", bound.url.split("/invite/")[1]);
+  bru.setVar("teamLookupRevoked", revoked.url.split("/invite/")[1]);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.workspaceName: isString
+  res.body.data.role: eq admin
+  res.body.data.email: eq lookup@qa-premium.test
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const get = async (token) => {
+    const r = await axios.get(`${baseUrl}/api/v1/public/invites/${token}`, {
+      validateStatus: () => true,
+    });
+    return { status: r.status, code: r.data?.error?.code, limit: r.headers["x-ratelimit-limit"] };
+  };
+  bru.setVar(
+    "teamLookupAfter",
+    JSON.stringify({
+      revoked: await get(bru.getVar("teamLookupRevoked")),
+      unknown: await get("u".repeat(43)),
+    }),
+  );
+}
+
+tests {
+  const after = JSON.parse(bru.getVar("teamLookupAfter"));
+  const body = res.getBody().data;
+
+  test("AC7 — a valid token returns the workspace name, role and bound email", function () {
+    expect(body.workspaceName).to.equal("QA Premium Tenant");
+  });
+
+  test("AC7 — no id, hash or tenant id leaks", function () {
+    expect(Object.keys(body).sort()).to.eql(["email", "role", "workspaceName"]);
+  });
+
+  test("AC7 — revoked and unknown tokens are 404 NOT_FOUND", function () {
+    expect(after.revoked.status).to.equal(404);
+    expect(after.revoked.code).to.equal("NOT_FOUND");
+    expect(after.unknown.status).to.equal(404);
+    expect(after.unknown.code).to.equal("NOT_FOUND");
+  });
+
+  test("AC7 — it is rate limited (headers present, unauthenticated)", function () {
+    expect(res.getHeader("x-ratelimit-limit")).to.not.equal(undefined);
+  });
+}

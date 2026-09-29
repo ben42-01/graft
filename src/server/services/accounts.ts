@@ -43,6 +43,7 @@ import {
 } from "./billing";
 import { emitActivity, type ActivityInput } from "./activity-log";
 import { loadEntitlements, type Entitlements } from "./entitlements";
+import { claimInvite, type ClaimedInvite } from "./team";
 import { isReservedSlug, slugify } from "./slugs";
 import { issueSession, type AccessTokenInput, type Session } from "./tokens";
 
@@ -71,11 +72,27 @@ const emailSchema = z
 
 const objectIdHex = z.string().regex(/^[0-9a-f]{24}$/i, "Expected a 24-character id");
 
-export const signupSchema = z.object({
-  email: emailSchema,
-  password: passwordSchema,
-  businessName: z.string().trim().min(2).max(120),
-});
+/**
+ * GRAFT-33.2 AC6 — with an `inviteToken` there is no workspace to name, so
+ * `businessName` is optional and ignored; without one it is required exactly
+ * as before.
+ */
+export const signupSchema = z
+  .object({
+    email: emailSchema,
+    password: passwordSchema,
+    businessName: z.string().trim().min(2).max(120).optional(),
+    inviteToken: z.string().max(256).optional(),
+  })
+  .superRefine((value, refinement) => {
+    if (!value.inviteToken && value.businessName === undefined) {
+      refinement.addIssue({
+        code: "custom",
+        path: ["businessName"],
+        message: "Business name is required",
+      });
+    }
+  });
 
 export const loginSchema = z.object({ email: emailSchema, password: z.string().max(400) });
 
@@ -126,6 +143,12 @@ export type AccountDeps = {
    * branch on whether the row landed.
    */
   emit: (input: ActivityInput) => Promise<void>;
+  /**
+   * GRAFT-33.2 — claims an invite for a person who does not exist yet. A seam
+   * so unit tests need no invites collection; the default is team.ts's own
+   * `claimInvite`, the same code path an existing user's accept takes.
+   */
+  claimInvite: (token: string, email: string) => Promise<ClaimedInvite>;
 };
 
 /**
@@ -172,6 +195,9 @@ function resolve(overrides: Partial<AccountDeps> = {}): AccountDeps {
     billing: overrides.billing ?? mongoBillingStore(),
     entitlements: overrides.entitlements ?? loadEntitlements,
     emit: overrides.emit ?? ((input) => emitActivity(input)),
+    claimInvite:
+      overrides.claimInvite ??
+      ((token, email) => claimInvite(token, { email, memberships: [] })),
   };
 }
 
@@ -239,6 +265,60 @@ async function createVerification(
 }
 
 /**
+ * GRAFT-33.2 AC6 — signup through an invite link. The user's only membership is
+ * the invited one: no tenant, no trial, no business name. An invalid link is a
+ * field error on `inviteToken` and nothing is created; the link is claimed only
+ * after every cheap refusal, and released again if the insert fails, so a
+ * failed signup cannot burn somebody's invite.
+ */
+async function signupViaInvite(
+  input: { email: string; password: string; inviteToken: string },
+  deps: AccountDeps,
+  requestId?: string,
+): Promise<{ userId: string; tenantId: string }> {
+  const { email, password, inviteToken } = input;
+  if (await deps.accounts.findUserByEmail(email)) {
+    throw new AppError("CONFLICT", "An account with that email already exists");
+  }
+  const passwordHash = await hashPassword(password);
+
+  const claimed = await deps.claimInvite(inviteToken, email).catch((error: unknown) => {
+    if (error instanceof AppError && error.code === "NOT_FOUND") {
+      return invalid("inviteToken", "This invite link is not valid");
+    }
+    throw error;
+  });
+
+  let userId: string;
+  try {
+    userId = await deps.accounts.insertUser({
+      email,
+      name: null,
+      passwordHash,
+      memberships: [{ tenantId: claimed.tenantId, roles: [claimed.role] }],
+    });
+  } catch (error) {
+    await claimed.release();
+    if (error instanceof DuplicateKeyError) {
+      throw new AppError("CONFLICT", "An account with that email already exists");
+    }
+    throw error;
+  }
+
+  await createVerification({ id: userId, email }, deps);
+  await deps.emit({
+    tenantId: claimed.tenantId,
+    actorType: "customer",
+    actorId: userId,
+    action: "account.signup",
+    ok: true,
+    requestId: activityRequestId(requestId),
+    context: { method: "password" },
+  });
+  return { userId, tenantId: claimed.tenantId };
+}
+
+/**
  * AC1, AC2, AC4, AC5. Creates the account and the tenant it owns, materialising
  * the tier limits onto the tenant so entitlement checks (GRAFT-05) read one
  * document rather than joining against a constant.
@@ -251,9 +331,11 @@ export async function signup(
   const deps = resolve(overrides);
   // Parsed again here, not only at the route: the service is the boundary
   // that matters, and a future internal caller must meet the same contract.
-  const { email, password, businessName } = parse(signupSchema, input, "body");
+  const { email, password, businessName, inviteToken } = parse(signupSchema, input, "body");
 
-  const slug = slugify(businessName);
+  if (inviteToken) return signupViaInvite({ email, password, inviteToken }, deps, requestId);
+
+  const slug = slugify(businessName!);
   if (!slug) invalid("businessName", "Use at least one letter or number");
   if (isReservedSlug(slug!)) invalid("businessName", "That name is reserved");
 
@@ -271,7 +353,7 @@ export async function signup(
   let tenantId: string;
   try {
     tenantId = await deps.accounts.insertTenant({
-      name: businessName,
+      name: businessName!,
       slug: slug!,
       tier: SIGNUP_TIER,
       limits: limitsFor(SIGNUP_TIER),

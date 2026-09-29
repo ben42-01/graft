@@ -116,6 +116,13 @@ const IDS = {
   // untouched" has a workspace to look at. Premium first: login lands there.
   userPremiumAdmin: oid(84),
   userPremiumRemovable: oid(85),
+  // GRAFT-33.2 — three signed-in people who belong to no workspace but
+  // qa-platform (a Premium tenant, so their tokens spend a Premium api budget,
+  // not qa-free's) and so can accept an invite into qa-premium: one per
+  // bruno/team/accept*.bru, since accepting is single-use and permanent.
+  userInviteeAccept: oid(86),
+  userInviteeSingleUse: oid(87),
+  userInviteeWrongEmail: oid(88),
   entityBillingDowngrade: oid(25),
   entityFreeCustomers: oid(21),
   entityPremiumCustomers: oid(22),
@@ -564,6 +571,33 @@ async function main() {
           { tenantId: IDS.tenantPremium, roles: ["member"] },
           { tenantId: IDS.tenantFree, roles: ["member"] },
         ],
+        ...base,
+      },
+      {
+        _id: IDS.userInviteeAccept,
+        email: "invitee-accept@qa-platform.test",
+        name: "QA Invitee (accept)",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantPlatform, roles: ["member"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userInviteeSingleUse,
+        email: "invitee-single@qa-platform.test",
+        name: "QA Invitee (single use)",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantPlatform, roles: ["member"] }],
+        ...base,
+      },
+      {
+        _id: IDS.userInviteeWrongEmail,
+        email: "invitee-wrong@qa-platform.test",
+        name: "QA Invitee (wrong email)",
+        emailVerifiedAt: FIXED_DATE,
+        passwordHash,
+        memberships: [{ tenantId: IDS.tenantPlatform, roles: ["member"] }],
         ...base,
       },
     ]);
