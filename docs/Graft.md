@@ -230,6 +230,15 @@ booking config or one that takes payment by link.
 | Support | Community | Email | SLA + dedicated |
 | API / Webhooks | — | Limited | Full |
 
+### 5.1 Team seats (owner's view)
+
+Only the workspace **owner** manages the team, at **Account → Team** (`/account/team`).
+
+- **Seats** are shown as "used of limit". A member and a pending invite each hold one seat; Free has 1, Premium 15, Enterprise is unlimited. At the limit the "Invite someone" button gives way to an explanation and an upgrade link.
+- **Invite someone** creates a link — there is no email yet, so the owner sends it themselves. Pick a role, **Manager** or **Member** (a Manager is stored as the tenant role `admin` and has nothing to do with Graft Admin), and optionally an email that pins the link to one address. The link works once and expires in 7 days.
+- **The invitee** opens `/invite/<token>`, sees "Join <workspace> as <role>", and either logs in and joins, or creates an account (no business name asked) and lands in the inviting workspace.
+- **Revoke** a pending invite or **remove** a member from the same screen, each with a confirm step. The owner's own row can't be removed.
+
 ---
 
 ## 6. Tech Stack

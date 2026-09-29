@@ -26,6 +26,7 @@ import {
   ShieldCheckIcon,
   SunIcon,
   UserRoundIcon,
+  UsersIcon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
@@ -41,6 +42,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { PRIVACY_CONTACT_EMAIL } from "@/lib/legal/privacy";
+import { roleLabels } from "@/lib/role-labels";
 import { TIER_LABEL } from "@/lib/tier-copy";
 import { cn } from "@/lib/utils";
 import type { MeResponse } from "@/lib/session";
@@ -70,6 +72,14 @@ const ACCOUNT_ROWS: Row[] = [
     icon: ShieldCheckIcon,
   },
 ];
+
+/** Only the workspace owner manages the team, so only they are offered the row. */
+const TEAM_ROW: Row = {
+  href: "/account/team",
+  label: "Team",
+  description: "Invite people and manage seats",
+  icon: UsersIcon,
+};
 
 const SUPPORT_ROWS: Row[] = [
   {
@@ -197,9 +207,7 @@ export function UserMenu({ me, onLogOut }: { me: MeResponse; onLogOut: () => Pro
           <div className="flex items-center justify-between gap-3 rounded-md border bg-graft-green/[0.03] p-3">
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{me.tenant.name}</p>
-              <p className="truncate text-xs text-muted-foreground">
-                {roles.length > 0 ? roles.join(", ") : "member"}
-              </p>
+              <p className="truncate text-xs text-muted-foreground">{roleLabels(roles)}</p>
             </div>
             <span className="shrink-0 rounded-full border border-graft-green/40 bg-graft-green/10 px-2 py-0.5 text-xs font-medium text-graft-green dark:text-graft-green-light">
               {TIER_LABEL[tier] ?? me.tenant.tier}
@@ -208,7 +216,10 @@ export function UserMenu({ me, onLogOut }: { me: MeResponse; onLogOut: () => Pro
 
           <div className="flex flex-col gap-1">
             <SectionLabel>Settings</SectionLabel>
-            {ACCOUNT_ROWS.map((row) => (
+            {(roles.includes("owner")
+              ? [ACCOUNT_ROWS[0], TEAM_ROW, ...ACCOUNT_ROWS.slice(1)]
+              : ACCOUNT_ROWS
+            ).map((row) => (
               <MenuRow key={row.href} row={row} onNavigate={() => setOpen(false)} />
             ))}
           </div>

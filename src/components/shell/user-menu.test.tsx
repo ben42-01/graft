@@ -44,7 +44,7 @@ describe("UserMenu", () => {
 
     expect(screen.getByText("owner@example.test")).toBeInTheDocument();
     expect(screen.getByText("First Co")).toBeInTheDocument();
-    expect(screen.getByText("owner")).toBeInTheDocument();
+    expect(screen.getByText("Owner")).toBeInTheDocument();
     expect(screen.getByText("Free")).toBeInTheDocument();
   });
 
@@ -86,5 +86,23 @@ describe("UserMenu", () => {
 
     await waitFor(() => expect(onLogOut).toHaveBeenCalled());
     expect(replace).toHaveBeenCalledWith("/login");
+  });
+
+  it("offers the Team row to the owner only", async () => {
+    await openPanel();
+    expect(screen.getByRole("link", { name: /Team/ })).toHaveAttribute("href", "/account/team");
+  });
+
+  it("shows a tenant admin as Manager and offers no Team row", async () => {
+    const user = userEvent.setup();
+    const manager: MeResponse = {
+      ...ME,
+      memberships: [{ ...ME.memberships[0], roles: ["admin"] }],
+    };
+    render(<UserMenu me={manager} onLogOut={vi.fn()} />);
+    await user.click(screen.getByRole("button", { name: "Open user menu" }));
+
+    expect(screen.getByText("Manager")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Team/ })).not.toBeInTheDocument();
   });
 });
