@@ -1,0 +1,99 @@
+meta {
+  name: An invite is single use, and every dead token gets the same 404
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{baseUrl}}/api/v1/team/invites/accept
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamSingleJwt}}
+}
+
+body:json {
+  {
+    "token": "{{teamSingleToken}}"
+  }
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = async (email) =>
+    (await axios.post(`${baseUrl}/api/v1/auth/login`, {
+      email,
+      password: bru.getEnvVar("qaPassword"),
+    })).data.data.accessToken;
+  const owner = await login("owner@qa-premium.test");
+  const auth = { headers: { Authorization: `Bearer ${owner}` } };
+  const make = async () =>
+    (await axios.post(`${baseUrl}/api/v1/team/invites`, { role: "member" }, auth)).data.data;
+  const spent = await make();
+  const revoked = await make();
+  await axios.delete(`${baseUrl}/api/v1/team/invites/${revoked.invite.id}`, auth);
+  bru.setVar("teamSingleToken", spent.url.split("/invite/")[1]);
+  bru.setVar("teamRevokedToken", revoked.url.split("/invite/")[1]);
+  // Someone else, already signed in, holding no membership in qa-premium.
+  bru.setVar("teamSingleJwt", await login("invitee-single@qa-platform.test"));
+  bru.setVar("teamSingleOtherJwt", await login("invitee-accept@qa-platform.test"));
+}
+
+assert {
+  res.status: eq 200
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const accept = async (jwt, token) => {
+    const r = await axios.post(
+      `${baseUrl}/api/v1/team/invites/accept`,
+      { token },
+      { headers: { Authorization: `Bearer ${jwt}` }, validateStatus: () => true },
+    );
+    return { status: r.status, code: r.data?.error?.code, message: r.data?.error?.message };
+  };
+  bru.setVar(
+    "teamSingleAfter",
+    JSON.stringify({
+      again: await accept(bru.getVar("teamSingleJwt"), bru.getVar("teamSingleToken")),
+      byOther: await accept(bru.getVar("teamSingleOtherJwt"), bru.getVar("teamSingleToken")),
+      revoked: await accept(bru.getVar("teamSingleJwt"), bru.getVar("teamRevokedToken")),
+      unknown: await accept(bru.getVar("teamSingleJwt"), "u".repeat(43)),
+      garbage: await accept(bru.getVar("teamSingleJwt"), "not a token!"),
+    }),
+  );
+}
+
+tests {
+  const after = JSON.parse(bru.getVar("teamSingleAfter"));
+  const dead = ["again", "byOther", "revoked", "unknown", "garbage"];
+
+  test("AC2 — the first accept works", function () {
+    expect(res.getBody().data.role).to.equal("member");
+  });
+
+  test("AC2 — spent, revoked, unknown and malformed tokens are all 404 NOT_FOUND", function () {
+    for (const key of dead) {
+      expect(after[key].status, key).to.equal(404);
+      expect(after[key].code, key).to.equal("NOT_FOUND");
+    }
+  });
+
+  test("AC2 — the response never says which kind of dead it is", function () {
+    const messages = new Set(dead.map((key) => after[key].message));
+    expect(messages.size).to.equal(1);
+  });
+}
+
+docs {
+  AC2. Uses invitee-single@qa-platform.test for the accept and
+  invitee-accept@qa-platform.test as "anyone else" (their accept in
+  accept.bru already happened, so a second accept by them would be a 409 if
+  the token were alive — a 404 proves it is not).
+}

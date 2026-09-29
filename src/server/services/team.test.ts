@@ -10,17 +10,22 @@ import { ObjectId, type WithId } from "mongodb";
 import { describe, expect, it, vi } from "vitest";
 import { createContext, type Ctx, type Role } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
+import type { TenantRecord, UserRecord } from "@/server/auth/accounts-store";
 import type { Repository } from "@/server/repositories/base";
 import type { Entitlements } from "@/server/services/entitlements";
 import {
+  acceptInvite,
+  claimInvite,
   createInvite,
   getTeam,
   INVITE_TTL_MS,
   isPending,
+  previewInvite,
   removeMember,
   revokeInvite,
   seatsUsed,
   type InviteDoc,
+  type InviteStore,
   type TeamDeps,
   type TeamMember,
 } from "./team";
@@ -117,19 +122,75 @@ const MEMBERS: TeamMember[] = [
   { userId: MEMBER, email: "member@example.test", roles: ["member"] },
 ];
 
+const INVITEE = "00000000000000000000000e";
+const TENANT_RECORD = {
+  id: TENANT,
+  name: "Harbour Boats",
+  slug: "harbour-boats",
+  tier: "premium",
+  limits: {},
+  branding: null,
+} as unknown as TenantRecord;
+
+const userRecord = (fields: Partial<UserRecord> = {}): UserRecord => ({
+  id: INVITEE,
+  email: "new@example.test",
+  name: null,
+  passwordHash: null,
+  emailVerifiedAt: null,
+  memberships: [],
+  isPlatformAdmin: false,
+  ...fields,
+});
+
+/** The invite store over the same rows the repository fake holds. */
+function fakeInviteStore(docs: Row[]) {
+  const store = {
+    findByTokenHash: vi.fn(
+      async (hash: string) => docs.find((d) => d.tokenHash === hash) ?? null,
+    ),
+    pendingForTenant: vi.fn(async (_tid: ObjectId, now: Date) =>
+      docs.filter((d) => isPending(d, now)),
+    ),
+    claim: vi.fn(async (id: ObjectId, now: Date) => {
+      const row = docs.find((d) => d._id.equals(id) && d.acceptedAt === null);
+      if (!row) return false;
+      row.acceptedAt = now;
+      return true;
+    }),
+    release: vi.fn(async (id: ObjectId) => {
+      const row = docs.find((d) => d._id.equals(id));
+      if (row) row.acceptedAt = null;
+    }),
+  } satisfies InviteStore;
+  return store;
+}
+
+function fakeAccounts(user: UserRecord | null = userRecord()) {
+  return {
+    removeMembership: vi.fn(async () => true),
+    addMembership: vi.fn(async () => true),
+    findUserById: vi.fn(async () => user),
+    findTenantById: vi.fn(async (id: string) => (id === TENANT ? TENANT_RECORD : null)),
+  };
+}
+
 function deps(overrides: Partial<TeamDeps> = {}, rows: Row[] = []) {
   const invites = fakeInvites(rows);
-  const removeMembership = vi.fn(async () => true);
+  const accounts = fakeAccounts();
+  const removeMembership = accounts.removeMembership;
+  const inviteStore = fakeInviteStore(invites.docs);
   const d: Partial<TeamDeps> = {
     invites: invites.repo,
     members: { listMembers: async () => MEMBERS },
-    accounts: { removeMembership },
+    accounts,
+    inviteStore,
     entitlements: async () => entitlementsWith(15),
     appUrl: () => "https://app.example.test",
     now: () => NOW,
     ...overrides,
   };
-  return { d, docs: invites.docs, removeMembership };
+  return { d, docs: invites.docs, removeMembership, accounts, inviteStore };
 }
 
 const code = async (promise: Promise<unknown>) => {
@@ -336,7 +397,9 @@ describe("removeMember (AC7)", () => {
   });
 
   it("a membership that vanished between read and write is NOT_FOUND", async () => {
-    const { d } = deps({ accounts: { removeMembership: async () => false } });
+    const { d } = deps({
+      accounts: { ...fakeAccounts(), removeMembership: async () => false },
+    });
     expect(await code(removeMember(ctxAs("owner"), MEMBER, d))).toMatchObject({
       code: "NOT_FOUND",
     });
@@ -401,5 +464,212 @@ describe("default wiring", () => {
     );
     expect(url.startsWith("https://graft.example.test/invite/")).toBe(true);
     vi.unstubAllEnvs();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GRAFT-33.2 — the invitee's side
+// ---------------------------------------------------------------------------
+
+const TOKEN = "t".repeat(43);
+const sha = (value: string) => createHash("sha256").update(value).digest("hex");
+const pendingRow = (fields: Partial<InviteDoc> = {}) =>
+  invite({ tokenHash: sha(TOKEN), ...fields });
+const inviteeCtx = () => ctxAs("member", INVITEE);
+
+describe("acceptInvite", () => {
+  it("AC1 — adds the invite's own tenant and role, and marks it accepted", async () => {
+    const row = pendingRow({ role: "admin" });
+    const { d, accounts } = deps({}, [row]);
+    const result = await acceptInvite(inviteeCtx(), { token: TOKEN }, d);
+    expect(result).toEqual({ tenantId: TENANT, tenantSlug: "harbour-boats", role: "admin" });
+    expect(accounts.addMembership).toHaveBeenCalledWith(INVITEE, TENANT, ["admin"]);
+    expect(row.acceptedAt).toEqual(NOW);
+  });
+
+  it("cross-tenant — a tenantId named in the body is never used", async () => {
+    const { d, accounts } = deps({}, [pendingRow()]);
+    const other = new ObjectId().toHexString();
+    await acceptInvite(inviteeCtx(), { token: TOKEN, tenantId: other, role: "owner" }, d);
+    expect(accounts.addMembership).toHaveBeenCalledWith(INVITEE, TENANT, ["member"]);
+  });
+
+  it("AC2 — the same token twice: the second is NOT_FOUND", async () => {
+    const { d } = deps({}, [pendingRow()]);
+    await acceptInvite(inviteeCtx(), { token: TOKEN }, d);
+    expect(await code(acceptInvite(inviteeCtx(), { token: TOKEN }, d))).toMatchObject({
+      code: "NOT_FOUND",
+    });
+  });
+
+  it.each([
+    ["unknown", undefined],
+    ["expired", { expiresAt: new Date(NOW.getTime() - 1) }],
+    ["revoked", { revokedAt: NOW }],
+  ])("AC2 — a %s token is NOT_FOUND, with the one message", async (_name, fields) => {
+    const rows = fields ? [pendingRow(fields)] : [];
+    const { d, accounts } = deps({}, rows);
+    const error = await code(acceptInvite(inviteeCtx(), { token: TOKEN }, d));
+    expect(error).toMatchObject({ code: "NOT_FOUND" });
+    expect(accounts.addMembership).not.toHaveBeenCalled();
+  });
+
+  it("a body without a token is VALIDATION_FAILED", async () => {
+    const { d } = deps();
+    expect(await code(acceptInvite(inviteeCtx(), {}, d))).toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+  });
+
+  it("AC3 — a bound email that differs is FORBIDDEN and the invite stays pending", async () => {
+    const row = pendingRow({ email: "someone.else@example.test" });
+    const { d, accounts } = deps({}, [row]);
+    expect(await code(acceptInvite(inviteeCtx(), { token: TOKEN }, d))).toMatchObject({
+      code: "FORBIDDEN",
+    });
+    expect(row.acceptedAt).toBeNull();
+    expect(accounts.addMembership).not.toHaveBeenCalled();
+  });
+
+  it("AC3 — the email comparison ignores case", async () => {
+    const { d } = deps({}, [pendingRow({ email: "new@example.test" })]);
+    d.accounts = fakeAccounts(userRecord({ email: "New@Example.TEST" }));
+    expect(await acceptInvite(inviteeCtx(), { token: TOKEN }, d)).toMatchObject({
+      tenantId: TENANT,
+    });
+  });
+
+  it("AC4 — an existing member is CONFLICT; roles unchanged, invite pending", async () => {
+    const row = pendingRow({ role: "admin" });
+    const { d } = deps({}, [row]);
+    const member = userRecord({ memberships: [{ tenantId: TENANT, roles: ["member"] }] });
+    d.accounts = fakeAccounts(member);
+    expect(await code(acceptInvite(inviteeCtx(), { token: TOKEN }, d))).toMatchObject({
+      code: "CONFLICT",
+    });
+    expect(d.accounts.addMembership).not.toHaveBeenCalled();
+    expect(row.acceptedAt).toBeNull();
+  });
+
+  it("AC5 — over the seat limit is QUOTA_EXCEEDED on seats, and nothing changes", async () => {
+    const row = pendingRow();
+    // 2 members + this pending invite on a 2-seat plan: the invite's own seat
+    // is not counted, so 2 >= 2 refuses.
+    const { d, accounts } = deps({ entitlements: async () => entitlementsWith(2) }, [row]);
+    const error = await code(acceptInvite(inviteeCtx(), { token: TOKEN }, d));
+    expect(error).toMatchObject({
+      code: "QUOTA_EXCEEDED",
+      details: { meter: "seats", limit: 2, used: 2 },
+    });
+    expect(row.acceptedAt).toBeNull();
+    expect(accounts.addMembership).not.toHaveBeenCalled();
+  });
+
+  it("AC5 — the invite's own seat is not double counted at the limit", async () => {
+    const { d } = deps({ entitlements: async () => entitlementsWith(3) }, [pendingRow()]);
+    expect(await acceptInvite(inviteeCtx(), { token: TOKEN }, d)).toMatchObject({
+      tenantId: TENANT,
+    });
+  });
+
+  it("AC5 — other pending invites do hold seats", async () => {
+    const other = invite({ tokenHash: sha("other") });
+    const { d } = deps({ entitlements: async () => entitlementsWith(3) }, [
+      pendingRow(),
+      other,
+    ]);
+    expect(await code(acceptInvite(inviteeCtx(), { token: TOKEN }, d))).toMatchObject({
+      code: "QUOTA_EXCEEDED",
+    });
+  });
+
+  it("AC8 — a failed membership write releases the claim", async () => {
+    const row = pendingRow();
+    const { d, inviteStore } = deps({}, [row]);
+    d.accounts = {
+      ...fakeAccounts(),
+      addMembership: vi.fn(async () => {
+        throw new Error("mongo went away");
+      }),
+    };
+    await expect(acceptInvite(inviteeCtx(), { token: TOKEN }, d)).rejects.toThrow("mongo");
+    expect(inviteStore.claim).toHaveBeenCalledOnce();
+    expect(inviteStore.release).toHaveBeenCalledOnce();
+    expect(row.acceptedAt).toBeNull();
+  });
+
+  it("AC8 — losing the atomic claim to a racing accept is NOT_FOUND, with no membership", async () => {
+    const { d, accounts, inviteStore } = deps({}, [pendingRow()]);
+    inviteStore.claim.mockResolvedValueOnce(false);
+    expect(await code(acceptInvite(inviteeCtx(), { token: TOKEN }, d))).toMatchObject({
+      code: "NOT_FOUND",
+    });
+    expect(accounts.addMembership).not.toHaveBeenCalled();
+  });
+
+  it("AC8 — the membership is added only after the claim", async () => {
+    const { d, accounts, inviteStore } = deps({}, [pendingRow()]);
+    await acceptInvite(inviteeCtx(), { token: TOKEN }, d);
+    expect(inviteStore.claim.mock.invocationCallOrder[0]).toBeLessThan(
+      accounts.addMembership.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("a missing user is UNAUTHORIZED", async () => {
+    const { d } = deps({}, [pendingRow()]);
+    d.accounts = fakeAccounts(null);
+    expect(await code(acceptInvite(inviteeCtx(), { token: TOKEN }, d))).toMatchObject({
+      code: "UNAUTHORIZED",
+    });
+  });
+});
+
+describe("claimInvite (signup path)", () => {
+  it("claims for a person with no memberships and hands back an undo", async () => {
+    const row = pendingRow();
+    const { d } = deps({}, [row]);
+    const claimed = await claimInvite(
+      TOKEN,
+      { email: "fresh@example.test", memberships: [] },
+      d,
+    );
+    expect(claimed).toMatchObject({ tenantId: TENANT, role: "member" });
+    expect(row.acceptedAt).toEqual(NOW);
+    await claimed.release();
+    expect(row.acceptedAt).toBeNull();
+  });
+});
+
+describe("previewInvite (AC7)", () => {
+  it("returns workspace name and role, plus the email only when bound", async () => {
+    const { d } = deps({}, [pendingRow()]);
+    expect(await previewInvite(TOKEN, d)).toEqual({
+      workspaceName: "Harbour Boats",
+      role: "member",
+    });
+    const bound = deps({}, [pendingRow({ email: "new@example.test" })]);
+    expect(await previewInvite(TOKEN, bound.d)).toEqual({
+      workspaceName: "Harbour Boats",
+      role: "member",
+      email: "new@example.test",
+    });
+  });
+
+  it("is NOT_FOUND for unknown, expired, revoked and accepted alike", async () => {
+    for (const fields of [
+      { expiresAt: new Date(NOW.getTime() - 1) },
+      { revokedAt: NOW },
+      { acceptedAt: NOW },
+    ]) {
+      const { d } = deps({}, [pendingRow(fields)]);
+      expect(await code(previewInvite(TOKEN, d))).toMatchObject({ code: "NOT_FOUND" });
+    }
+    expect(await code(previewInvite("nope", deps().d))).toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("does not consume the invite", async () => {
+    const row = pendingRow();
+    await previewInvite(TOKEN, deps({}, [row]).d);
+    expect(row.acceptedAt).toBeNull();
   });
 });

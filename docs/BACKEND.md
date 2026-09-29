@@ -78,6 +78,20 @@
 - **Seat arithmetic.** `used` = this tenant's members + its pending invites. An invite is pending while it is unexpired, unrevoked and unaccepted. `limit` is the resolved `seats` entitlement (`null` is unlimited). Creating an invite when `used >= limit` is refused with `QUOTA_EXCEEDED` (`details: { meter: "seats", limit, used, reason }`), the same shape as every other quota refusal. On Free (1 seat) the first invite is refused. Seats are counted, not metered, so no `usage_meters` row exists for them.
 - Members live on the global `users` collection, so `src/server/services/team.ts` reads them through its own store. That store is filtered by `ctx.tenantId` and projects only email and memberships. Invites go through the tenant-scoped repository.
 
+#### Team — accepting an invite (GRAFT-33.2)
+
+| Endpoint | Result |
+| --- | --- |
+| `POST /api/v1/team/invites/accept` `{ token }` (authenticated) | `200 { tenantId, tenantSlug, role }`. Adds the invite's own `{ tenantId, roles: [role] }` membership to the caller and marks the invite accepted. Any `tenantId` or `role` in the body is ignored. Then `POST /auth/switch-tenant` to that tenant. |
+| `GET /api/v1/public/invites/:token` (unauthenticated) | `200 { workspaceName, role, email? }` (`email` only when the invite is bound to one). Rate limited on the ip-keyed public scopes. |
+| `POST /api/v1/auth/signup` `{ email, password, inviteToken }` | With a valid `inviteToken`, `businessName` is not needed and is ignored. The user's **only** membership is the invited one: no tenant is created and no trial starts. Returns `201 { userId, tenantId }` with the invited tenant's id. An invalid token is `400 VALIDATION_FAILED` on `inviteToken` and nothing is created. |
+
+- **One answer for a dead link.** Unknown, malformed, expired, revoked and already-accepted tokens are all `404 NOT_FOUND` "Invite not found". Nothing says which.
+- **Order of refusals on accept.** Not pending `404`, then a bound `email` that differs from the caller's (case-insensitive) `403 FORBIDDEN`, then the caller already being a member of that tenant `409 CONFLICT` (an invite can't change an existing member's roles), then the seat re-check. A refusal leaves the invite pending.
+- **Seat re-check at accept time.** The tenant's members plus its *other* pending invites (the invite being accepted already holds its own seat) against the current `seats` entitlement, so a workspace downgraded since the invite was made refuses with `QUOTA_EXCEEDED` (`details.meter: "seats"`). `QUOTA_EXCEEDED` is a `403` like every other quota refusal. Signup through an invite runs the same check.
+- **Atomic.** The invite is claimed first with one conditional update (`acceptedAt: null` and unexpired and unrevoked), so two simultaneous accepts cannot both win. The membership is added second, with `$ne` on the tenant so it can never duplicate. If that write fails the claim is released. A crash between the two leaves an accepted invite and no membership: an unusable token, never a usable one.
+- Tokens are looked up by SHA-256 hash only (the unique `invites.tokenHash` index) and never logged. The lookup is global because the invitee has no tenant yet, and the tenant comes out of the invite row, never out of the request.
+
 #### Platform admin — a second boundary, not a role (GRAFT-27.1)
 
 `/api/v1/admin/*` is authorised by `assertPlatformAdmin(ctx, …)`

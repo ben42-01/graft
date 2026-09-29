@@ -1,0 +1,77 @@
+meta {
+  name: An existing member cannot use an invite to change their role
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/v1/team/invites/accept
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamMemberJwt}}
+}
+
+body:json {
+  {
+    "token": "{{teamMemberToken}}"
+  }
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = async (email) =>
+    (await axios.post(`${baseUrl}/api/v1/auth/login`, {
+      email,
+      password: bru.getEnvVar("qaPassword"),
+    })).data.data.accessToken;
+  const owner = await login("owner@qa-premium.test");
+  // An `admin` invite, offered to someone who is already a `member` here.
+  const made = await axios.post(
+    `${baseUrl}/api/v1/team/invites`,
+    { role: "admin" },
+    { headers: { Authorization: `Bearer ${owner}` } },
+  );
+  bru.setVar("teamMemberToken", made.data.data.url.split("/invite/")[1]);
+  bru.setVar("teamMemberInviteId", made.data.data.invite.id);
+  bru.setVar("teamMemberOwner", owner);
+  bru.setVar("teamMemberJwt", await login("member@qa-premium.test"));
+}
+
+assert {
+  res.status: eq 409
+  res.body.error.code: eq CONFLICT
+  res.body.data: isUndefined
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const team = await axios.get(`${baseUrl}/api/v1/team`, {
+    headers: { Authorization: `Bearer ${bru.getVar("teamMemberOwner")}` },
+  });
+  bru.setVar(
+    "teamMemberAfter",
+    JSON.stringify({
+      pending: team.data.data.invites.map((i) => i.id),
+      roles: team.data.data.members
+        .filter((m) => m.email === "member@qa-premium.test")
+        .map((m) => m.roles),
+    }),
+  );
+}
+
+tests {
+  const after = JSON.parse(bru.getVar("teamMemberAfter"));
+
+  test("AC4 — the invite stays pending", function () {
+    expect(after.pending).to.include(bru.getVar("teamMemberInviteId"));
+  });
+
+  test("AC4 — their roles are unchanged", function () {
+    expect(after.roles).to.eql([["member"]]);
+  });
+}

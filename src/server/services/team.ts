@@ -1,6 +1,7 @@
 /**
- * The owner's side of a team (GRAFT-33.1): invite links, the member list, and
- * removing people. Accepting an invite is GRAFT-33.2.
+ * A team (GRAFT-33.1, 33.2): the owner's invite links, member list and removals,
+ * and the other end of a link — previewing it, accepting it, or signing up
+ * through it.
  *
  *   - **Owner only, checked first.** Every function here refuses an `admin` or
  *     `member` with FORBIDDEN before it parses input or reads anything (AC4).
@@ -24,13 +25,18 @@ import { createHash, randomBytes } from "node:crypto";
 import { ObjectId, type WithId } from "mongodb";
 import { z } from "zod";
 import { env } from "@/env";
-import { ROLES, type Ctx, type Role } from "@/server/context";
+import { createContext, ROLES, type Ctx, type Role } from "@/server/context";
 import { getDb } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
 import { createRepository, type Repository } from "@/server/repositories/base";
-import { mongoAccountStore, type AccountStore } from "@/server/auth/accounts-store";
+import {
+  mongoAccountStore,
+  type AccountStore,
+  type Membership,
+  type TenantRecord,
+} from "@/server/auth/accounts-store";
 import { limitFor, loadEntitlements, type Entitlements } from "./entitlements";
 
 export const INVITE_ROLES = ["admin", "member"] as const;
@@ -80,11 +86,59 @@ export type MemberStore = { listMembers(tenantId: string): Promise<TeamMember[]>
 export type TeamDeps = {
   invites: Repository<InviteDoc>;
   members: MemberStore;
-  accounts: Pick<AccountStore, "removeMembership">;
+  accounts: Pick<
+    AccountStore,
+    "removeMembership" | "addMembership" | "findUserById" | "findTenantById"
+  >;
+  /** GRAFT-33.2 — lookups by token hash, before there is a tenant to scope by. */
+  inviteStore: InviteStore;
   entitlements: (ctx: Ctx) => Promise<Entitlements>;
   appUrl: () => string;
   now: () => Date;
 };
+
+export type InviteRow = WithId<InviteDoc>;
+
+/**
+ * The one place invites are read without a tenant. The invitee has no session
+ * in the tenant yet, so the lookup is by `tokenHash` (unique index) and the
+ * tenant comes *out* of the row — never from the request. Everything else
+ * about invites still goes through the tenant-scoped repository.
+ */
+export type InviteStore = {
+  findByTokenHash(tokenHash: string): Promise<InviteRow | null>;
+  pendingForTenant(tenantId: ObjectId, now: Date): Promise<InviteRow[]>;
+  /** Atomically pending → accepted. False means someone else got there first. */
+  claim(id: ObjectId, now: Date): Promise<boolean>;
+  /** The compensating undo for `claim`. */
+  release(id: ObjectId): Promise<void>;
+};
+
+export function mongoInviteStore(): InviteStore {
+  const invites = async () => (await getDb()).collection<InviteDoc>("invites");
+  return {
+    async findByTokenHash(tokenHash) {
+      return (await invites()).findOne({ tokenHash });
+    },
+    async pendingForTenant(tenantId, now) {
+      return (await invites())
+        .find({ tenantId, acceptedAt: null, revokedAt: null, expiresAt: { $gt: now } })
+        .toArray();
+    },
+    async claim(id, now) {
+      const result = await (
+        await invites()
+      ).updateOne(
+        { _id: id, acceptedAt: null, revokedAt: null, expiresAt: { $gt: now } },
+        { $set: { acceptedAt: now } },
+      );
+      return result.modifiedCount > 0;
+    },
+    async release(id) {
+      await (await invites()).updateOne({ _id: id }, { $set: { acceptedAt: null } });
+    },
+  };
+}
 
 type UserDoc = {
   _id: ObjectId;
@@ -123,6 +177,7 @@ function resolveDeps(overrides: Partial<TeamDeps> = {}): TeamDeps {
     invites: overrides.invites ?? defaultInvites,
     members: overrides.members ?? mongoMemberStore(),
     accounts: overrides.accounts ?? mongoAccountStore(),
+    inviteStore: overrides.inviteStore ?? mongoInviteStore(),
     entitlements: overrides.entitlements ?? loadEntitlements,
     appUrl: overrides.appUrl ?? (() => env().APP_URL),
     now: overrides.now ?? (() => new Date()),
@@ -274,4 +329,143 @@ export async function removeMember(
     tenantId: ctx.tenantId,
     userId: ctx.userId,
   });
+}
+
+// ---------------------------------------------------------------------------
+// The invitee's side (GRAFT-33.2)
+// ---------------------------------------------------------------------------
+
+/** Body of `POST /team/invites/accept`. Anything else in it is ignored. */
+export const acceptInviteSchema = z.object({ token: z.string().max(256) });
+
+const hashInviteToken = (token: string) => createHash("sha256").update(token).digest("hex");
+
+/** AC2 — one answer for unknown, expired, revoked and already used. */
+const inviteNotFound = () => new AppError("NOT_FOUND", "Invite not found");
+
+/** Unknown, expired, revoked and spent all read as "not there" (AC2, AC7). */
+async function findPendingInvite(
+  token: string,
+  deps: TeamDeps,
+  now: Date,
+): Promise<{ invite: InviteRow; tenant: TenantRecord }> {
+  const invite = await deps.inviteStore.findByTokenHash(hashInviteToken(token));
+  if (!invite || !isPending(invite, now)) throw inviteNotFound();
+  const tenant = await deps.accounts.findTenantById(invite.tenantId.toHexString());
+  if (!tenant) throw inviteNotFound();
+  return { invite, tenant };
+}
+
+/** AC7 — what the landing page needs to say "Join Harbour Boats as a Member". */
+export async function previewInvite(
+  token: string,
+  overrides: Partial<TeamDeps> = {},
+): Promise<{ workspaceName: string; role: InviteRole; email?: string }> {
+  const deps = resolveDeps(overrides);
+  const { invite, tenant } = await findPendingInvite(token, deps, deps.now());
+  return {
+    workspaceName: tenant.name,
+    role: invite.role,
+    ...(invite.email ? { email: invite.email } : {}),
+  };
+}
+
+export type ClaimedInvite = {
+  tenantId: string;
+  tenantSlug: string;
+  role: InviteRole;
+  /** Undo the claim when what should follow it fails (AC8). */
+  release: () => Promise<void>;
+};
+
+/**
+ * AC1–AC5, AC8 — the shared front half of accepting and of signing up through
+ * a link. Order matters and is the contract's: not-pending 404, then bound
+ * email 403, then already-a-member 409, then the seat re-check 402, and only
+ * then the claim. Nothing is written until every refusal has been passed, and
+ * the claim itself is atomic, so two people racing one link cannot both win.
+ *
+ * The claim comes *before* the membership is added: a crash in between leaves
+ * an accepted invite with no membership — an unusable token — never a usable
+ * token behind a granted seat. The caller undoes the claim if its own write
+ * fails.
+ */
+export async function claimInvite(
+  token: string,
+  subject: { email: string; userId?: string; memberships: Membership[] },
+  overrides: Partial<TeamDeps> = {},
+): Promise<ClaimedInvite> {
+  const deps = resolveDeps(overrides);
+  const now = deps.now();
+  const { invite, tenant } = await findPendingInvite(token, deps, now);
+
+  if (invite.email && invite.email.toLowerCase() !== subject.email.trim().toLowerCase()) {
+    throw new AppError("FORBIDDEN", "This invite was sent to a different email address");
+  }
+  if (subject.memberships.some((m) => m.tenantId === tenant.id)) {
+    throw new AppError("CONFLICT", "You are already a member of this workspace");
+  }
+
+  // The invite being claimed holds a seat itself, so it is not counted twice.
+  const ctx = createContext({
+    requestId: "team.invite_accept",
+    tenantId: tenant.id,
+    userId: subject.userId ?? invite.createdBy.toHexString(),
+    roles: [invite.role],
+    tier: tenant.tier,
+  });
+  const [members, pending, entitlements] = await Promise.all([
+    deps.members.listMembers(tenant.id),
+    deps.inviteStore.pendingForTenant(invite.tenantId, now),
+    deps.entitlements(ctx),
+  ]);
+  const limit = limitFor(entitlements, "seats");
+  const used = members.length + pending.filter((p) => !p._id.equals(invite._id)).length;
+  if (limit !== null && used >= limit) {
+    throw new AppError(
+      "QUOTA_EXCEEDED",
+      "This workspace has no free seat left. Ask its owner to make room.",
+      { meter: "seats", limit, used, reason: "quota_exceeded" },
+    );
+  }
+
+  if (!(await deps.inviteStore.claim(invite._id, now))) throw inviteNotFound();
+  return {
+    tenantId: tenant.id,
+    tenantSlug: tenant.slug,
+    role: invite.role,
+    release: () => deps.inviteStore.release(invite._id),
+  };
+}
+
+/** AC1–AC5, AC8 — a signed-in user takes the seat the link offers. */
+export async function acceptInvite(
+  ctx: Ctx,
+  input: unknown,
+  overrides: Partial<TeamDeps> = {},
+): Promise<{ tenantId: string; tenantSlug: string; role: InviteRole }> {
+  const { token } = parse(acceptInviteSchema, input, "body");
+  const deps = resolveDeps(overrides);
+  const user = await deps.accounts.findUserById(ctx.userId);
+  if (!user) throw new AppError("UNAUTHORIZED", "Invalid request context");
+
+  const claimed = await claimInvite(
+    token,
+    { email: user.email, userId: user.id, memberships: user.memberships },
+    overrides,
+  );
+  try {
+    // The invite's own tenant and role — nothing from the request body.
+    if (!(await deps.accounts.addMembership(user.id, claimed.tenantId, [claimed.role]))) {
+      throw new AppError("CONFLICT", "You are already a member of this workspace");
+    }
+  } catch (error) {
+    await claimed.release();
+    throw error;
+  }
+  createLogger({ requestId: ctx.requestId }).info("team.invite_accepted", {
+    tenantId: claimed.tenantId,
+    userId: user.id,
+  });
+  return { tenantId: claimed.tenantId, tenantSlug: claimed.tenantSlug, role: claimed.role };
 }

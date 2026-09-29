@@ -111,6 +111,13 @@ export type AccountStore = {
    * so the removed session dies at its next rotation.
    */
   removeMembership(userId: string, tenantId: string): Promise<boolean>;
+  /**
+   * GRAFT-33.2 — add one tenant membership to an existing user. False when the
+   * user is missing or already belongs to that tenant: the filter refuses a
+   * second entry, so an invite can neither duplicate a membership nor change
+   * the roles of one that exists. Who may be added is team.ts's decision.
+   */
+  addMembership(userId: string, tenantId: string, roles: Role[]): Promise<boolean>;
 };
 
 export const VERIFICATION_COLLECTION = "email_verification_tokens";
@@ -326,6 +333,21 @@ export function mongoAccountStore(): AccountStore {
       const result = await users.updateOne(
         { _id, "memberships.tenantId": tid },
         { $pull: { memberships: { tenantId: tid } }, $set: { updatedAt: new Date() } },
+      );
+      return result.modifiedCount > 0;
+    },
+
+    async addMembership(userId, tenantId, roles) {
+      const _id = safeOid(userId);
+      const tid = safeOid(tenantId);
+      if (!_id || !tid) return false;
+      const { users } = await collections();
+      const result = await users.updateOne(
+        { _id, "memberships.tenantId": { $ne: tid } },
+        {
+          $push: { memberships: { tenantId: tid, roles: [...roles] } },
+          $set: { updatedAt: new Date() },
+        },
       );
       return result.modifiedCount > 0;
     },
