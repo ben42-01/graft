@@ -1,0 +1,49 @@
+meta {
+  name: On Free the very first invite is refused at the seat limit
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/team/invites
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamFreeOwnerToken}}
+}
+
+body:json {
+  {
+    "role": "member"
+  }
+}
+
+script:pre-request {
+  // qa-at-quota is a Free workspace (seats: 1) with only its owner. Not
+  // qa-free: that tenant's api budget is spent in full by the rest of the
+  // suite, and its seat is already over-filled by older fixtures.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-at-quota.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  bru.setVar("teamFreeOwnerToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq QUOTA_EXCEEDED
+  res.body.error.details.meter: eq seats
+  res.body.error.details.limit: eq 1
+  res.body.error.details.used: eq 1
+  res.body.data: isUndefined
+}
+
+docs {
+  AC3. Same code and details shape as every other quota refusal
+  (`consumeQuota` in src/server/services/meters.ts), so the status is that
+  code's 403 (src/server/http/envelope.ts STATUS_FOR_CODE).
+}

@@ -103,6 +103,14 @@ export type AccountStore = {
   insertVerificationToken(token: VerificationToken): Promise<void>;
   /** Atomically unused → used. Null means unknown, expired, or already spent. */
   claimVerificationToken(tokenHash: string, now: Date): Promise<{ userId: string } | null>;
+  /**
+   * GRAFT-33.1 — drop one tenant's membership from a user, leaving every other
+   * workspace they belong to untouched. False when there was nothing to drop.
+   * Who may do this is src/server/services/team.ts's decision; this only does
+   * it. The identity store re-reads memberships on every refresh (./stores.ts),
+   * so the removed session dies at its next rotation.
+   */
+  removeMembership(userId: string, tenantId: string): Promise<boolean>;
 };
 
 export const VERIFICATION_COLLECTION = "email_verification_tokens";
@@ -308,6 +316,18 @@ export function mongoAccountStore(): AccountStore {
         { returnDocument: "before" },
       );
       return doc ? { userId: doc.userId.toHexString() } : null;
+    },
+
+    async removeMembership(userId, tenantId) {
+      const _id = safeOid(userId);
+      const tid = safeOid(tenantId);
+      if (!_id || !tid) return false;
+      const { users } = await collections();
+      const result = await users.updateOne(
+        { _id, "memberships.tenantId": tid },
+        { $pull: { memberships: { tenantId: tid } }, $set: { updatedAt: new Date() } },
+      );
+      return result.modifiedCount > 0;
     },
   };
 }

@@ -1,0 +1,81 @@
+meta {
+  name: Another workspace's owner cannot see or touch this team
+  type: http
+  seq: 8
+}
+
+get {
+  url: {{baseUrl}}/api/v1/team
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamOtherOwnerToken}}
+}
+
+script:pre-request {
+  // Tenant A is qa-premium; tenant B is qa-platform, whose owner is an
+  // ordinary tenant owner (no platform flag) on a Premium budget.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const a = { headers: { Authorization: `Bearer ${bru.getVar("teamOwnerToken")}` } };
+  const pending = await axios.post(
+    `${baseUrl}/api/v1/team/invites`,
+    { role: "member", email: "isolation@qa-premium.test" },
+    a,
+  );
+  bru.setVar("teamIsolationInviteId", pending.data.data.invite.id);
+
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-platform.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const token = login.data.data.accessToken;
+  bru.setVar("teamOtherOwnerToken", token);
+  const b = { headers: { Authorization: `Bearer ${token}` }, validateStatus: () => true };
+  const revoke = await axios.delete(
+    `${baseUrl}/api/v1/team/invites/${pending.data.data.invite.id}`,
+    b,
+  );
+  const remove = await axios.delete(
+    `${baseUrl}/api/v1/team/members/00000000000000000000000d`,
+    b,
+  );
+  const stillA = await axios.get(`${baseUrl}/api/v1/team`, a);
+  bru.setVar(
+    "teamIsolation",
+    JSON.stringify({
+      revoke: `${revoke.status} ${revoke.data?.error?.code}`,
+      remove: `${remove.status} ${remove.data?.error?.code}`,
+      aInvites: stillA.data.data.invites.map((i) => i.id),
+      aMembers: stillA.data.data.members.map((m) => m.userId),
+    }),
+  );
+}
+
+assert {
+  res.status: eq 200
+  res.body.error: isUndefined
+}
+
+tests {
+  const isolation = JSON.parse(bru.getVar("teamIsolation"));
+  const body = JSON.stringify(res.getBody());
+
+  test("AC8 — B revoking A's invite is 404, and A's invite survives", function () {
+    expect(isolation.revoke).to.equal("404 NOT_FOUND");
+    expect(isolation.aInvites).to.include(bru.getVar("teamIsolationInviteId"));
+  });
+
+  test("AC8 — B removing A's member is 404, and A's member survives", function () {
+    expect(isolation.remove).to.equal("404 NOT_FOUND");
+    expect(isolation.aMembers).to.include("00000000000000000000000d");
+  });
+
+  test("AC8 — B's list never shows A's members or invites", function () {
+    expect(body).to.not.contain("qa-premium.test");
+    expect(body).to.not.contain(bru.getVar("teamIsolationInviteId"));
+    expect(res.getBody().data.members.map((m) => m.email)).to.include("owner@qa-platform.test");
+  });
+}

@@ -1,0 +1,105 @@
+meta {
+  name: Removing a member ends their seat here and nowhere else
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{baseUrl}}/api/v1/team/members/000000000000000000000055
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamOwnerToken}}
+}
+
+script:pre-request {
+  // removable@qa-premium.test belongs to qa-premium (first, so login lands
+  // there) and qa-free. Its refresh cookie is taken before the removal so the
+  // post-response script can prove the premium session dies at rotation.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "removable@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const cookies = [].concat(login.headers["set-cookie"] || []);
+  bru.setVar(
+    "teamRemovedRefresh",
+    cookies.find((c) => c.startsWith("graft_refresh=")).split(";")[0],
+  );
+  const auth = { headers: { Authorization: `Bearer ${bru.getVar("teamOwnerToken")}` } };
+  const before = await axios.get(`${baseUrl}/api/v1/team`, auth);
+  bru.setVar("teamUsedBeforeRemove", before.data.data.seats.used);
+}
+
+assert {
+  res.status: eq 204
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const owner = {
+    headers: { Authorization: `Bearer ${bru.getVar("teamOwnerToken")}` },
+    validateStatus: () => true,
+  };
+  const refresh = await axios.post(`${baseUrl}/api/v1/auth/refresh`, null, {
+    headers: { Cookie: bru.getVar("teamRemovedRefresh") },
+    validateStatus: () => true,
+  });
+  // Their remaining memberships, read through the platform-admin console
+  // rather than their own /me: after removal they land in qa-free, whose api
+  // budget the rest of the suite has already spent.
+  const admin = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "platform-admin@qa.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const found = await axios.get(`${baseUrl}/api/v1/admin/users?q=removable@qa-premium`, {
+    headers: { Authorization: `Bearer ${admin.data.data.accessToken}` },
+  });
+  const team = await axios.get(`${baseUrl}/api/v1/team`, owner);
+  const self = await axios.delete(`${baseUrl}/api/v1/team/members/00000000000000000000000c`, owner);
+  const stranger = await axios.delete(
+    `${baseUrl}/api/v1/team/members/00000000000000000000000b`,
+    owner,
+  );
+  bru.setVar(
+    "teamRemoveAfter",
+    JSON.stringify({
+      refresh: `${refresh.status} ${refresh.data?.error?.code}`,
+      memberships: found.data.data[0].memberships.map((m) => `${m.tenantId} ${m.roles}`),
+      memberIds: team.data.data.members.map((m) => m.userId),
+      used: team.data.data.seats.used,
+      self: `${self.status} ${self.data?.error?.code}`,
+      stranger: `${stranger.status} ${stranger.data?.error?.code}`,
+    }),
+  );
+}
+
+tests {
+  const after = JSON.parse(bru.getVar("teamRemoveAfter"));
+
+  test("AC7 — they are gone from this team and their seat is free", function () {
+    expect(after.memberIds).to.not.include("000000000000000000000055");
+    expect(after.used).to.equal(Number(bru.getVar("teamUsedBeforeRemove")) - 1);
+  });
+
+  test("AC7 — their next refresh for this tenant fails", function () {
+    expect(after.refresh).to.equal("401 UNAUTHORIZED");
+  });
+
+  test("AC7 — their other workspace is untouched", function () {
+    expect(after.memberships).to.eql(["000000000000000000000001 member"]);
+  });
+
+  test("AC7 — the owner cannot remove themselves", function () {
+    expect(after.self).to.equal("400 VALIDATION_FAILED");
+  });
+
+  test("AC7 — someone who is not a member here is 404", function () {
+    // qa-free's owner: a real user, just not in this workspace.
+    expect(after.stranger).to.equal("404 NOT_FOUND");
+  });
+}

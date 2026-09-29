@@ -187,6 +187,14 @@ const INDEXES: IndexDef[] = [
     keys: { expiresAt: 1 },
     options: { expireAfterSeconds: 60 * 60 * 24 },
   },
+
+  // Team invites (GRAFT-33.1). Accepting looks an invite up by hash alone —
+  // the invitee has no session in the tenant yet — so, as with verification
+  // tokens, one presented token must never match two rows. The owner's list
+  // and the seat count read by tenant. No TTL: an expired or revoked invite is
+  // history the owner may still want to see, and it holds no seat.
+  { collection: "invites", keys: { tokenHash: 1 }, options: { unique: true } },
+  { collection: "invites", keys: { tenantId: 1 } },
 ];
 
 async function main() {

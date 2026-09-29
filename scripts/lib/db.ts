@@ -74,6 +74,9 @@ export const COLLECTIONS = [
   // that inherited yesterday's rows would make "exactly one row was appended"
   // untestable, same reasoning as admin_audit_log above.
   "activities",
+  // Team invite links (GRAFT-33.1). Hashes only, same as the token collections
+  // above; listed so a reset clears them and the QA emptiness check covers them.
+  "invites",
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];

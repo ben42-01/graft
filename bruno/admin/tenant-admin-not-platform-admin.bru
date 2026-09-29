@@ -1,0 +1,41 @@
+meta {
+  name: A tenant Manager (role admin) gets nothing from the Graft Admin console
+  type: http
+  seq: 22
+}
+
+get {
+  url: {{baseUrl}}/api/v1/admin/users
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{tenantManagerToken}}
+}
+
+script:pre-request {
+  // GRAFT-33.1 AC9. admin@qa-premium.test holds exactly one tenant role,
+  // `admin` (shown as "Manager"), and no platform flag.
+  const axios = require("axios");
+  const login = await axios.post(`${bru.getEnvVar("baseUrl")}/api/v1/auth/login`, {
+    email: "admin@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  bru.setVar("tenantManagerToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+  res.body.data: isUndefined
+}
+
+docs {
+  The contract's AC9 says 403. The admin surface refuses every non-platform
+  caller with 404 NOT_FOUND instead, on purpose, so it is not an oracle
+  (src/server/auth/platform-admin.ts §3,
+  bruno/security/admin-surface-is-not-an-oracle.bru). The guarded property —
+  tenant "admin" grants nothing on the console — is what this asserts; the
+  status code follows the established design. See the PR's Outside guidance.
+}

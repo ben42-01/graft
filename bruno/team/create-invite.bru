@@ -1,0 +1,70 @@
+meta {
+  name: The owner creates an invite link
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/team/invites
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamOwnerToken}}
+}
+
+body:json {
+  {
+    "role": "member"
+  }
+}
+
+script:pre-request {
+  // The premium tenant's owner, minted once here and reused by the rest of
+  // this folder: the free tenant's api budget is already spent by the suite.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  bru.setVar("teamOwnerToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.invite.id: isString
+  res.body.data.invite.role: eq member
+  res.body.data.invite.email: isNull
+  res.body.data.url: contains /invite/
+  res.body.error: isUndefined
+}
+
+script:post-response {
+  bru.setVar("teamInviteId", res.getBody().data.invite.id);
+  bru.setVar("teamInviteUrl", res.getBody().data.url);
+}
+
+tests {
+  const data = res.getBody().data;
+
+  test("AC1 — the url carries a 32-byte base64url token", function () {
+    expect(data.url).to.match(/\/invite\/[A-Za-z0-9_-]{43}$/);
+  });
+
+  test("AC1 — the invite expires 7 days out", function () {
+    const days = (new Date(data.invite.expiresAt).getTime() - Date.now()) / 86400000;
+    expect(days).to.be.within(6.99, 7.01);
+  });
+
+  test("AC1 — no hash is ever returned", function () {
+    expect(Object.keys(data.invite).sort()).to.eql(["email", "expiresAt", "id", "role"]);
+    expect(JSON.stringify(res.getBody())).to.not.contain("tokenHash");
+  });
+}
+
+docs {
+  The raw token appears once, here, inside `url`. Only its SHA-256 is stored
+  (src/server/services/team.test.ts proves the stored row).
+}

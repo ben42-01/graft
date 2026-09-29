@@ -1,0 +1,64 @@
+meta {
+  name: Revoking an invite drops it from the list and frees its seat
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{baseUrl}}/api/v1/team/invites/{{teamInviteId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{teamOwnerToken}}
+}
+
+script:pre-request {
+  const axios = require("axios");
+  const auth = { headers: { Authorization: `Bearer ${bru.getVar("teamOwnerToken")}` } };
+  const before = await axios.get(`${bru.getEnvVar("baseUrl")}/api/v1/team`, auth);
+  bru.setVar("teamUsedBeforeRevoke", before.data.data.seats.used);
+}
+
+assert {
+  res.status: eq 204
+}
+
+script:post-response {
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const auth = {
+    headers: { Authorization: `Bearer ${bru.getVar("teamOwnerToken")}` },
+    validateStatus: () => true,
+  };
+  const after = await axios.get(`${baseUrl}/api/v1/team`, auth);
+  const again = await axios.delete(
+    `${baseUrl}/api/v1/team/invites/${bru.getVar("teamInviteId")}`,
+    auth,
+  );
+  bru.setVar(
+    "teamRevokeAfter",
+    JSON.stringify({
+      used: after.data.data.seats.used,
+      ids: after.data.data.invites.map((i) => i.id),
+      again: `${again.status} ${again.data?.error?.code}`,
+    }),
+  );
+}
+
+tests {
+  const after = JSON.parse(bru.getVar("teamRevokeAfter"));
+
+  test("AC6 — the revoked invite is no longer pending", function () {
+    expect(after.ids).to.not.include(bru.getVar("teamInviteId"));
+  });
+
+  test("AC6 — its seat is free again", function () {
+    expect(after.used).to.equal(Number(bru.getVar("teamUsedBeforeRevoke")) - 1);
+  });
+
+  test("AC6 — an invite that is no longer pending is 404", function () {
+    expect(after.again).to.equal("404 NOT_FOUND");
+  });
+}
