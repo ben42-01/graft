@@ -14,8 +14,8 @@
  * so this form doesn't collect one either, rather than send a field the
  * service silently drops.
  */
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { AuthShell } from "@/components/brand/auth-shell";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardFooter } from "@/components/ui/card";
@@ -46,6 +46,7 @@ const BUSINESS_NAME_MIN_LENGTH = 2;
 /** Wire field names → the labels this form actually shows. */
 const SIGNUP_FIELD_LABELS = {
   businessName: "Business name",
+  inviteToken: "Invite link",
   email: "Email",
   password: "Password",
 };
@@ -56,13 +57,17 @@ async function signup(
   businessName: string,
   email: string,
   password: string,
+  inviteToken: string | null,
 ): Promise<SignupResult> {
   try {
     const response = await fetch("/api/v1/auth/signup", {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ businessName, email, password }),
+      // Through an invite there is no workspace to name (GRAFT-33.3 AC6).
+      body: JSON.stringify(
+        inviteToken ? { email, password, inviteToken } : { businessName, email, password },
+      ),
     });
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok || !body || isApiError(body)) {
@@ -79,6 +84,7 @@ async function signup(
 function SignupForm() {
   const router = useRouter();
   const { status } = useMe();
+  const inviteToken = useSearchParams().get("invite");
 
   const [businessName, setBusinessName] = useState("");
   const [email, setEmail] = useState("");
@@ -123,7 +129,7 @@ function SignupForm() {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const result = await signup(businessName, email, password);
+    const result = await signup(businessName, email, password, inviteToken);
     setSubmitting(false);
     if (!result.ok) {
       setError(result.message);
@@ -135,21 +141,27 @@ function SignupForm() {
   return (
     <AuthShell
       title="Sign up"
-      description="Create your workspace — free forever on one workspace, no card required."
+      description={
+        inviteToken
+          ? "Create your account to join the workspace you were invited to."
+          : "Create your workspace — free forever on one workspace, no card required."
+      }
     >
       <form onSubmit={handleSubmit}>
         <CardContent className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="signup-business">Business name</Label>
-            <Input
-              id="signup-business"
-              autoComplete="organization"
-              required
-              minLength={BUSINESS_NAME_MIN_LENGTH}
-              value={businessName}
-              onChange={(e) => setBusinessName(e.target.value)}
-            />
-          </div>
+          {inviteToken ? null : (
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="signup-business">Business name</Label>
+              <Input
+                id="signup-business"
+                autoComplete="organization"
+                required
+                minLength={BUSINESS_NAME_MIN_LENGTH}
+                value={businessName}
+                onChange={(e) => setBusinessName(e.target.value)}
+              />
+            </div>
+          )}
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="signup-email">Email</Label>
             <Input
@@ -201,5 +213,9 @@ function SignupForm() {
 }
 
 export default function SignupPage() {
-  return <SignupForm />;
+  return (
+    <Suspense fallback={<LoadingState label="Loading…" />}>
+      <SignupForm />
+    </Suspense>
+  );
 }
