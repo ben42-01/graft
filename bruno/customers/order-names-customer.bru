@@ -1,0 +1,103 @@
+meta {
+  name: An order names the customer it is for
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/orders/{{bmsOrderId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+script:pre-request {
+  // Logged in as the *premium* tenant's owner: the free fixture tenant's `api`
+  // budget (60/min) is already spent in full by the rest of the suite. The
+  // token is minted once here and reused by every file in bruno/customers,
+  // bruno/reports and bruno/submissions.
+  //
+  // The fixture is built here, synchronously, and the request this file
+  // asserts on is the read-back — an async `test()` body is not counted by the
+  // Bruno CLI. Two records sharing one email (in different case) with one
+  // order each: the same person ordering twice, the way two form submissions
+  // would have written them.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-premium.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  const token = login.data.data.accessToken;
+  bru.setVar("bmsAccessToken", token);
+  const auth = { headers: { Authorization: `Bearer ${token}` } };
+
+  const stamp = Date.now();
+  const email = `bms-${stamp}@qa-premium.test`;
+  const name = `QA Buyer ${stamp}`;
+  // qa-premium's "Customers" entity (scripts/seed-qa.ts): name, email, phone.
+  const records = `${baseUrl}/api/v1/entities/000000000000000000000016/records`;
+
+  const first = await axios.post(records, { name, email, phone: "+353 1 555 0100" }, auth);
+  const second = await axios.post(records, { name, email: email.toUpperCase() }, auth);
+
+  const order = (customerRecordId, description, unitAmountMinor) =>
+    axios.post(
+      `${baseUrl}/api/v1/orders`,
+      {
+        currency: "EUR",
+        customerRecordId,
+        lineItems: [{ kind: "resource", description, quantity: 1, unitAmountMinor }],
+      },
+      auth,
+    );
+  const firstOrder = await order(first.data.data.id, "QA fruit box", 5000);
+  const secondOrder = await order(second.data.data.id, "QA juice crate", 2500);
+
+  bru.setVar("bmsEmail", email);
+  bru.setVar("bmsName", name);
+  bru.setVar("bmsRecordId", first.data.data.id);
+  bru.setVar("bmsSecondRecordId", second.data.data.id);
+  bru.setVar("bmsOrderId", firstOrder.data.data.id);
+  bru.setVar("bmsSecondOrderId", secondOrder.data.data.id);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.id: eq {{bmsOrderId}}
+  res.body.data.customer.recordId: eq {{bmsRecordId}}
+  res.body.data.customer.name: eq {{bmsName}}
+  res.body.data.customer.email: eq {{bmsEmail}}
+  res.body.data.customer.phone: eq +353 1 555 0100
+  res.body.data.source: eq null
+  res.body.data.answers: length 3
+  res.body.data.totalMinor: eq 5000
+  res.body.error: isUndefined
+}
+
+tests {
+  const order = res.getBody().data;
+
+  test("the customer is a record of the tenant's own Customers entity", function () {
+    // In a test, not an `assert`: Bruno reads an all-digit id as a number.
+    expect(order.customer.entityId).to.equal("000000000000000000000016");
+  });
+
+  test("the answers are labelled the way the tenant labelled their fields", function () {
+    expect(order.answers.map((answer) => answer.label)).to.eql(["Name", "Email", "Phone"]);
+  });
+
+  test("an order drafted through the API has no source form", function () {
+    expect(order.source).to.equal(null);
+  });
+}
+
+docs {
+  The customer on an order is resolved from the record `customerRecordId`
+  points at (src/server/services/customers.ts): the email is the entity's
+  first `email` field, the phone its first `phone` field, the name its
+  name-like text field. Nothing is copied onto the order.
+}

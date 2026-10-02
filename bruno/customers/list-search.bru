@@ -1,0 +1,42 @@
+meta {
+  name: Orders that share an email are one customer, with their spend totalled
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/customers?q={{bmsEmail}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: length 1
+  res.body.data[0].id: eq {{bmsRecordId}}
+  res.body.data[0].name: eq {{bmsName}}
+  res.body.data[0].email: eq {{bmsEmail}}
+  res.body.data[0].phone: eq +353 1 555 0100
+  res.body.data[0].orderCount: eq 2
+  res.body.data[0].openOrderCount: eq 2
+  res.body.data[0].recordIds: length 2
+  res.body.data[0].money: length 1
+  res.body.data[0].money[0].currency: eq EUR
+  res.body.data[0].money[0].bookedMinor: eq 7500
+  res.body.data[0].money[0].paidMinor: eq 0
+  res.body.data[0].money[0].outstandingMinor: eq 7500
+  res.body.meta.total: eq 1
+  res.body.meta.truncated: eq false
+  res.body.error: isUndefined
+}
+
+docs {
+  The two fixture records carry the same address in different case; the
+  customer is grouped on the lowercased email and identified by the *oldest*
+  record id, so the id does not move when they order again. `q` searches
+  name, email and phone; `sort` is `recent` (default), `spend` or `orders`.
+}

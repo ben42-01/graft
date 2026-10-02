@@ -20,6 +20,7 @@
  *     an empty panel is a bug the reader has to rule out.
  */
 import type { ReactNode } from "react";
+import Link from "next/link";
 import {
   AlertCircleIcon,
   ArrowRightCircleIcon,
@@ -105,7 +106,8 @@ export function DailyDispatch({ dispatch }: { dispatch: Dispatch }) {
             key={a.id}
             label={a.resourceLabel}
             value={time(a.startAt)}
-            hint={statusHint(a)}
+            hint={allocationHint(a)}
+            href={orderHref(a.orderId)}
           />
         ))}
       </Panel>
@@ -122,7 +124,8 @@ export function DailyDispatch({ dispatch }: { dispatch: Dispatch }) {
             key={a.id}
             label={a.resourceLabel}
             value={`back ${time(a.endAt)}`}
-            hint={statusHint(a)}
+            hint={allocationHint(a)}
+            href={orderHref(a.orderId)}
           />
         ))}
       </Panel>
@@ -134,7 +137,13 @@ export function DailyDispatch({ dispatch }: { dispatch: Dispatch }) {
         empty="Nothing is due back today."
       >
         {dispatch.returning.map((a) => (
-          <Row key={a.id} label={a.resourceLabel} value={time(a.endAt)} hint={statusHint(a)} />
+          <Row
+            key={a.id}
+            label={a.resourceLabel}
+            value={time(a.endAt)}
+            hint={allocationHint(a)}
+            href={orderHref(a.orderId)}
+          />
         ))}
       </Panel>
 
@@ -150,6 +159,7 @@ export function DailyDispatch({ dispatch }: { dispatch: Dispatch }) {
             label={order.customerLabel ?? "No customer"}
             value={money(order.balanceMinor, order.currency)}
             hint={order.lineSummary}
+            href={orderHref(order.id)}
           />
         ))}
       </Panel>
@@ -160,6 +170,13 @@ export function DailyDispatch({ dispatch }: { dispatch: Dispatch }) {
 /** A hold is worth flagging: it lapses on its own if nobody confirms it. */
 const statusHint = (a: TimelineAllocation): string | undefined =>
   a.status === "held" ? "Unconfirmed hold" : undefined;
+
+/** Who it is for, then whether it still needs confirming. */
+const allocationHint = (a: TimelineAllocation): string | undefined =>
+  [a.customerLabel, statusHint(a)].filter(Boolean).join(" · ") || undefined;
+
+const orderHref = (orderId: string | null | undefined): string | undefined =>
+  orderId ? `/operations/orders/${orderId}` : undefined;
 
 function Panel({
   icon: Icon,
@@ -196,11 +213,31 @@ function Panel({
   );
 }
 
-function Row({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function Row({
+  label,
+  value,
+  hint,
+  href,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  /** The order behind the row, when there is one to open. */
+  href?: string;
+}) {
   return (
     <li className="flex items-baseline justify-between gap-3 py-2 first:pt-0 last:pb-0">
       <span className="min-w-0">
-        <span className="block truncate text-sm">{label}</span>
+        {href ? (
+          <Link
+            href={href}
+            className="block truncate text-sm underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+          >
+            {label}
+          </Link>
+        ) : (
+          <span className="block truncate text-sm">{label}</span>
+        )}
         {hint ? <span className="block text-xs text-muted-foreground">{hint}</span> : null}
       </span>
       <span className="shrink-0 text-sm font-medium tabular-nums">{value}</span>

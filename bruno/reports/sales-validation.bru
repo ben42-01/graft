@@ -1,0 +1,21 @@
+meta {
+  name: A backwards report window is refused
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{baseUrl}}/api/v1/reports/sales?from=2026-06-30T00:00:00.000Z&to=2026-06-01T00:00:00.000Z
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.data: isUndefined
+}

@@ -1,0 +1,46 @@
+meta {
+  name: Any of a customer's record ids opens the same profile with every order
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/v1/customers/{{bmsSecondRecordId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.id: eq {{bmsRecordId}}
+  res.body.data.email: eq {{bmsEmail}}
+  res.body.data.orderCount: eq 2
+  res.body.data.orders: length 2
+  res.body.data.orders[0].id: eq {{bmsSecondOrderId}}
+  res.body.data.orders[1].id: eq {{bmsOrderId}}
+  res.body.data.orders[0].customer.name: eq {{bmsName}}
+  res.body.data.money[0].bookedMinor: eq 7500
+  res.body.error: isUndefined
+}
+
+tests {
+  const customer = res.getBody().data;
+
+  test("the answers are those of the most recent record", function () {
+    // The second record was written without a phone.
+    expect(customer.answers.map((answer) => answer.key)).to.eql(["name", "email"]);
+  });
+
+  test("the phone is still known from the earlier order", function () {
+    expect(customer.phone).to.equal("+353 1 555 0100");
+  });
+}
+
+docs {
+  Read through the *second* record's id and answered with the customer's
+  stable id (the first record). Orders are newest first.
+}

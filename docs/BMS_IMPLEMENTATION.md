@@ -304,6 +304,91 @@ route to upgrade**, following the existing `GatedControl` pattern.
 
 ---
 
+## 6c. Customers, the inbox and the business figures (Step 5)
+
+Step 4 could move an order and could not say who it was for. Every order a form
+raises points at the record its submission became (`customerRecordId`), and that
+record is where the name and the email live — but nothing read it back, so the
+board said "Customer" and an owner looking at an order had no way to tell who
+had placed it. This step is that read, and the screens that follow from it.
+
+### Customers are derived, not stored
+
+There is **no customers collection**. A customer is the set of orders sharing a
+contact email, or failing that a single record (`src/server/services/customers.ts`).
+A stored copy would be a second source of truth about a person that privacy
+deletion would have to remember to chase: delete the record and their details
+are gone from every view here, with nothing left behind.
+
+Identity is read by **field type**, not by a magic key: the email is the entity's
+first `email` field, the phone its first `phone` field. Only the display name is
+a heuristic — text fields that call themselves a name (up to two, so "First
+name" + "Last name" joins), then the first text field — and a wrong guess there
+mislabels a row rather than mispricing an order.
+
+A customer's id is one of their **record ids**, never the email, which would put
+an address into access logs. Any of their record ids resolves to the same
+profile; the list hands out the oldest, so the id does not move when they order
+again.
+
+The aggregate reads the 5,000 most recent orders and groups them in memory. That
+is every order a small business has for years; past it the response says
+`truncated` rather than quietly reporting short totals.
+
+### API surface (Step 5)
+
+| Method | Path | Tier | Purpose |
+|---|---|---|---|
+| GET | `/api/v1/orders` | all | Now carries `customer` and `source` on every order; filters `customerRecordId`, `from`, `to` |
+| GET | `/api/v1/orders/:id` | all | As above, plus `answers` — what the customer entered, labelled |
+| GET | `/api/v1/customers` | all | Everyone who has ordered: orders, spend, outstanding. `q`, `sort` |
+| GET | `/api/v1/customers/:id` | all | One customer and every order they placed |
+| GET | `/api/v1/submissions` | all | The inbox: each submission with its form, sender and order. `formId`, cursor-paged |
+| GET | `/api/v1/reports/summary` | all | Headline figures: open orders, owed, 30 days against the 30 before, customers |
+| GET | `/api/v1/reports/sales` | **Premium** (`reports`) | Daily series, best sellers, orders by source form, repeat customers |
+
+The tier line is deliberate: knowing who ordered and how the business is doing
+is the product working, so it is on every tier; *analysis* of it — the trend and
+the breakdowns — is the Reports plugin of docs/TIERS.md §2.4. The gate is
+`can(ctx, "reports")` inside `getSalesReport`, so the Overview's locked card is
+a courtesy and the refusal is the server's.
+
+Money in a report is **one currency**: the one most of the window's orders are
+in, with the others named in `otherCurrencies`. Windows are rolling ("the last
+30 days") and the daily series buckets by **UTC** day, because the server does
+not know a tenant's midnight.
+
+### Screens
+
+- **Overview** (`/home`) leads with the business — booked and collected over 30
+  days, customers, new orders — above the day's workload, then the sales panel
+  (Premium; a locked card otherwise, and no request made) beside the latest
+  inbox activity.
+- **Operations** (`/operations`) gains Orders, Customers and Inbox beside Today,
+  Pipeline and Schedule. The tab is in the URL (`?tab=orders`).
+- **Order** (`/operations/orders/:id`) — the customer and how to reach them,
+  what they entered, items, payments, invoices; and the three things an operator
+  does to an order: move it on, record a payment, issue an invoice.
+- **Customer** (`/operations/customers/:id`) — contact details, lifetime spend
+  and balance, order history.
+
+Board cards and dispatch rows now name the customer and link to the order. A
+form booking holds its capacity in the name of the customer's record, which is
+also what the order points at, so the dispatch joins the two without a read.
+
+### Not done in Step 5
+
+- **A customer entity of the tenant's own.** Customers are grouped by email
+  across submission records; merging two people, or attaching an order to an
+  existing contact record, is still manual.
+- **Server-side enforcement of `invoicing`.** The Issue invoice button is gated
+  on the feature in the UI, but `POST /api/v1/invoices` does not check it.
+- **Tenant-local days.** Report days are UTC until `settings.timezone` is read.
+- **Editing an order's line items** from the order page — `PATCH` exists for
+  drafts and has no form over it.
+
+---
+
 ## 7. Where the guarantees are proven
 
 | Claim | Evidence |
@@ -323,3 +408,8 @@ route to upgrade**, following the existing `GatedControl` pattern.
 | Kanban accessibility, optimistic move and revert | `src/components/operations/order-board.test.tsx` (10 tests) |
 | Timeline labels, buffers and hold distinction | `src/components/operations/resource-timeline.test.tsx` (9 tests) |
 | The plugins screen, including tier gating | `src/app/(app)/plugins/page.test.tsx` (7 tests) |
+| Customer identity, grouping by email, tenant isolation of the join | `src/server/services/customers.test.ts` (20 tests) |
+| Summary and sales figures, the Premium gate, one-currency totals | `src/server/services/sales-report.test.ts` (13 tests) |
+| The inbox join (form, sender, order) | `src/server/services/submissions.test.ts` (5 tests) |
+| The customers / reports / submissions HTTP contract | `bruno/customers`, `bruno/reports`, `bruno/submissions` (14 requests) |
+| Orders list, inbox, customer list and sales panel screens | `src/components/operations/*.test.tsx`, `src/components/home/sales-panel.test.tsx` |

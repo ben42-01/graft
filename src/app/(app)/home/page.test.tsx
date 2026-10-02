@@ -64,6 +64,10 @@ type Routes = {
   pools?: Response;
   records?: Response;
   submissions?: Response;
+  summary?: Response;
+  sales?: Response;
+  inbox?: Response;
+  features?: Record<string, boolean>;
   tier?: string;
   entityLimit?: number | null;
 };
@@ -82,8 +86,18 @@ function stubFetch(routes: Routes = {}) {
       return reply({ used: 0, limit: 200 }, routes.submissions);
     }
     if (url.includes("/api/v1/me")) {
-      return reply(meFor(routes.tier ?? "free", routes.entityLimit ?? 3));
+      const me = meFor(routes.tier ?? "free", routes.entityLimit ?? 3);
+      return reply({ ...me, tenant: { ...me.tenant, features: routes.features ?? {} } });
     }
+    if (url.includes("/api/v1/reports/summary")) {
+      return routes.summary
+        ? Promise.resolve(routes.summary)
+        : Promise.reject(new Error("off"));
+    }
+    if (url.includes("/api/v1/reports/sales")) {
+      return routes.sales ? Promise.resolve(routes.sales) : Promise.reject(new Error("off"));
+    }
+    if (url.includes("/api/v1/submissions")) return reply([], routes.inbox);
     if (url.includes("/api/v1/inventory/allocations")) return reply([], routes.allocations);
     if (url.includes("/api/v1/inventory/pools")) return reply([], routes.pools);
     if (url.includes("/api/v1/orders")) return reply([], routes.orders);
@@ -274,5 +288,100 @@ describe("AppHomePage — the Overview", () => {
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /Add entity/ })).toBeEnabled(),
     );
+  });
+
+  describe("the business figures", () => {
+    const summary = (over: Record<string, unknown> = {}) =>
+      jsonResponse({
+        data: {
+          currency: "EUR",
+          otherCurrencies: [],
+          orders: { total: 9, open: 4, byStatus: {}, last7Days: 5, previous7Days: 2 },
+          money: {
+            outstandingMinor: 14_000,
+            bookedLast30DaysMinor: 150_000,
+            bookedPrevious30DaysMinor: 100_000,
+            collectedLast30DaysMinor: 80_000,
+          },
+          customers: { total: 12, newLast30Days: 3 },
+          submissions: { last7Days: 6 },
+          truncated: false,
+          ...over,
+        },
+      });
+
+    const trading = (extra: Routes = {}) =>
+      stubFetch({
+        entities: jsonResponse({ data: [{ id: "e1" }] }),
+        orders: jsonResponse({ data: [order("o1", "confirmed", 5_000, "EUR")] }),
+        summary: summary(),
+        ...extra,
+      });
+
+    it("reports bookings, payments and customers from the server's summary", async () => {
+      trading();
+      render(<AppHomePage />);
+
+      await waitFor(() =>
+        expect(within(tile("Booked · 30 days")).getByText(/1,500/)).toBeInTheDocument(),
+      );
+      expect(
+        within(tile("Booked · 30 days")).getByText("+50% on the 30 days before"),
+      ).toBeInTheDocument();
+      expect(within(tile("Collected · 30 days")).getByText(/800/)).toBeInTheDocument();
+      expect(within(tile("Customers")).getByText("12")).toBeInTheDocument();
+      expect(within(tile("Customers")).getByText("3 new in 30 days")).toBeInTheDocument();
+      expect(within(tile("Customers")).getByRole("link")).toHaveAttribute(
+        "href",
+        "/operations?tab=customers",
+      );
+      expect(
+        within(tile("New orders · 7 days")).getByText("2 the week before"),
+      ).toBeInTheDocument();
+    });
+
+    it("says the figures are unavailable, rather than zero, when the summary is refused", async () => {
+      trading({ summary: new Response(null, { status: 500 }) });
+      render(<AppHomePage />);
+
+      await waitFor(() =>
+        expect(within(tile("Booked · 30 days")).getByText("Unavailable")).toBeInTheDocument(),
+      );
+      // The rest of the Overview is still there.
+      expect(screen.getByRole("heading", { name: "Today" })).toBeInTheDocument();
+    });
+
+    it("shows a Free tenant the locked sales card and never requests the report", async () => {
+      const fetchMock = trading();
+      render(<AppHomePage />);
+
+      await waitFor(() =>
+        expect(screen.getByText(/sales trend, best sellers/)).toBeInTheDocument(),
+      );
+      expect(
+        fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v1/reports/sales")),
+      ).toBe(false);
+      expect(screen.getByRole("heading", { name: "Latest activity" })).toBeInTheDocument();
+    });
+
+    it("requests the sales report for a tenant whose plan includes reports", async () => {
+      const fetchMock = trading({ features: { reports: true } });
+      render(<AppHomePage />);
+
+      await waitFor(() =>
+        expect(
+          fetchMock.mock.calls.some(([url]) => String(url).includes("/api/v1/reports/sales")),
+        ).toBe(true),
+      );
+    });
+
+    it("keeps the sales panel away from a tenant that has sold nothing", async () => {
+      stubFetch({ summary: summary({ currency: null }) });
+      render(<AppHomePage />);
+
+      await waitFor(() => expect(screen.getByText("Getting set up")).toBeInTheDocument());
+      expect(screen.queryByText(/Sales · last 30 days/)).not.toBeInTheDocument();
+      expect(within(tile("Booked · 30 days")).getByText("No orders yet")).toBeInTheDocument();
+    });
   });
 });

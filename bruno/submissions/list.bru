@@ -1,0 +1,81 @@
+meta {
+  name: The inbox shows who submitted a form and the order it raised
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/submissions?formId=000000000000000000000028&limit=5
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+script:pre-request {
+  // A real public submission, made here so the request this file asserts on
+  // is the inbox read-back. One sourdough loaf (EUR 5 flat) from
+  // formPremiumCartShop, 45 days out so it shares no window with the capacity
+  // assertions in bruno/forms/cart-submit*.bru.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const customer = `QA Inbox ${Date.now()}`;
+  const start = new Date(Date.now() + 45 * 86400000);
+  start.setUTCHours(9, 0, 0, 0);
+  const end = new Date(start.getTime() + 2 * 3600000);
+
+  const submit = await axios.post(
+    `${baseUrl}/api/v1/public/forms/qa-premium/qa-premium-cart-shop/submissions`,
+    {
+      data: { customer, starts_at: start.toISOString(), ends_at: end.toISOString() },
+      _t: Date.now() - 3000,
+      _cart: [{ recordId: "000000000000000000000038", quantity: 1 }],
+    },
+    { validateStatus: () => true },
+  );
+  bru.setVar("inboxSubmitStatus", submit.status);
+  bru.setVar("inboxCustomer", customer);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data[0].form.name: eq QA Premium Cart Shop
+  res.body.data[0].customer.name: eq {{inboxCustomer}}
+  res.body.data[0].customer.entityId: eq 00000000000000000000001d
+  res.body.data[0].order.status: eq draft
+  res.body.data[0].order.currency: eq EUR
+  res.body.data[0].order.totalMinor: eq 500
+  res.body.data[0].order.balanceMinor: eq 500
+  res.body.error: isUndefined
+}
+
+tests {
+  const rows = res.getBody().data;
+
+  test("every row is from the form that was asked for", function () {
+    // In a test, not an `assert`: Bruno reads an all-digit id as a number.
+    for (const row of rows) expect(row.form.id).to.equal("000000000000000000000028");
+  });
+
+  test("the submission was accepted", function () {
+    expect(String(bru.getVar("inboxSubmitStatus"))).to.equal("201");
+  });
+
+  test("the customer on the inbox row is the record the submission became", function () {
+    expect(rows[0].customer.recordId).to.equal(rows[0].recordId);
+  });
+
+  test("newest first", function () {
+    const times = rows.map((row) => new Date(row.createdAt).getTime());
+    expect(times).to.eql([...times].sort((a, b) => b - a));
+  });
+}
+
+docs {
+  Requires `bmsAccessToken` from customers/order-names-customer.bru. The
+  customer's name comes off the submission's own record — the form entity's
+  "Customer" text field — and the order is the one the booking bridge raised
+  in the same transaction.
+}

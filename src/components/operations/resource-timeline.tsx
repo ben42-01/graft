@@ -36,6 +36,9 @@ export type TimelineAllocation = {
   blockedUntil: string;
   quantity: number;
   status: "held" | "confirmed" | "released" | "cancelled";
+  /** Who it is booked for, when the booking came from an order. */
+  customerLabel?: string | null;
+  orderId?: string | null;
 };
 
 const HOUR = 3_600_000;

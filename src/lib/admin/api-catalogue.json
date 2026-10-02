@@ -621,6 +621,68 @@
       ]
     },
     {
+      "id": "GET /api/v1/customers",
+      "method": "GET",
+      "path": "/api/v1/customers",
+      "group": "customers",
+      "params": [],
+      "auth": "session",
+      "summary": "everyone who has ordered, with what they have spent.",
+      "source": "src/app/api/v1/customers/route.ts",
+      "examples": [
+        {
+          "name": "Orders that share an email are one customer, with their spend totalled",
+          "file": "bruno/customers/list-search.bru",
+          "pathParams": {},
+          "query": {
+            "q": "{{bmsEmail}}"
+          },
+          "body": null
+        },
+        {
+          "name": "An unknown sort is refused rather than ignored",
+          "file": "bruno/customers/validation.bru",
+          "pathParams": {},
+          "query": {
+            "sort": "random"
+          },
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/customers/:customerId",
+      "method": "GET",
+      "path": "/api/v1/customers/:customerId",
+      "group": "customers",
+      "params": [
+        "customerId"
+      ],
+      "auth": "session",
+      "summary": "one customer: their contact details, what they have spent and still owe, and every order they placed.",
+      "source": "src/app/api/v1/customers/[customerId]/route.ts",
+      "examples": [
+        {
+          "name": "Any of a customer's record ids opens the same profile with every order",
+          "file": "bruno/customers/detail.bru",
+          "pathParams": {
+            "customerId": "{{bmsSecondRecordId}}"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Another tenant's customer is not found",
+          "file": "bruno/customers/tenant-isolation.bru",
+          "pathParams": {
+            "customerId": "000000000000000000000029"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "GET /api/v1/dashboards",
       "method": "GET",
       "path": "/api/v1/dashboards",
@@ -1855,7 +1917,17 @@
       "auth": "session",
       "summary": "(docs/BMS_EXTENSION.md §2.2).",
       "source": "src/app/api/v1/orders/route.ts",
-      "examples": []
+      "examples": [
+        {
+          "name": "The order list narrows to one customer record and names them on every row",
+          "file": "bruno/customers/orders-filter-by-customer.bru",
+          "pathParams": {},
+          "query": {
+            "customerRecordId": "{{bmsRecordId}}"
+          },
+          "body": null
+        }
+      ]
     },
     {
       "id": "POST /api/v1/orders",
@@ -1888,6 +1960,15 @@
       "summary": "",
       "source": "src/app/api/v1/orders/[orderId]/route.ts",
       "examples": [
+        {
+          "name": "An order names the customer it is for",
+          "file": "bruno/customers/order-names-customer.bru",
+          "pathParams": {
+            "orderId": "{{bmsOrderId}}"
+          },
+          "query": {},
+          "body": null
+        },
         {
           "name": "A cart submission raises one order with a priced line per item",
           "file": "bruno/forms/cart-submit.bru",
@@ -2276,6 +2357,68 @@
       ]
     },
     {
+      "id": "GET /api/v1/reports/sales",
+      "method": "GET",
+      "path": "/api/v1/reports/sales",
+      "group": "reports",
+      "params": [],
+      "auth": "session",
+      "summary": "sales over a window: a daily series, best sellers, which form the orders came through and how many customers came back (docs/TIERS.md §2.4 — Reports are Premium+).",
+      "source": "src/app/api/v1/reports/sales/route.ts",
+      "examples": [
+        {
+          "name": "A Free tenant is refused the sales report on the server",
+          "file": "bruno/reports/sales-free-refused.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A backwards report window is refused",
+          "file": "bruno/reports/sales-validation.bru",
+          "pathParams": {},
+          "query": {
+            "from": "2026-06-30T00:00:00.000Z",
+            "to": "2026-06-01T00:00:00.000Z"
+          },
+          "body": null
+        },
+        {
+          "name": "The sales report gives a zero-filled daily series and the best sellers",
+          "file": "bruno/reports/sales.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/reports/summary",
+      "method": "GET",
+      "path": "/api/v1/reports/summary",
+      "group": "reports",
+      "params": [],
+      "auth": "session",
+      "summary": "the Overview's headline numbers: open orders, what is owed, the last 30 days against the 30 before, and customer counts.",
+      "source": "src/app/api/v1/reports/summary/route.ts",
+      "examples": [
+        {
+          "name": "A Free tenant still gets the headline summary",
+          "file": "bruno/reports/summary-free.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "The business summary reports orders, money owed and customers",
+          "file": "bruno/reports/summary.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "GET /api/v1/reports/usage",
       "method": "GET",
       "path": "/api/v1/reports/usage",
@@ -2354,6 +2497,46 @@
           "pathParams": {},
           "query": {},
           "body": "{\n  \"intent\": \"invoicing\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "GET /api/v1/submissions",
+      "method": "GET",
+      "path": "/api/v1/submissions",
+      "group": "submissions",
+      "params": [],
+      "auth": "session",
+      "summary": "the inbox: every form submission, newest first, with the form it came through, who sent it and the order it raised.",
+      "source": "src/app/api/v1/submissions/route.ts",
+      "examples": [
+        {
+          "name": "The inbox shows who submitted a form and the order it raised",
+          "file": "bruno/submissions/list.bru",
+          "pathParams": {},
+          "query": {
+            "formId": "000000000000000000000028",
+            "limit": "5"
+          },
+          "body": null
+        },
+        {
+          "name": "Another tenant's form has no submissions to show",
+          "file": "bruno/submissions/tenant-isolation.bru",
+          "pathParams": {},
+          "query": {
+            "formId": "000000000000000000000028"
+          },
+          "body": null
+        },
+        {
+          "name": "A form id that is not an id is refused",
+          "file": "bruno/submissions/validation.bru",
+          "pathParams": {},
+          "query": {
+            "formId": "nope"
+          },
+          "body": null
         }
       ]
     },

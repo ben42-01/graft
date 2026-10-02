@@ -1,0 +1,21 @@
+meta {
+  name: An unknown sort is refused rather than ignored
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/api/v1/customers?sort=random
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.data: isUndefined
+}

@@ -1,0 +1,51 @@
+meta {
+  name: The business summary reports orders, money owed and customers
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/v1/reports/summary
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.currency: eq EUR
+  res.body.data.orders.total: gte 2
+  res.body.data.orders.open: gte 2
+  res.body.data.orders.last7Days: gte 2
+  res.body.data.orders.byStatus.draft: gte 2
+  res.body.data.money.outstandingMinor: gte 7500
+  res.body.data.money.bookedLast30DaysMinor: gte 7500
+  res.body.data.customers.total: gte 1
+  res.body.data.customers.newLast30Days: gte 1
+  res.body.data.truncated: eq false
+  res.body.error: isUndefined
+}
+
+tests {
+  const summary = res.getBody().data;
+
+  test("money is integer minor units", function () {
+    for (const value of Object.values(summary.money)) {
+      expect(Number.isInteger(value)).to.equal(true);
+    }
+  });
+
+  test("every order status is reported, including the empty ones", function () {
+    expect(Object.keys(summary.orders.byStatus)).to.have.lengthOf(6);
+  });
+}
+
+docs {
+  Available on every tier — see reports/summary-free.bru. Lower bounds rather
+  than exact figures: bruno/forms/cart-submit*.bru raise orders on this tenant
+  too. Reuses `bmsAccessToken` and the two EUR 50 + EUR 25 draft orders from
+  customers/order-names-customer.bru.
+}

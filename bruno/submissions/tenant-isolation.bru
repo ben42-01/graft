@@ -1,0 +1,29 @@
+meta {
+  name: Another tenant's form has no submissions to show
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/submissions?formId=000000000000000000000028
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsFreeAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: length 0
+  res.body.meta.hasMore: eq false
+  res.body.error: isUndefined
+}
+
+docs {
+  The premium tenant's form id, read as qa-at-quota (`bmsFreeAccessToken`,
+  reports/sales-free-refused.bru). The repository scopes the read by tenant,
+  so the filter matches nothing — an empty page, not a 403 that would confirm
+  the form exists.
+}
