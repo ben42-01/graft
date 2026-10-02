@@ -1750,14 +1750,21 @@
           "file": "bruno/orders/invoice-duplicate.bru",
           "pathParams": {},
           "query": {},
-          "body": "{\n  \"orderId\": \"{{createdOrderId}}\",\n  \"kind\": \"deposit\"\n}"
+          "body": "{\n  \"orderId\": \"{{invoiceOrderId}}\",\n  \"kind\": \"deposit\"\n}"
+        },
+        {
+          "name": "A Free tenant cannot issue an invoice",
+          "file": "bruno/orders/invoice-free-refused.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"orderId\": \"{{createdOrderId}}\",\n  \"kind\": \"full\"\n}"
         },
         {
           "name": "An invoice snapshots the order and takes the next number",
           "file": "bruno/orders/invoice-issue.bru",
           "pathParams": {},
           "query": {},
-          "body": "{\n  \"orderId\": \"{{createdOrderId}}\",\n  \"kind\": \"deposit\"\n}"
+          "body": "{\n  \"orderId\": \"{{invoiceOrderId}}\",\n  \"kind\": \"deposit\"\n}"
         }
       ]
     },
@@ -2002,6 +2009,15 @@
       "source": "src/app/api/v1/orders/[orderId]/route.ts",
       "examples": [
         {
+          "name": "A draft order's lines are replaced and re-priced by the server",
+          "file": "bruno/orders/update-draft.bru",
+          "pathParams": {
+            "orderId": "{{draftEditOrderId}}"
+          },
+          "query": {},
+          "body": "{\n  \"lineItems\": [\n    { \"kind\": \"resource\", \"description\": \"Veg box\", \"quantity\": 3, \"unitAmountMinor\": 2200 },\n    { \"kind\": \"fee\", \"description\": \"Delivery\", \"quantity\": 1, \"unitAmountMinor\": 450 },\n    { \"kind\": \"discount\", \"description\": \"Loyalty\", \"quantity\": 1, \"unitAmountMinor\": -500 }\n  ],\n  \"notes\": \"Phone order — leave with the neighbour\"\n}"
+        },
+        {
           "name": "An order awaiting payment can no longer be re-priced",
           "file": "bruno/orders/update-refused-after-pending.bru",
           "pathParams": {
@@ -2041,7 +2057,7 @@
           "name": "The ledger shows what was invoiced and what is outstanding",
           "file": "bruno/orders/ledger.bru",
           "pathParams": {
-            "orderId": "{{createdOrderId}}"
+            "orderId": "{{invoiceOrderId}}"
           },
           "query": {},
           "body": null

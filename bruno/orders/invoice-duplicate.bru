@@ -11,12 +11,12 @@ post {
 }
 
 headers {
-  Authorization: Bearer {{loginAccessToken}}
+  Authorization: Bearer {{invoiceAccessToken}}
 }
 
 body:json {
   {
-    "orderId": "{{createdOrderId}}",
+    "orderId": "{{invoiceOrderId}}",
     "kind": "deposit"
   }
 }

@@ -6,8 +6,9 @@
  * The board could move an order and nothing else; who it was for, what they
  * had typed into the form, what had been paid and what was invoiced each
  * lived behind a different endpoint with no screen. This is those four reads
- * on one page, with the three things an operator actually does to an order:
- * move it on, take a payment, issue an invoice.
+ * on one page, with the things an operator actually does to an order: move it
+ * on, take a payment, issue an invoice — and, while it is still a draft, edit
+ * it.
  *
  * Every action re-reads the order rather than patching local state: taking a
  * deposit can confirm the order, and confirming it moves its allocations, so
@@ -15,7 +16,7 @@
  */
 import { use, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeftIcon, FileTextIcon, MailIcon, PhoneIcon } from "lucide-react";
+import { ArrowLeftIcon, FileTextIcon, MailIcon, PencilIcon, PhoneIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { GatedControl } from "@/components/ui/gated-control";
@@ -188,6 +189,14 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
 
         {moves.length > 0 ? (
           <div className="flex flex-wrap gap-2">
+            {/* Only a draft: after that the lines are what the customer agreed to. */}
+            {order.status === "draft" ? (
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/operations/orders/${order.id}/edit`}>
+                  <PencilIcon /> Edit
+                </Link>
+              </Button>
+            ) : null}
             {moves.map((to) => (
               <Button
                 key={to}

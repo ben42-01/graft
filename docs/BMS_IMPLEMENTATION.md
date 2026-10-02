@@ -376,16 +376,32 @@ Board cards and dispatch rows now name the customer and link to the order. A
 form booking holds its capacity in the name of the customer's record, which is
 also what the order points at, so the dispatch joins the two without a read.
 
+### Entering and correcting orders by hand
+
+- **New order** (`/operations/orders/new`) — for the phone call and the walk-in.
+  Until this an order could only be raised by a public form or the API. It is a
+  `draft` like any other, and the customer is picked from those who have ordered
+  before (or left empty, with the name in the notes).
+- **Edit** (`/operations/orders/:id/edit`) — a draft's lines, customer and notes,
+  over the existing `PATCH`. The server still prices every line; the form sends a
+  description, a quantity and a unit price and previews the same sum.
+- **A booked line is locked.** A line a booking form raised carries the allocation
+  holding its capacity; editing it away would leave capacity held for something
+  the order no longer says. It is shown, not editable, and sent back untouched.
+
+### Invoicing is enforced on the server
+
+`issueInvoice` now asks `can(ctx, "invoicing")` and refuses a plan without it with
+`403 FEATURE_NOT_AVAILABLE` — before a number is taken, so a refusal cannot put a
+gap in the sequence. **Reading and voiding are not gated**: a tenant who
+downgrades keeps every invoice they issued and can still void one.
+
 ### Not done in Step 5
 
 - **A customer entity of the tenant's own.** Customers are grouped by email
   across submission records; merging two people, or attaching an order to an
   existing contact record, is still manual.
-- **Server-side enforcement of `invoicing`.** The Issue invoice button is gated
-  on the feature in the UI, but `POST /api/v1/invoices` does not check it.
 - **Tenant-local days.** Report days are UTC until `settings.timezone` is read.
-- **Editing an order's line items** from the order page — `PATCH` exists for
-  drafts and has no form over it.
 
 ---
 
@@ -412,4 +428,6 @@ also what the order points at, so the dispatch joins the two without a read.
 | Summary and sales figures, the Premium gate, one-currency totals | `src/server/services/sales-report.test.ts` (13 tests) |
 | The inbox join (form, sender, order) | `src/server/services/submissions.test.ts` (5 tests) |
 | The customers / reports / submissions HTTP contract | `bruno/customers`, `bruno/reports`, `bruno/submissions` (14 requests) |
+| The invoicing plan gate, and that a refusal burns no number | `src/server/services/invoices.test.ts`, `bruno/orders/invoice-free-refused.bru` |
+| The order form: server-priced lines, negative discounts, locked booked lines | `src/components/operations/order-editor.test.tsx` (13 tests) |
 | Orders list, inbox, customer list and sales panel screens | `src/components/operations/*.test.tsx`, `src/components/home/sales-panel.test.tsx` |

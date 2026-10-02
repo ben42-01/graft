@@ -30,6 +30,7 @@ import { AppError } from "@/server/http/envelope";
 import { clampLimit } from "@/server/http/pagination";
 import { parse } from "@/server/http/validate";
 import { createRepository, type Repository } from "@/server/repositories/base";
+import { can } from "./entitlements";
 import { getOrder as getOrderDefault, type OrderView } from "./orders";
 import { balanceMinor, type LineItem } from "./pricing";
 
@@ -187,6 +188,8 @@ export type InvoiceDeps = {
   repo: Repository<InvoiceDoc>;
   getOrder: (ctx: Ctx, orderId: string) => Promise<OrderView>;
   numbers: InvoiceNumberStore;
+  /** The plan check — `can(ctx, "invoicing")`, docs/TIERS.md §2.4. */
+  can: (ctx: Ctx, feature: "invoicing") => Promise<boolean>;
   now: () => Date;
 };
 
@@ -197,6 +200,7 @@ function resolveDeps(overrides: Partial<InvoiceDeps> = {}): InvoiceDeps {
     repo: overrides.repo ?? defaultRepo,
     getOrder: overrides.getOrder ?? ((ctx, orderId) => getOrderDefault(ctx, orderId)),
     numbers: overrides.numbers ?? mongoInvoiceNumberStore(),
+    can: overrides.can ?? can,
     now: overrides.now ?? (() => new Date()),
   };
 }
@@ -215,6 +219,17 @@ export async function issueInvoice(
   overrides: Partial<InvoiceDeps> = {},
 ): Promise<InvoiceView> {
   const deps = resolveDeps(overrides);
+  // Issuing is the Premium part (docs/TIERS.md §2.4). Reading and voiding are
+  // deliberately not gated: a tenant who downgrades keeps every invoice they
+  // issued, and must still be able to void one — nothing is deleted or locked
+  // away, they simply cannot raise new ones.
+  if (!(await deps.can(ctx, "invoicing"))) {
+    throw new AppError(
+      "FEATURE_NOT_AVAILABLE",
+      "Invoicing is not included in your plan. Upgrade to issue invoices.",
+      { feature: "invoicing" },
+    );
+  }
   const parsed = parse(issueInvoiceSchema, input, "body");
 
   // Tenant-scoped by the order service, so an order from elsewhere 404s here.

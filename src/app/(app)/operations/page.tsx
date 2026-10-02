@@ -32,6 +32,7 @@ import {
   InboxIcon,
   KanbanIcon,
   ListIcon,
+  PlusIcon,
   SunIcon,
   UsersIcon,
 } from "lucide-react";
@@ -145,12 +146,19 @@ export default function OperationsPage() {
 
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Operations</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Today&apos;s work, every order and customer, and what each resource is doing this
-          week.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Operations</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Today&apos;s work, every order and customer, and what each resource is doing this
+            week.
+          </p>
+        </div>
+        <Button asChild size="sm">
+          <Link href="/operations/orders/new">
+            <PlusIcon /> New order
+          </Link>
+        </Button>
       </div>
 
       <Tabs value={tab} onValueChange={selectTab}>

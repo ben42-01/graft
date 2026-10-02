@@ -1,0 +1,66 @@
+meta {
+  name: A draft order's lines are replaced and re-priced by the server
+  type: http
+  seq: 13
+}
+
+patch {
+  url: {{baseUrl}}/api/v1/orders/{{draftEditOrderId}}
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{invoiceAccessToken}}
+}
+
+body:json {
+  {
+    "lineItems": [
+      { "kind": "resource", "description": "Veg box", "quantity": 3, "unitAmountMinor": 2200 },
+      { "kind": "fee", "description": "Delivery", "quantity": 1, "unitAmountMinor": 450 },
+      { "kind": "discount", "description": "Loyalty", "quantity": 1, "unitAmountMinor": -500 }
+    ],
+    "notes": "Phone order — leave with the neighbour"
+  }
+}
+
+script:pre-request {
+  // A hand-entered draft on the premium tenant (token from invoice-issue.bru),
+  // which is what the order editor at /operations/orders/new creates.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const created = await axios.post(
+    `${baseUrl}/api/v1/orders`,
+    {
+      currency: "EUR",
+      lineItems: [{ kind: "resource", description: "Veg box", quantity: 1, unitAmountMinor: 2200 }],
+    },
+    { headers: { Authorization: `Bearer ${bru.getVar("invoiceAccessToken")}` } },
+  );
+  bru.setVar("draftEditOrderId", created.data.data.id);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq draft
+  res.body.data.lineItems: length 3
+  res.body.data.subtotalMinor: eq 7050
+  res.body.data.discountMinor: eq 500
+  res.body.data.totalMinor: eq 6550
+  res.body.data.balanceMinor: eq 6550
+  res.body.data.notes: eq Phone order — leave with the neighbour
+  res.body.error: isUndefined
+}
+
+tests {
+  test("each line amount is computed by the server", function () {
+    const lines = res.getBody().data.lineItems;
+    expect(lines.map((line) => line.amountMinor)).to.eql([6600, 450, -500]);
+  });
+}
+
+docs {
+  PATCH replaces the whole line list; only a `draft` may be edited
+  (update-refused-after-pending.bru is the refusal).
+}
