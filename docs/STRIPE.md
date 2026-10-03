@@ -33,6 +33,137 @@ shows the customer:
 Whatever the shape, the session total always equals the amount due on the
 order; the Connect webhook records the payment against the order id either way.
 
+## Connect Checkout: who configures what
+
+Checkout mode on a form (PR #113) is the one place a tenant's payments touch
+Graft's Stripe account, through **Stripe Connect**. The split of
+responsibility:
+
+| | Who | What |
+|---|---|---|
+| Tenant | the customer | Clicks *Connect Stripe* in the form's payment settings and completes Stripe's own onboarding for **their** Stripe account (a Standard connected account). Never sees, enters or needs any key or webhook. Graft stores only the account id (`tenants.stripeConnect.accountId`). |
+| Platform | **us, once per deployment** | Enables Connect on the Graft Stripe account, registers one webhook endpoint, and sets `STRIPE_CONNECT_WEBHOOK_SECRET`. |
+
+`STRIPE_CONNECT_WEBHOOK_SECRET` is **not per tenant.** It is the signing secret
+of a single "events from connected accounts" endpoint that we register in
+*our* dashboard. All tenants share it; a new tenant needs nothing from us.
+Each event carries `event.account`, and `/api/v1/webhooks/stripe-connect` only
+marks an order paid when that account matches the tenant's stored
+`stripeConnect.accountId` — events for unknown accounts are ignored, so one
+tenant can't pay another's orders. The route is deliberately separate from the
+Premium billing webhook (`/api/v1/webhooks/stripe`, `STRIPE_WEBHOOK_SECRET`).
+
+Why a webhook at all: the Checkout session and payment live in the tenant's
+Stripe account, so Stripe has to tell Graft when an order was paid.
+
+**Symptom of it missing:** onboarding fails with `500 "Card payments are not
+configured"` and the log shows `connect.env.invalid` with
+`missing: ["STRIPE_CONNECT_WEBHOOK_SECRET"]`. The env is validated as a whole,
+so this blocks onboarding even though onboarding itself doesn't use the secret.
+Premium billing keeps working, because it reads a different set of variables.
+
+### Where the secret comes from
+
+There is no secret to look up in advance: **you create the endpoint (or run the
+CLI), and Stripe then shows you its `whsec_…`.** Two sources, depending on
+where the server runs:
+
+| Server runs… | Source of the secret | Needs a public URL? |
+|---|---|---|
+| On your machine (dev, local QA) | The Stripe CLI: `stripe listen --print-secret` | No — the CLI forwards events to localhost |
+| Deployed (production, a hosted QA) | A webhook endpoint you add in the Stripe dashboard | Yes — Stripe must reach the URL |
+
+Each environment and each Stripe mode (test / live) has its **own** secret.
+Never reuse one across them: a secret from the wrong endpoint makes every event
+fail with `400 Invalid signature`.
+
+### Dev (your machine, test mode)
+
+1. Enable Connect: Stripe dashboard (test mode, the Graft account) →
+   **Connect** → *Get started*. Once per Stripe account.
+2. Get the secret:
+
+   ```bash
+   STRIPE_KEY=$(grep '^STRIPE_SECRET_KEY=' .env.dev | cut -d= -f2-)
+   stripe listen --api-key "$STRIPE_KEY" --print-secret
+   ```
+
+   It prints `whsec_…` and exits. It is stable for this key on this machine.
+
+   **This is the same value as `STRIPE_WEBHOOK_SECRET`** (Premium billing):
+   the CLI signs everything it forwards — to `/webhooks/stripe` and to
+   `/webhooks/stripe-connect` — with one secret per key. Locally, paste it into
+   both variables. In a deployed environment the two are separate dashboard
+   endpoints with **different** secrets; never reuse one for the other there.
+3. Put it in `.env.dev`:
+
+   ```
+   STRIPE_CONNECT_WEBHOOK_SECRET=whsec_…
+   ```
+4. Restart `npm run dev` (env is read once and cached).
+5. Every test session, in its own terminal, leave this running:
+
+   ```bash
+   stripe listen --api-key "$STRIPE_KEY" \
+     --forward-connect-to localhost:3000/api/v1/webhooks/stripe-connect
+   ```
+
+   Each event should print `[200]`. `[400]` = wrong secret in `.env.dev` (redo
+   step 2–4). No events at all = the forwarder isn't running; a payment can
+   then succeed in Stripe while the order stays unpaid in Graft.
+6. Run `npm run db:indexes` once.
+
+### QA (local stack, test mode)
+
+Same as dev, against `.env.qa` and the QA port (`localhost:3100`):
+
+1. `STRIPE_KEY=$(grep '^STRIPE_SECRET_KEY=' .env.qa | cut -d= -f2-)` — QA
+   currently has a dummy key (see Known gaps), so first put a real test-mode
+   `sk_test_…` there.
+2. `stripe listen --api-key "$STRIPE_KEY" --print-secret` → 
+   `STRIPE_CONNECT_WEBHOOK_SECRET` in `.env.qa`.
+3. Restart the QA stack; forward with
+   `--forward-connect-to localhost:3100/api/v1/webhooks/stripe-connect`.
+
+If QA is instead deployed somewhere reachable, treat it like production below,
+using **test mode** in the dashboard.
+
+### Production (deployed, live mode)
+
+1. Stripe dashboard, switched to **live mode** → **Connect** → *Get started*
+   (live mode needs the platform profile completed; test mode doesn't).
+2. **Developers → Webhooks → Add endpoint.**
+3. Under *Listen to*, choose **Events from connected accounts** — not "Events
+   from your account". This is the setting that delivers every customer's
+   events to this one endpoint.
+4. Endpoint URL: `https://<your-domain>/api/v1/webhooks/stripe-connect`.
+5. Select events: `checkout.session.completed`,
+   `checkout.session.async_payment_succeeded`, `account.updated`.
+6. Click *Add endpoint*. On the endpoint's page, under **Signing secret**,
+   click *Reveal* and copy the `whsec_…`.
+7. Set it as `STRIPE_CONNECT_WEBHOOK_SECRET` in the production environment
+   (alongside the live `STRIPE_SECRET_KEY`) and redeploy/restart.
+8. Run `npm run db:indexes` against the production database once.
+9. Check: the endpoint page in Stripe shows delivery attempts; after a test
+   purchase on a connected account they should be `200`. Failed deliveries
+   can be resent from there.
+
+A hosted test-mode QA is the same eight steps with the dashboard in **test
+mode** and the QA domain/secret.
+
+### Checklist
+
+| | Dev | QA | Prod |
+|---|---|---|---|
+| Stripe mode | test | test | live |
+| Connect enabled | ✔ | ✔ | ✔ |
+| Secret from | CLI | CLI (or test-mode endpoint) | dashboard endpoint |
+| Forwarder running | yes | yes | no — Stripe calls the URL |
+| `db:indexes` | once | once | once |
+
+Checkout mode only works on booking forms: the amount charged is the order's
+amount due (deposit, else total).
+
 ## Why a dedicated Stripe account
 
 Billing must be tested against a Stripe account of its own, not whatever
