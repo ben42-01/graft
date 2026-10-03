@@ -1,0 +1,33 @@
+meta {
+  name: An order's payment link must be Stripe's, not a lookalike host
+  type: http
+  seq: 15
+}
+
+put {
+  url: {{baseUrl}}/api/v1/orders/{{draftEditOrderId}}/payment-link
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{invoiceAccessToken}}
+}
+
+body:json {
+  {
+    "url": "https://buy.stripe.com.evil.test/x"
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+}
+
+tests {
+  test("the refusal names the field, so the order page can show why", function () {
+    const fields = res.getBody().error.details.fields;
+    expect(fields).to.have.property("url");
+  });
+}

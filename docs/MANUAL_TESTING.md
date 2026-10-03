@@ -138,6 +138,22 @@ works fine since Graft never touches its keys. Steps to create one:
    - Paste a non-Stripe URL, or `https://buy.stripe.com.evil.test/x` — should be rejected inline (`isPaymentLinkUrl`), not just on save.
    - Paste a protocol-relative `//buy.stripe.com/x` — should also be rejected (no scheme inherited).
 
+**Cart forms (several items) — a payment link per order.** A cart form takes
+no payment on submit; its Payment panel says so instead of showing a link
+field (`src/components/operations/order-payment-link.tsx`).
+
+1. Submit a cart form as a visitor. The thank-you page says the business
+   will be in touch about payment — no Pay button.
+2. Open the order under **Operations → Orders**. Note the balance due.
+3. In Stripe test mode, make a Payment Link for that amount (or **Invoices →
+   Create invoice** and copy the hosted invoice link, `https://invoice.stripe.com/i/…`).
+4. Paste it into the order's **Payment link** section and save. Try
+   `https://buy.stripe.com.evil.test/x` first — refused inline.
+5. **Email customer** opens your mail app addressed to the customer with the
+   order number, amount and link; **Copy message** / **Copy link** copy them.
+   A Payment Link opened from there carries `client_reference_id=<order id>`.
+6. Pay with `4242…`, then record the payment on the order by hand.
+
 ---
 
 ## 3. Graft Admin (platform owner)

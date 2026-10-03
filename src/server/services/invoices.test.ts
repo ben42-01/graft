@@ -62,6 +62,7 @@ const order = (over: Partial<OrderView> = {}): OrderView => ({
   payments: [],
   allocationIds: [],
   notes: null,
+  paymentLink: null,
   confirmedAt: NOW,
   completedAt: null,
   cancelledAt: null,

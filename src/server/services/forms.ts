@@ -566,7 +566,7 @@ export function cartConfigErrors(
   }
   if (payment?.mode === "link") {
     errors.payment =
-      "A payment link charges a fixed price, which cannot match a cart total — use Checkout instead";
+      "A payment link charges a fixed price, which cannot match a cart total — attach a link to each order instead";
   }
   return errors;
 }

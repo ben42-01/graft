@@ -26,6 +26,7 @@ import {
   toOrderView,
   ORDER_STATUSES,
   recordPayment,
+  setOrderPaymentLink,
   TRANSITIONS,
   transitionOrder,
   updateOrder,
@@ -454,6 +455,86 @@ describe("recordPayment", () => {
     await expect(recordPayment(ctx, ORDER_ID, { amountMinor: 0 }, d)).rejects.toMatchObject({
       code: "VALIDATION_FAILED",
     });
+  });
+});
+
+describe("setOrderPaymentLink", () => {
+  it("attaches a Payment Link and hands back the customer's URL with the order id on it", async () => {
+    const { deps: d } = deps([seedOrder({ status: "pending_payment" })]);
+    const order = await setOrderPaymentLink(
+      ctx,
+      ORDER_ID,
+      { url: "https://buy.stripe.com/test_abc?prefilled_email=a%40b.test" },
+      d,
+    );
+
+    expect(order.paymentLink?.url).toBe(
+      "https://buy.stripe.com/test_abc?prefilled_email=a%40b.test",
+    );
+    const pay = new URL(order.paymentLink!.payUrl);
+    expect(pay.searchParams.get("client_reference_id")).toBe(ORDER_ID);
+    expect(pay.searchParams.get("prefilled_email")).toBe("a@b.test");
+    expect(order.paymentLink?.setAt).toEqual(NOW);
+  });
+
+  it("accepts a hosted Stripe invoice and leaves it exactly as issued", async () => {
+    const { deps: d } = deps([seedOrder({ status: "pending_payment" })]);
+    const url = "https://invoice.stripe.com/i/acct_123/test_YWNjdF8x";
+    const order = await setOrderPaymentLink(ctx, ORDER_ID, { url }, d);
+    expect(order.paymentLink?.payUrl).toBe(url);
+  });
+
+  it.each([
+    "https://evil.test/pay",
+    "https://buy.stripe.com.evil.test/x",
+    "http://buy.stripe.com/test_abc",
+    "https://checkout.stripe.com/c/pay/cs_test",
+    "javascript:alert(1)",
+  ])("refuses %s — the customer is sent there", async (url) => {
+    const { deps: d } = deps([seedOrder({ status: "pending_payment" })]);
+    await expect(setOrderPaymentLink(ctx, ORDER_ID, { url }, d)).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+  });
+
+  it("is allowed past draft, unlike editing the order", async () => {
+    const { deps: d } = deps([seedOrder({ status: "confirmed" })]);
+    const order = await setOrderPaymentLink(
+      ctx,
+      ORDER_ID,
+      { url: "https://buy.stripe.com/test_abc" },
+      d,
+    );
+    expect(order.paymentLink).not.toBeNull();
+  });
+
+  it("removes the link with null", async () => {
+    const { deps: d } = deps([
+      seedOrder({
+        status: "pending_payment",
+        paymentLink: { url: "https://buy.stripe.com/test_abc", setAt: NOW },
+      }),
+    ]);
+    const order = await setOrderPaymentLink(ctx, ORDER_ID, { url: null }, d);
+    expect(order.paymentLink).toBeNull();
+  });
+
+  it.each(["cancelled", "completed"] as const)("refuses a %s order", async (status) => {
+    const { deps: d } = deps([seedOrder({ status })]);
+    await expect(
+      setOrderPaymentLink(ctx, ORDER_ID, { url: "https://buy.stripe.com/test_abc" }, d),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("does not show a stored link that no longer validates", () => {
+    const view = toOrderView(
+      seedOrder({ paymentLink: { url: "https://evil.test/pay", setAt: NOW } }),
+    );
+    expect(view.paymentLink).toBeNull();
+  });
+
+  it("reads an order written before payment links existed as having none", () => {
+    expect(toOrderView(seedOrder()).paymentLink).toBeNull();
   });
 });
 
