@@ -44,6 +44,10 @@ import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
 import { env } from "@/env";
 import { TIERS, type Tier } from "@/server/tiers";
+import {
+  DEFAULT_CONNECT_COUNTRY,
+  isStripeConnectCountry,
+} from "@/lib/stripe-connect-countries";
 import { recordPayment as recordPaymentDefault, type OrderDoc } from "./orders";
 import { isDuplicateKey } from "./billing";
 
@@ -103,7 +107,8 @@ export type CheckoutLine = { name: string; unitAmountMinor: number; quantity: nu
 export const STRIPE_MAX_LINE_ITEMS = 100;
 
 export type ConnectStripeClient = {
-  createAccount(input: { tenantId: string }): Promise<{ id: string }>;
+  /** `country` is ISO 3166-1 alpha-2 and permanent on the account. */
+  createAccount(input: { tenantId: string; country: string }): Promise<{ id: string }>;
   createAccountLink(input: {
     accountId: string;
     refreshUrl: string;
@@ -210,6 +215,36 @@ export function mongoConnectEventStore(): ConnectEventStore {
   };
 }
 
+/** The slice of a v2 account `accountReadiness` reads. */
+export type V2AccountReadiness = {
+  configuration?: {
+    merchant?: { capabilities?: { card_payments?: { status: string } } } | null;
+  } | null;
+  requirements?: {
+    entries?: Array<{ awaiting_action_from: string; minimum_deadline: { status: string } }>;
+  } | null;
+};
+
+/**
+ * v2 has no `charges_enabled` / `details_submitted`. Their equivalents: the
+ * merchant's card_payments capability is `active`, and nothing due now (or
+ * overdue) is waiting on the account holder — what remains is Stripe's to
+ * verify or due only eventually.
+ */
+export function accountReadiness(account: V2AccountReadiness): {
+  chargesEnabled: boolean;
+  detailsSubmitted: boolean;
+} {
+  const cardPayments = account.configuration?.merchant?.capabilities?.card_payments;
+  const owedByHolder = (account.requirements?.entries ?? []).some(
+    (entry) =>
+      entry.awaiting_action_from === "user" &&
+      (entry.minimum_deadline.status === "currently_due" ||
+        entry.minimum_deadline.status === "past_due"),
+  );
+  return { chargesEnabled: cardPayments?.status === "active", detailsSubmitted: !owedByHolder };
+}
+
 let cachedSdk: Stripe | null = null;
 const sdk = (secretKey: string): Stripe => (cachedSdk ??= new Stripe(secretKey));
 
@@ -217,30 +252,39 @@ export function realConnectStripeClient(
   getEnv: () => ConnectEnv = connectEnv,
 ): ConnectStripeClient {
   return {
-    async createAccount({ tenantId }) {
-      // A Standard account: the tenant owns it, has the full Stripe dashboard,
-      // and carries its own fees, refunds and disputes.
-      const account = await sdk(getEnv().STRIPE_SECRET_KEY).accounts.create({
-        type: "standard",
+    async createAccount({ tenantId, country }) {
+      // Accounts v2 (Stripe refuses v1 creation for new Connect platforms).
+      // A full dashboard with Stripe collecting fees and carrying losses is
+      // what v1 called a Standard account — and v1 reads it back as one: the
+      // tenant owns it and carries its own fees, refunds and disputes. The
+      // merchant configuration cannot be added without a country.
+      const account = await sdk(getEnv().STRIPE_SECRET_KEY).v2.core.accounts.create({
+        dashboard: "full",
+        identity: { country: country.toLowerCase() },
+        defaults: {
+          responsibilities: { fees_collector: "stripe", losses_collector: "stripe" },
+        },
+        configuration: { merchant: { capabilities: { card_payments: { requested: true } } } },
         metadata: { tenantId },
       });
       return { id: account.id };
     },
     async createAccountLink({ accountId, refreshUrl, returnUrl }) {
-      const link = await sdk(getEnv().STRIPE_SECRET_KEY).accountLinks.create({
+      const link = await sdk(getEnv().STRIPE_SECRET_KEY).v2.core.accountLinks.create({
         account: accountId,
-        refresh_url: refreshUrl,
-        return_url: returnUrl,
-        type: "account_onboarding",
+        use_case: {
+          type: "account_onboarding",
+          account_onboarding: { refresh_url: refreshUrl, return_url: returnUrl },
+        },
       });
       return { url: link.url };
     },
     async retrieveAccount(accountId) {
-      const account = await sdk(getEnv().STRIPE_SECRET_KEY).accounts.retrieve(accountId);
-      return {
-        chargesEnabled: account.charges_enabled ?? false,
-        detailsSubmitted: account.details_submitted ?? false,
-      };
+      const account = await sdk(getEnv().STRIPE_SECRET_KEY).v2.core.accounts.retrieve(
+        accountId,
+        { include: ["configuration.merchant", "requirements"] },
+      );
+      return accountReadiness(account);
     },
     async createCheckoutSession(input) {
       const session = await sdk(getEnv().STRIPE_SECRET_KEY).checkout.sessions.create(
@@ -330,6 +374,11 @@ export const onboardingSchema = z.object({
     .string()
     .regex(/^\/forms(\/[0-9a-f]{24})?$/i, "Not a place to return to")
     .default("/forms"),
+  /** Only read when the account is created — it is permanent after that. */
+  country: z
+    .string()
+    .refine(isStripeConnectCountry, "Stripe can't take card payments in that country")
+    .default(DEFAULT_CONNECT_COUNTRY),
 });
 
 /** Creates the connected account on first use, then an onboarding link. */
@@ -340,13 +389,13 @@ export async function startConnectOnboarding(
 ): Promise<{ url: string }> {
   assertCanManage(ctx);
   const deps = resolveDeps(overrides);
-  const { returnTo } = parse(onboardingSchema, input ?? {}, "body");
+  const { returnTo, country } = parse(onboardingSchema, input ?? {}, "body");
   const tenant = await deps.store.find(ctx.tenantId);
   if (!tenant) throw new AppError("NOT_FOUND", "Workspace not found");
 
   let accountId = tenant.connect?.accountId ?? null;
   if (!accountId) {
-    accountId = (await deps.stripe.createAccount({ tenantId: ctx.tenantId })).id;
+    accountId = (await deps.stripe.createAccount({ tenantId: ctx.tenantId, country })).id;
     await deps.store.set(ctx.tenantId, {
       accountId,
       chargesEnabled: false,
@@ -561,6 +610,10 @@ export async function handleConnectWebhookEvent(
         await applyPaidSession(deps, event, requestId);
         break;
 
+      // Accounts are created with v2, but a v2 account with the merchant
+      // configuration still emits this v1 snapshot event, in the "Connected
+      // accounts" scope this endpoint already listens to — so no thin-event
+      // destination is needed. The snapshot is v1-shaped, hence charges_enabled.
       case "account.updated": {
         if (!event.account) break;
         const tenantId = await deps.store.findTenantIdByAccount(event.account);

@@ -29,6 +29,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PAYMENT_LINK_HOST, isPaymentLinkUrl } from "@/lib/payment-links";
+import {
+  DEFAULT_CONNECT_COUNTRY,
+  STRIPE_CONNECT_COUNTRIES,
+  type StripeConnectCountry,
+} from "@/lib/stripe-connect-countries";
 import { cn } from "@/lib/utils";
 
 /** Mirrors `PaymentConfig` in src/server/services/forms.ts. */
@@ -257,6 +262,15 @@ function ModeOption({
   );
 }
 
+/** Stripe's countries by English name; the code stands in where the runtime
+ * has no name for it. */
+function countryOptions(): { code: StripeConnectCountry; name: string }[] {
+  const names = new Intl.DisplayNames(["en"], { type: "region" });
+  return STRIPE_CONNECT_COUNTRIES.map((code) => ({ code, name: names.of(code) ?? code })).sort(
+    (a, b) => a.name.localeCompare(b.name),
+  );
+}
+
 function useConnectStatus(active: boolean): [ConnectState, () => Promise<void>] {
   const [state, setState] = useState<ConnectState>({ status: "loading" });
   const load = useCallback(async () => {
@@ -291,6 +305,7 @@ function CheckoutSetup({
   const [starting, setStarting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [country, setCountry] = useState<StripeConnectCountry>(DEFAULT_CONNECT_COUNTRY);
 
   async function startOnboarding() {
     setStarting(true);
@@ -300,7 +315,7 @@ function CheckoutSetup({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ returnTo: formId ? `/forms/${formId}` : "/forms" }),
+        body: JSON.stringify({ returnTo: formId ? `/forms/${formId}` : "/forms", country }),
       });
       const body = (await response.json().catch(() => null)) as
         { data: { url: string } } | { error: { message: string } } | null;
@@ -384,6 +399,29 @@ function CheckoutSetup({
               ? "Your Stripe account isn't ready to take payments yet — finish setting it up with Stripe."
               : "Connect your Stripe account so customers can pay by card. Payments go straight to you."}
           </p>
+          {connect.value.connected ? null : (
+            <div>
+              <Label htmlFor="connect-country" className="mb-1 block text-xs">
+                Where your business is based
+              </Label>
+              <select
+                id="connect-country"
+                value={country}
+                disabled={starting}
+                onChange={(event) => setCountry(event.target.value as StripeConnectCountry)}
+                className="h-9 rounded-md border bg-background px-2 text-sm focus-visible:ring-2 focus-visible:ring-graft-green focus-visible:outline-none"
+              >
+                {countryOptions().map(({ code, name }) => (
+                  <option key={code} value={code}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Stripe fixes this when the account is created — it can&apos;t be changed later.
+              </p>
+            </div>
+          )}
           <Button
             type="button"
             size="sm"

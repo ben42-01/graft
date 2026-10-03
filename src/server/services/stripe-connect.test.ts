@@ -10,6 +10,7 @@ import { createContext, type Role } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
 import type { OrderDoc } from "./orders";
 import {
+  accountReadiness,
   amountDueMinor,
   createFormCheckout,
   disconnectStripe,
@@ -167,8 +168,64 @@ describe("startConnectOnboarding", () => {
       returnUrl: "https://app.graft.test/forms/0123456789abcdef01234567?stripe=return",
     });
 
-    await startConnectOnboarding(ctx(), {}, deps);
+    await startConnectOnboarding(ctx(), { country: "US" }, deps);
     expect(deps.stripe.createAccount).toHaveBeenCalledTimes(1);
+  });
+
+  it("creates the account in the chosen country, Ireland when none is named", async () => {
+    const chosen = harness();
+    await startConnectOnboarding(ctx(), { country: "GB" }, chosen.deps);
+    expect(chosen.deps.stripe.createAccount).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      country: "GB",
+    });
+
+    const unnamed = harness();
+    await startConnectOnboarding(ctx(), {}, unnamed.deps);
+    expect(unnamed.deps.stripe.createAccount).toHaveBeenCalledWith({
+      tenantId: TENANT,
+      country: "IE",
+    });
+  });
+
+  it("refuses a country Stripe cannot take card payments in, before creating anything", async () => {
+    const { deps } = harness();
+    for (const country of ["IN", "XX", "ie", ""]) {
+      await expect(startConnectOnboarding(ctx(), { country }, deps)).rejects.toMatchObject({
+        code: "VALIDATION_FAILED",
+      });
+    }
+    expect(deps.stripe.createAccount).not.toHaveBeenCalled();
+  });
+});
+
+describe("accountReadiness", () => {
+  const due = (awaiting_action_from: string, status: string) => ({
+    awaiting_action_from,
+    minimum_deadline: { status },
+  });
+  const merchant = (status: string) => ({
+    merchant: { capabilities: { card_payments: { status } } },
+  });
+
+  it("takes payments only once card_payments is active", () => {
+    expect(accountReadiness({ configuration: merchant("active") }).chargesEnabled).toBe(true);
+    for (const status of ["pending", "restricted", "rejected", "unsupported"]) {
+      expect(accountReadiness({ configuration: merchant(status) }).chargesEnabled).toBe(false);
+    }
+    expect(accountReadiness({}).chargesEnabled).toBe(false);
+    expect(accountReadiness({ configuration: { merchant: null } }).chargesEnabled).toBe(false);
+  });
+
+  it("counts details as submitted unless the holder owes something now or overdue", () => {
+    const submitted = (entries: ReturnType<typeof due>[]) =>
+      accountReadiness({ requirements: { entries } }).detailsSubmitted;
+    expect(submitted([])).toBe(true);
+    expect(submitted([due("stripe", "currently_due"), due("user", "eventually_due")])).toBe(
+      true,
+    );
+    expect(submitted([due("user", "currently_due")])).toBe(false);
+    expect(submitted([due("user", "past_due")])).toBe(false);
   });
 
   it("refuses a return address that is not an in-app forms page", async () => {

@@ -41,7 +41,7 @@ responsibility:
 
 | | Who | What |
 |---|---|---|
-| Tenant | the customer | Clicks *Connect Stripe* in the form's payment settings and completes Stripe's own onboarding for **their** Stripe account (a Standard connected account). Never sees, enters or needs any key or webhook. Graft stores only the account id (`tenants.stripeConnect.accountId`). |
+| Tenant | the customer | Clicks *Connect Stripe* in the form's payment settings and completes Stripe's own onboarding for **their** Stripe account. Picks the business country first — it is fixed when the account is created. Never sees, enters or needs any key or webhook. Graft stores only the account id (`tenants.stripeConnect.accountId`). |
 | Platform | **us, once per deployment** | Enables Connect on the Graft Stripe account, registers one webhook endpoint, and sets `STRIPE_CONNECT_WEBHOOK_SECRET`. |
 
 `STRIPE_CONNECT_WEBHOOK_SECRET` is **not per tenant.** It is the signing secret
@@ -55,6 +55,41 @@ Premium billing webhook (`/api/v1/webhooks/stripe`, `STRIPE_WEBHOOK_SECRET`).
 
 Why a webhook at all: the Checkout session and payment live in the tenant's
 Stripe account, so Stripe has to tell Graft when an order was paid.
+
+### Accounts v2
+
+Connected accounts are created with **Accounts v2** (`POST /v2/core/accounts`)
+— Stripe refuses v1 `accounts.create` for new Connect platforms. The request
+(`realConnectStripeClient` in `src/server/services/stripe-connect.ts`) is
+`dashboard: "full"`, `defaults.responsibilities` `fees_collector: "stripe"` +
+`losses_collector: "stripe"`, and the merchant configuration with
+`card_payments` requested. That is what v1 called a **Standard** account (v1
+`accounts.retrieve` reports it as `type: "standard"`): the tenant owns it, has
+the full dashboard, and carries its own fees, refunds and disputes.
+Checked against test mode on 2026-10-03 (stripe-node 23, API `2026-09-30.endive`).
+
+- **Country is required and permanent.** The merchant configuration can't be
+  added without `identity.country`, so the payment editor asks for it (default
+  Ireland, the platform's country). The list, `src/lib/stripe-connect-countries.ts`,
+  is Stripe's `country_specs` for this platform minus India (no card payments
+  on this account type). A wrong choice means *Use a different Stripe account*.
+- **Readiness** has no `charges_enabled` in v2. Graft reads
+  `configuration.merchant.capabilities.card_payments.status === "active"`, and
+  "details submitted" as no requirement awaiting the user that is
+  `currently_due` or `past_due`.
+- **Onboarding link** is `POST /v2/core/account_links` with
+  `use_case.type: "account_onboarding"`.
+- **Webhook unchanged.** A v2 account with the merchant configuration still
+  sends the v1 `account.updated` snapshot in the *Connected accounts* scope, so
+  the existing endpoint keeps working. Thin `v2.core.account[...]` events
+  would need a separate *Your account* event destination; Graft doesn't use them.
+- **Checkout unchanged.** v2 account ids are still `acct_…`, and direct-charge
+  Checkout Sessions use the same `Stripe-Account` header.
+- **The "Accounts v1 support" dashboard switch** (enabled on the test account
+  as a stopgap on 2026-10-03) should no longer be needed. Nothing in Graft
+  creates through v1 any more, but this was only tested with the switch still
+  on — turn it off, re-run *Connect Stripe* once, and don't enable it on
+  QA/production accounts.
 
 **Symptom of it missing:** onboarding fails with `500 "Card payments are not
 configured"` and the log shows `connect.env.invalid` with
