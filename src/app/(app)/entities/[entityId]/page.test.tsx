@@ -76,6 +76,35 @@ describe("EntityPage", () => {
     expect(within(table).getByText("No")).toBeInTheDocument();
   });
 
+  it("exports every record as a CSV, and a header-only template when there are none", async () => {
+    const download = vi.fn();
+    vi.doMock("@/lib/download", () => ({ downloadTextFile: download }));
+    vi.resetModules();
+    const { default: Page } = await import("./page");
+
+    stubApi();
+    const { unmount } = render(<Page />);
+    await userEvent.click(await screen.findByRole("button", { name: /^export$/i }));
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(1));
+    expect(download).toHaveBeenLastCalledWith(
+      "customers.csv",
+      "text/csv",
+      "Name,Active\r\nAda,Yes\r\nGrace,No\r\n",
+    );
+    unmount();
+
+    stubApi({ records: [] });
+    render(<Page />);
+    await userEvent.click(await screen.findByRole("button", { name: /download template/i }));
+    await waitFor(() => expect(download).toHaveBeenCalledTimes(2));
+    expect(download).toHaveBeenLastCalledWith(
+      "customers-template.csv",
+      "text/csv",
+      "Name,Active\r\n",
+    );
+    vi.doUnmock("@/lib/download");
+  });
+
   it("says so when the entity has no records yet", async () => {
     stubApi({ records: [] });
     render(<EntityPage />);
