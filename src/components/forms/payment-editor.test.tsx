@@ -171,7 +171,46 @@ describe("PaymentEditor — Stripe Checkout", () => {
     expect(String(url)).toBe("/api/v1/payments/stripe-connect/onboarding");
     expect(JSON.parse(String(init!.body))).toEqual({
       returnTo: "/forms/0123456789abcdef01234567",
+      country: "IE",
     });
+  });
+
+  it("sends the business country chosen before connecting, and hides it once connected", async () => {
+    const fetchMock = connectStatus({
+      connected: false,
+      chargesEnabled: false,
+      detailsSubmitted: false,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubGlobal("location", { ...window.location, assign: vi.fn() });
+    const { unmount } = render(<PaymentEditor {...props()} hasBooking />);
+    await chooseCheckout();
+
+    const picker = await screen.findByLabelText("Where your business is based");
+    expect(picker).toHaveValue("IE");
+    const user = userEvent.setup();
+    await user.selectOptions(picker, "GB");
+    fetchMock.mockImplementationOnce(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ data: { url: "https://connect.stripe.com/setup/x" } }), {
+          status: 200,
+        }),
+      ),
+    );
+    await user.click(screen.getByRole("button", { name: "Connect Stripe" }));
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(1));
+    const [, init] = fetchMock.mock.calls.at(-1)!;
+    expect(JSON.parse(String(init!.body))).toMatchObject({ country: "GB" });
+    unmount();
+
+    vi.stubGlobal(
+      "fetch",
+      connectStatus({ connected: true, chargesEnabled: false, detailsSubmitted: false }),
+    );
+    render(<PaymentEditor {...props()} hasBooking />);
+    await chooseCheckout();
+    await screen.findByRole("button", { name: "Continue Stripe setup" });
+    expect(screen.queryByLabelText("Where your business is based")).not.toBeInTheDocument();
   });
 
   it("warns that checkout needs bookings to have something to charge", async () => {

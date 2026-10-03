@@ -26,6 +26,7 @@ import {
   ChevronRightIcon,
   FileTextIcon,
   CalendarCheckIcon,
+  DownloadIcon,
   PencilIcon,
   PlusIcon,
   Trash2Icon,
@@ -50,7 +51,9 @@ import { FieldRowsEditor } from "@/components/entities/field-rows-editor";
 import { RecordDialog, type RecordRow } from "@/components/entities/record-dialog";
 import { BookableDialog, type PoolView } from "@/components/entities/bookable-dialog";
 import { ImportWizard } from "@/components/entities/import-wizard";
+import { downloadTextFile } from "@/lib/download";
 import { useMe } from "@/lib/session";
+import { exportFilename, fetchAllRecords, recordsToCsv } from "@/lib/entities/export-csv";
 import {
   draftFieldsFrom,
   removedKeys,
@@ -105,6 +108,8 @@ export default function EntityPage() {
   // The import gate is `/me`'s resolved features, never the tier (GRAFT-25.2 AC1).
   const { status: sessionStatus, me } = useMe();
   const [importOpen, setImportOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const [schemaOpen, setSchemaOpen] = useState(false);
   const [draftName, setDraftName] = useState("");
@@ -179,6 +184,30 @@ export default function EntityPage() {
     if (response.ok) setRows((prev) => prev.filter((row) => row.id !== recordId));
   }
 
+  /**
+   * Every record, not just the pages on screen. With none, the file is the
+   * header row alone — a template the import wizard accepts as it stands.
+   */
+  async function exportRecords() {
+    if (state.status !== "ready") return;
+    setExporting(true);
+    setExportError(null);
+    try {
+      const records = await fetchAllRecords(entityId);
+      if (!records) {
+        setExportError("We couldn't export these records. Try again.");
+        return;
+      }
+      downloadTextFile(
+        exportFilename(state.entity.key, records.length === 0),
+        "text/csv",
+        recordsToCsv(state.entity.fields, records),
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
   async function saveSchema() {
     if (state.status !== "ready") return;
     const fieldError = validateFields(draftFields);
@@ -245,7 +274,7 @@ export default function EntityPage() {
   const orphaned = removedKeys(entity.fields, draftFields);
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
+    <div className="mx-auto flex max-w-screen-2xl flex-col gap-6">
       <div>
         <Link
           href="/entities"
@@ -279,6 +308,17 @@ export default function EntityPage() {
               <UploadIcon /> Import
             </Button>
             <Button
+              loading={exporting}
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={exporting}
+              onClick={() => void exportRecords()}
+            >
+              <DownloadIcon />
+              {rows.length === 0 && !loadingRows ? "Download template" : "Export"}
+            </Button>
+            <Button
               type="button"
               size="sm"
               onClick={() => setRecordDialog({ open: true, editing: null })}
@@ -287,6 +327,11 @@ export default function EntityPage() {
             </Button>
           </div>
         </div>
+        {exportError ? (
+          <p role="alert" className="mt-2 text-sm text-destructive">
+            {exportError}
+          </p>
+        ) : null}
       </div>
 
       <Card>
