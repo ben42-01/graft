@@ -93,9 +93,45 @@ describe("PaymentEditor", () => {
     );
     expect(screen.getByLabelText(/payment link/i)).toHaveValue("https://buy.stripe.com/abc");
   });
+
+  it("no longer offers Stripe Checkout on a form that does not already use it", async () => {
+    render(<PaymentEditor {...props()} hasBooking />);
+    await enable();
+    expect(screen.queryByRole("radio", { name: /stripe checkout/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /connect stripe/i })).not.toBeInTheDocument();
+  });
+
+  it("sends a cart form's payment to its orders instead of the form", () => {
+    render(<PaymentEditor {...props()} hasBooking isCart />);
+    expect(screen.getByText(/takes no payment on the form/i)).toBeInTheDocument();
+    expect(screen.queryByRole("checkbox", { name: /take payment/i })).not.toBeInTheDocument();
+  });
+
+  it("lets a cart form drop a payment setting it was saved with", async () => {
+    const p = {
+      ...props(),
+      payment: {
+        mode: "link" as const,
+        link: { url: "https://buy.stripe.com/abc" },
+        required: false,
+      },
+    };
+    render(<PaymentEditor {...p} isCart />);
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: /remove the old payment/i }));
+    expect(p.onSave).toHaveBeenCalledWith(null);
+  });
 });
 
+/** Checkout is only offered on a form already saved with it. */
 describe("PaymentEditor — Stripe Checkout", () => {
+  const props = () => ({
+    payment: { mode: "checkout", required: false } as PaymentView | null,
+    busy: false,
+    onSave: vi.fn(),
+  });
+
   const connectStatus = (value: {
     connected: boolean;
     chargesEnabled: boolean;
@@ -109,10 +145,18 @@ describe("PaymentEditor — Stripe Checkout", () => {
     vi.unstubAllGlobals();
   });
 
-  const chooseCheckout = async () => {
-    await enable();
-    await userEvent.setup().click(screen.getByRole("radio", { name: /stripe checkout/i }));
-  };
+  const chooseCheckout = () =>
+    userEvent.setup().click(screen.getByRole("radio", { name: /stripe checkout/i }));
+
+  it("still offers Checkout beside a payment link on a form that uses it", () => {
+    vi.stubGlobal(
+      "fetch",
+      connectStatus({ connected: true, chargesEnabled: true, detailsSubmitted: true }),
+    );
+    render(<PaymentEditor {...props()} hasBooking />);
+    expect(screen.getByRole("radio", { name: /payment link/i })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /stripe checkout/i })).toBeChecked();
+  });
 
   it("saves checkout mode once the connected account can take payments", async () => {
     vi.stubGlobal(

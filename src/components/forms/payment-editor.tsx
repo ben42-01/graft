@@ -11,12 +11,17 @@
  *     checked here with the rule the server uses (`isPaymentLinkUrl`), so a
  *     paste that would be refused is refused beside the input. It cannot
  *     verify payment, and the panel says so.
- *   - **Stripe Checkout.** Graft opens a Checkout Session on the tenant's own
- *     *connected* Stripe account (src/server/services/stripe-connect.ts) for
- *     the amount due on the booking's order, and marks the order paid when
- *     Stripe says it is. It needs the account connected, which this panel
- *     offers in place, and it needs an order to charge — so it says so when
- *     the form takes no bookings.
+ *   - **Stripe Checkout** (retired from new forms). Graft opens a Checkout
+ *     Session on the tenant's own *connected* Stripe account
+ *     (src/server/services/stripe-connect.ts). Connecting meant Graft creating
+ *     and onboarding a brand-new Stripe account per tenant, which was too much
+ *     to ask, so the option is only shown on a form that already uses it.
+ *     The server still accepts it; nothing about stored forms changes.
+ *
+ * A cart form (several items, `catalogue.multiple`) takes no payment here at
+ * all: a Payment Link has a fixed price and a cart's total is not. Its orders
+ * are paid through a link the tenant attaches to each order instead
+ * (src/components/operations/order-payment-link.tsx).
  *
  * Saved with an explicit button, like the panels beside it: this decides what
  * happens to a customer's money.
@@ -55,6 +60,7 @@ export function PaymentEditor({
   onSave,
   formId,
   hasBooking = false,
+  isCart = false,
 }: {
   payment: PaymentView | null;
   busy: boolean;
@@ -63,6 +69,8 @@ export function PaymentEditor({
   formId?: string;
   /** Checkout charges the order a booking raises; without one it has no amount. */
   hasBooking?: boolean;
+  /** Customers pick several items — payment is asked for per order instead. */
+  isCart?: boolean;
 }) {
   const [enabled, setEnabled] = useState(payment !== null);
   const [mode, setMode] = useState<Mode>(payment?.mode ?? "link");
@@ -83,6 +91,43 @@ export function PaymentEditor({
   const [connect, reloadConnect] = useConnectStatus(enabled && mode === "checkout");
   const checkoutReady = connect.status === "ready" && connect.value.chargesEnabled;
   const ready = mode === "link" ? linkReady : checkoutReady;
+  // Only a form saved with Checkout still offers it.
+  const offerCheckout = payment?.mode === "checkout";
+
+  if (isCart && !offerCheckout) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <CreditCardIcon className="size-4" aria-hidden="true" /> Payment
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-2 text-sm">
+          <p>
+            Customers pick several items on this form, so the total is only known once they
+            submit. It takes no payment on the form.
+          </p>
+          <p className="text-muted-foreground">
+            Each submission raises an order. Open it under Operations → Orders, attach a Stripe
+            payment link or invoice for its total, and send it to the customer from there.
+          </p>
+          {payment !== null ? (
+            <div>
+              <Button
+                loading={busy}
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => onSave(null)}
+              >
+                Remove the old payment setting
+              </Button>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+    );
+  }
 
   function save() {
     if (!enabled) return onSave(null);
@@ -100,8 +145,8 @@ export function PaymentEditor({
           <CreditCardIcon className="size-4" aria-hidden="true" /> Payment
         </CardTitle>
         <p className="mt-1 text-sm text-muted-foreground">
-          Ask whoever submits this form to pay — through a Stripe payment link you made, or a
-          Stripe Checkout Graft opens on your own Stripe account.
+          Ask whoever submits this form to pay, through a Stripe payment link you made in your
+          own Stripe dashboard.
         </p>
       </CardHeader>
 
@@ -117,28 +162,30 @@ export function PaymentEditor({
 
         {enabled ? (
           <>
-            <div
-              role="radiogroup"
-              aria-label="How to take payment"
-              className="grid gap-2 sm:grid-cols-2"
-            >
-              <ModeOption
-                selected={mode === "link"}
-                disabled={busy}
-                onSelect={() => setMode("link")}
-                icon={<LinkIcon className="size-4" aria-hidden="true" />}
-                title="Payment link"
-                body="Paste a link from your Stripe dashboard. You confirm payment yourself."
-              />
-              <ModeOption
-                selected={mode === "checkout"}
-                disabled={busy}
-                onSelect={() => setMode("checkout")}
-                icon={<CreditCardIcon className="size-4" aria-hidden="true" />}
-                title="Stripe Checkout"
-                body="Charges the booking's amount due and marks the order paid automatically."
-              />
-            </div>
+            {offerCheckout ? (
+              <div
+                role="radiogroup"
+                aria-label="How to take payment"
+                className="grid gap-2 sm:grid-cols-2"
+              >
+                <ModeOption
+                  selected={mode === "link"}
+                  disabled={busy}
+                  onSelect={() => setMode("link")}
+                  icon={<LinkIcon className="size-4" aria-hidden="true" />}
+                  title="Payment link"
+                  body="Paste a link from your Stripe dashboard. You confirm payment yourself."
+                />
+                <ModeOption
+                  selected={mode === "checkout"}
+                  disabled={busy}
+                  onSelect={() => setMode("checkout")}
+                  icon={<CreditCardIcon className="size-4" aria-hidden="true" />}
+                  title="Stripe Checkout"
+                  body="Charges the booking's amount due and marks the order paid automatically."
+                />
+              </div>
+            ) : null}
 
             {mode === "link" ? (
               <div>

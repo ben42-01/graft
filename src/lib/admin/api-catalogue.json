@@ -2065,6 +2065,51 @@
       ]
     },
     {
+      "id": "PUT /api/v1/orders/:orderId/payment-link",
+      "method": "PUT",
+      "path": "/api/v1/orders/:orderId/payment-link",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "the link the customer pays this order through: a Stripe Payment Link or hosted invoice the tenant made in their own dashboard for the order's amount.",
+      "source": "src/app/api/v1/orders/[orderId]/payment-link/route.ts",
+      "examples": [
+        {
+          "name": "An order's payment link must be Stripe's, not a lookalike host",
+          "file": "bruno/orders/payment-link-rejects-bad-url.bru",
+          "pathParams": {
+            "orderId": "{{draftEditOrderId}}"
+          },
+          "query": {},
+          "body": "{\n  \"url\": \"https://buy.stripe.com.evil.test/x\"\n}"
+        },
+        {
+          "name": "A Stripe payment link is attached to an order for the customer to pay through",
+          "file": "bruno/orders/payment-link-set.bru",
+          "pathParams": {
+            "orderId": "{{draftEditOrderId}}"
+          },
+          "query": {},
+          "body": "{\n  \"url\": \"https://buy.stripe.com/test_qa_order?prefilled_email=ada%40example.test\"\n}"
+        }
+      ]
+    },
+    {
+      "id": "DELETE /api/v1/orders/:orderId/payment-link",
+      "method": "DELETE",
+      "path": "/api/v1/orders/:orderId/payment-link",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "the link the customer pays this order through: a Stripe Payment Link or hosted invoice the tenant made in their own dashboard for the order's amount.",
+      "source": "src/app/api/v1/orders/[orderId]/payment-link/route.ts",
+      "examples": []
+    },
+    {
       "id": "POST /api/v1/orders/:orderId/payments",
       "method": "POST",
       "path": "/api/v1/orders/:orderId/payments",

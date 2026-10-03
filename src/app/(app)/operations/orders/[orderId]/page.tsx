@@ -7,8 +7,8 @@
  * had typed into the form, what had been paid and what was invoiced each
  * lived behind a different endpoint with no screen. This is those four reads
  * on one page, with the things an operator actually does to an order: move it
- * on, take a payment, issue an invoice — and, while it is still a draft, edit
- * it.
+ * on, send a payment link, take a payment, issue an invoice — and, while it is
+ * still a draft, edit it.
  *
  * Every action re-reads the order rather than patching local state: taking a
  * deposit can confirm the order, and confirming it moves its allocations, so
@@ -29,6 +29,10 @@ import {
   TRANSITIONS,
   type OrderStatus,
 } from "@/components/operations/order-board";
+import {
+  OrderPaymentLink,
+  type OrderPaymentLinkView,
+} from "@/components/operations/order-payment-link";
 import { StatusBadge } from "@/components/operations/status-badge";
 import { formatDate, formatDateTime, formatMoney, orderNumber } from "@/lib/bms/format";
 import {
@@ -60,6 +64,7 @@ type OrderDetail = {
   balanceMinor: number;
   payments: { amountMinor: number; reference: string | null; at: string }[];
   notes: string | null;
+  paymentLink: OrderPaymentLinkView;
   createdAt: string;
   customer: ApiCustomerRef | null;
   source: ApiOrderSource | null;
@@ -81,11 +86,11 @@ type State =
   | { status: "error" }
   | { status: "ready"; order: OrderDetail; invoices: Invoice[] | null };
 
-/** POSTs an action and reports the server's own reason when it says no. */
-async function post(url: string, body: unknown): Promise<string | null> {
+/** Sends an action and reports the server's own reason when it says no. */
+async function post(url: string, body: unknown, method = "POST"): Promise<string | null> {
   try {
     const response = await fetch(url, {
-      method: "POST",
+      method,
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -291,6 +296,28 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
                 ))}
               </ul>
             )}
+
+            {order.balanceMinor > 0 && (canPay || order.paymentLink) ? (
+              <OrderPaymentLink
+                orderId={order.id}
+                link={order.paymentLink}
+                editable={canPay}
+                amountMinor={order.balanceMinor}
+                currency={order.currency}
+                businessName={me?.tenant.name ?? ""}
+                customerName={order.customer?.name ?? null}
+                customerEmail={order.customer?.email ?? null}
+                onSave={async (url) => {
+                  const failure = await post(
+                    `/api/v1/orders/${order.id}/payment-link`,
+                    { url },
+                    "PUT",
+                  );
+                  await load();
+                  return failure;
+                }}
+              />
+            ) : null}
 
             {canPay ? (
               <form

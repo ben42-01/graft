@@ -36,6 +36,7 @@ import { clampLimit } from "@/server/http/pagination";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
 import { createRepository, type Repository } from "@/server/repositories/base";
+import { buildOrderPaymentUrl, isOrderPaymentUrl } from "@/lib/payment-links";
 import {
   confirmAllocation as confirmAllocationDefault,
   releaseAllocation as releaseAllocationDefault,
@@ -123,6 +124,22 @@ export const recordPaymentSchema = z.object({
   reference: z.string().trim().max(200).optional(),
 });
 
+/**
+ * The link a tenant made in their own Stripe dashboard for this order — a
+ * Payment Link or a hosted invoice. `null` clears it. Allow-listed like a
+ * form's payment link (src/lib/payment-links.ts): the customer is sent there.
+ */
+export const setPaymentLinkSchema = z.object({
+  url: z
+    .string()
+    .trim()
+    .refine(
+      isOrderPaymentUrl,
+      "Must be a Stripe payment link (https://buy.stripe.com/…) or invoice link (https://invoice.stripe.com/…)",
+    )
+    .nullable(),
+});
+
 export const listOrdersQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.union([z.string(), z.number()]).optional(),
@@ -160,6 +177,11 @@ export type OrderDoc = {
   payments: OrderPayment[];
   allocationIds: ObjectId[];
   notes: string | null;
+  /**
+   * Where the customer pays for this order — a public URL the tenant pasted,
+   * never a credential. Absent on orders written before it existed.
+   */
+  paymentLink?: { url: string; setAt: Date } | null;
   /** When the order reached each terminal-ish state; null until it does. */
   confirmedAt: Date | null;
   completedAt: Date | null;
@@ -185,6 +207,11 @@ export type OrderView = {
   payments: OrderPayment[];
   allocationIds: string[];
   notes: string | null;
+  /**
+   * `url` is what the tenant pasted; `payUrl` is what to send the customer,
+   * with the order id on it as `client_reference_id` where Stripe takes one.
+   */
+  paymentLink: { url: string; payUrl: string; setAt: Date } | null;
   confirmedAt: Date | null;
   completedAt: Date | null;
   cancelledAt: Date | null;
@@ -208,12 +235,23 @@ export function toOrderView(doc: OrderDoc & { _id: ObjectId }): OrderView {
     payments: doc.payments,
     allocationIds: doc.allocationIds.map((id) => id.toHexString()),
     notes: doc.notes,
+    paymentLink: paymentLinkView(doc._id.toHexString(), doc.paymentLink ?? null),
     confirmedAt: doc.confirmedAt,
     completedAt: doc.completedAt,
     cancelledAt: doc.cancelledAt,
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
+}
+
+/** Fails closed: a stored value that no longer validates is not shown. */
+function paymentLinkView(
+  orderId: string,
+  link: { url: string; setAt: Date } | null,
+): OrderView["paymentLink"] {
+  if (!link) return null;
+  const payUrl = buildOrderPaymentUrl(link.url, orderId);
+  return payUrl ? { url: link.url, payUrl, setAt: link.setAt } : null;
 }
 
 export type OrderDeps = {
@@ -523,6 +561,35 @@ export async function recordPayment(
     return transitionOrder(ctx, orderId, { status: "confirmed" }, overrides);
   }
 
+  return toOrderView(updated);
+}
+
+/**
+ * Attaches (or, with `url: null`, removes) the link the customer pays this
+ * order through. Unlike `updateOrder` this is allowed past `draft`: the link is
+ * usually made once the order is awaiting payment and its amount is settled.
+ * Graft does not watch the link — the tenant still records what arrives.
+ */
+export async function setOrderPaymentLink(
+  ctx: Ctx,
+  orderId: string,
+  input: unknown,
+  overrides: Partial<OrderDeps> = {},
+): Promise<OrderView> {
+  const deps = resolveDeps(overrides);
+  const parsed = parse(setPaymentLinkSchema, input, "body");
+  const existing = await orderOrThrow(deps, ctx, orderId);
+
+  if (!ACTIVE_STATUSES.includes(existing.status)) {
+    throw new AppError("CONFLICT", `A ${existing.status} order cannot take a payment link`);
+  }
+
+  const updated = await deps.repo.updateOne(
+    ctx,
+    { _id: new ObjectId(orderId) } as Filter<OrderDoc>,
+    { $set: { paymentLink: parsed.url ? { url: parsed.url, setAt: deps.now() } : null } },
+  );
+  if (!updated) throw new AppError("NOT_FOUND", "Order not found");
   return toOrderView(updated);
 }
 

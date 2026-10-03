@@ -28,6 +28,42 @@ export function isPaymentLinkUrl(value: unknown): boolean {
 }
 
 /**
+ * Where a Stripe-hosted invoice lives. An order's amount is decided after the
+ * customer submits, so the tenant may bill it as a one-off invoice from their
+ * own dashboard instead of making a Payment Link for it.
+ */
+export const INVOICE_LINK_HOST = "invoice.stripe.com";
+
+/**
+ * The same allow-list rule as `isPaymentLinkUrl`, for the link a tenant
+ * attaches to one order (src/server/services/orders.ts): a Payment Link or a
+ * hosted Stripe invoice, and nothing else.
+ */
+export function isOrderPaymentUrl(value: unknown): boolean {
+  if (isPaymentLinkUrl(value)) return true;
+  if (typeof value !== "string" || value.trim() === "") return false;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  return url.protocol === "https:" && url.host === INVOICE_LINK_HOST;
+}
+
+/**
+ * The link a customer is sent for one order. A Payment Link carries the
+ * order id as `client_reference_id`, as on a form; a hosted invoice is left
+ * exactly as Stripe issued it — it already *is* the one payment it is for.
+ * Null when the stored value does not validate.
+ */
+export function buildOrderPaymentUrl(storedUrl: string, orderId: string): string | null {
+  if (isPaymentLinkUrl(storedUrl)) return buildPaymentLinkUrl(storedUrl, orderId);
+  if (!isOrderPaymentUrl(storedUrl)) return null;
+  return new URL(storedUrl).toString();
+}
+
+/**
  * The URL the submitter is sent to: the tenant's own link, with Graft's
  * reference on it. Built with `URL`/`URLSearchParams` so an existing query
  * string survives and a `client_reference_id` the tenant pasted themselves is

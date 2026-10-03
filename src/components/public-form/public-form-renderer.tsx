@@ -306,6 +306,12 @@ export function PublicFormRenderer({
               </a>
             </Button>
           )
+        ) : multiple ? (
+          // A cart's total is settled on the order, so payment follows by
+          // message rather than from here (order-payment-link.tsx).
+          <p className="text-sm text-muted-foreground">
+            We&apos;ll be in touch to confirm your order and how to pay.
+          </p>
         ) : null}
       </div>
     );

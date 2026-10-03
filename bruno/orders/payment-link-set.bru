@@ -1,0 +1,36 @@
+meta {
+  name: A Stripe payment link is attached to an order for the customer to pay through
+  type: http
+  seq: 14
+}
+
+put {
+  url: {{baseUrl}}/api/v1/orders/{{draftEditOrderId}}/payment-link
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{invoiceAccessToken}}
+}
+
+body:json {
+  {
+    "url": "https://buy.stripe.com/test_qa_order?prefilled_email=ada%40example.test"
+  }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.paymentLink.url: eq https://buy.stripe.com/test_qa_order?prefilled_email=ada%40example.test
+}
+
+tests {
+  test("the link sent to the customer carries the order id, and keeps the tenant's own query", function () {
+    const data = res.getBody().data;
+    const pay = new URL(data.paymentLink.payUrl);
+    expect(pay.host).to.equal("buy.stripe.com");
+    expect(pay.searchParams.get("client_reference_id")).to.equal(data.id);
+    expect(pay.searchParams.get("prefilled_email")).to.equal("ada@example.test");
+  });
+}

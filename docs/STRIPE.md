@@ -14,6 +14,27 @@ That path stores no tenant credential, calls no Stripe API, and receives no
 webhook — it handles a public URL and nothing else. The two never meet, and no
 key or webhook secret below is ever read by it.
 
+### Per-order payment links (cart forms)
+
+A form where the customer picks several items has no fixed price, so it takes
+no payment when submitted. The order it raises is priced; the tenant makes a
+Payment Link or a one-off invoice for that amount in their own Stripe
+dashboard and attaches it to the order (`PUT /api/v1/orders/:id/payment-link`,
+the *Payment link* section of the order page). Only `https://buy.stripe.com/…`
+and `https://invoice.stripe.com/…` are accepted (`isOrderPaymentUrl`); a
+Payment Link gets the order id as `client_reference_id`. The order page
+offers *Email customer* (opens the tenant's own mail app — Graft sends no
+email yet) and *Copy message*. Payment is still recorded by hand.
+
+## Connect Checkout — retired from new forms (2026-10-03)
+
+Connect Checkout made Graft create and onboard a **new** Stripe account for
+every tenant (there is no way to attach an account they already have without
+OAuth), and Stripe's hosted onboarding was too much to ask. The form builder
+now only offers it on a form that already uses it; everything below — the
+service, the webhook, the stored account ids — is left in place and still
+works for those forms. Payment links above are the default.
+
 ## Connect Checkout: itemised vs single-line sessions
 
 When a form uses Checkout mode (`src/server/services/stripe-connect.ts`,

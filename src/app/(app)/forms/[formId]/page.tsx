@@ -363,6 +363,7 @@ export default function FormPage() {
           payment={form.payment}
           formId={formId}
           hasBooking={form.booking != null}
+          isCart={form.catalogue?.multiple === true}
           busy={busy}
           onSave={(payment) => void patch({ payment }, () => void load())}
         />
