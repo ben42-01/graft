@@ -1,0 +1,31 @@
+meta {
+  name: A Free tenant still gets the headline summary
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{baseUrl}}/api/v1/reports/summary
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsFreeAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.orders.total: eq 0
+  res.body.data.orders.open: eq 0
+  res.body.data.currency: eq null
+  res.body.data.money.outstandingMinor: eq 0
+  res.body.data.customers.total: eq 0
+  res.body.error: isUndefined
+}
+
+docs {
+  qa-at-quota has never taken an order, so this is also the proof that the
+  premium tenant's orders (reports/summary.bru) are not in anyone else's
+  numbers: all zeroes, and no currency to report in.
+}

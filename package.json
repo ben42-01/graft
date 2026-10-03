@@ -40,7 +40,7 @@
     "storage:bucket": "tsx scripts/ensure-bucket.ts",
     "api:catalogue": "tsx scripts/generate-api-catalogue.ts",
     "admin:grant": "dotenv -e .env.dev --  tsx scripts/grant-platform-admin.ts",
-    "process:renewalProcess":"dotenv -e .env.dev --  tsx scripts/expire-trials.ts ",
+    "process:renewalProcess": "dotenv -e .env.dev --  tsx scripts/expire-trials.ts ",
     "db:migrate": "tsx scripts/migrate.ts up",
     "db:migrate:status": "tsx scripts/migrate.ts status",
     "build": "next build",

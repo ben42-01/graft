@@ -127,6 +127,11 @@ export const listOrdersQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.union([z.string(), z.number()]).optional(),
   status: z.enum(ORDER_STATUSES).optional(),
+  /** Orders raised for one customer record. */
+  customerRecordId: objectIdHex.optional(),
+  /** Created at or after / strictly before — ISO 8601 instants. */
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
 });
 
 export const orderIdParamSchema = z.object({ orderId: objectIdHex });
@@ -313,13 +318,27 @@ export async function createOrder(
   return toOrderView(doc);
 }
 
+/** The list's filters as one Mongo filter; every one of them is optional. */
+export function listFilter(query: z.infer<typeof listOrdersQuerySchema>): Filter<OrderDoc> {
+  const filter: Filter<OrderDoc> = {};
+  if (query.status) filter.status = query.status;
+  if (query.customerRecordId) filter.customerRecordId = new ObjectId(query.customerRecordId);
+  if (query.from || query.to) {
+    filter.createdAt = {
+      ...(query.from ? { $gte: query.from } : {}),
+      ...(query.to ? { $lt: query.to } : {}),
+    };
+  }
+  return filter;
+}
+
 export async function listOrders(ctx: Ctx, query: unknown, overrides: Partial<OrderDeps> = {}) {
   const deps = resolveDeps(overrides);
   const parsed = parse(listOrdersQuerySchema, query, "query");
   const { items, meta } = await deps.repo.listPage(ctx, {
     cursor: parsed.cursor,
     limit: clampLimit(parsed.limit),
-    filter: parsed.status ? ({ status: parsed.status } as Filter<OrderDoc>) : undefined,
+    filter: listFilter(parsed),
   });
   return { items: items.map(toOrderView), meta };
 }

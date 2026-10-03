@@ -168,6 +168,7 @@ const deps = (
   repo: fakeRepo(seed).repo,
   getOrder: async () => order(),
   numbers: fakeNumbers(),
+  can: async () => true,
   now: () => NOW,
   ...over,
 });
@@ -207,6 +208,21 @@ describe("amountDueFor", () => {
 });
 
 describe("issueInvoice", () => {
+  it("is refused on a plan without invoicing, before a number is taken", async () => {
+    const numbers = fakeNumbers();
+    const d = deps([], { can: async () => false, numbers });
+
+    await expect(
+      issueInvoice(ctx, { orderId: ORDER_ID, kind: "full" }, d),
+    ).rejects.toMatchObject({
+      code: "FEATURE_NOT_AVAILABLE",
+      status: 403,
+      details: { feature: "invoicing" },
+    });
+    // A refused invoice must not burn a number: the sequence is gapless.
+    expect(numbers.next).not.toHaveBeenCalled();
+  });
+
   it("snapshots the order and opens straight away", async () => {
     const d = deps();
     const invoice = await issueInvoice(ctx, { orderId: ORDER_ID, kind: "full" }, d);

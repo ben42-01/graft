@@ -1,0 +1,21 @@
+meta {
+  name: A form id that is not an id is refused
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/submissions?formId=nope
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.data: isUndefined
+}

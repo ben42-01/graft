@@ -27,9 +27,30 @@ export type ApiOrder = {
   totalMinor: number;
   balanceMinor: number;
   customerRecordId: string | null;
+  /** Who the order is for, resolved server-side from their record. Optional
+   * only so fixtures written before it existed still type-check. */
+  customer?: ApiCustomerRef | null;
+  /** The form submission that raised it; null for one drafted by hand. */
+  source?: ApiOrderSource | null;
   lineItems: { description: string }[];
   createdAt: string;
 };
+
+export type ApiCustomerRef = {
+  recordId: string;
+  entityId: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
+export type ApiOrderSource = { formId: string; formName: string | null; submissionId: string };
+
+/** What to call a customer when all there is to go on is what they typed. */
+export function customerLabel(customer: ApiCustomerRef | null | undefined): string | null {
+  if (!customer) return null;
+  return customer.name ?? customer.email ?? customer.phone ?? "Unnamed customer";
+}
 
 export type ApiAllocation = {
   id: string;
@@ -41,6 +62,8 @@ export type ApiAllocation = {
   blockedUntil: string;
   quantity: number;
   status: TimelineAllocation["status"];
+  /** The record that holds it — on a form booking, the customer's own. */
+  holderId?: string | null;
 };
 
 export type ApiPool = { id: string; recordId: string; entityId: string };
@@ -64,10 +87,11 @@ export function toBoardOrder(order: ApiOrder): BoardOrder {
     currency: order.currency,
     totalMinor: order.totalMinor,
     balanceMinor: order.balanceMinor,
-    // The customer's *name* needs its record, which needs its entity; until a
-    // customer is attached there is honestly nothing to show, and inventing a
-    // placeholder id would be worse than saying so.
-    customerLabel: order.customerRecordId ? "Customer" : null,
+    // Resolved by the API from the customer's record. An order with nobody
+    // attached honestly has nothing to show, and the board says so.
+    customerLabel: customerLabel(order.customer),
+    customerId: order.customer?.recordId ?? null,
+    sourceLabel: order.source?.formName ?? null,
     lineSummary: more > 0 ? `${first} +${more} more` : first,
     createdAt: order.createdAt,
   };
@@ -119,13 +143,25 @@ export async function loadOperations(window: OperationsWindow): Promise<Operatio
 
   const labels = pools ? await resolveRecordLabels(pools) : new Map<string, string>();
 
+  // A form booking holds its capacity in the name of the customer's record,
+  // which is also what the order points at — so the two join without a read.
+  const byHolder = new Map<string, ApiOrder>();
+  for (const order of orders ?? []) {
+    if (order.customerRecordId) byHolder.set(order.customerRecordId, order);
+  }
+
   return {
     orders: orders ? orders.map(toBoardOrder) : null,
     allocations: allocations
-      ? allocations.map((allocation) => ({
-          ...allocation,
-          resourceLabel: labels.get(allocation.recordId) ?? "Unnamed resource",
-        }))
+      ? allocations.map((allocation) => {
+          const order = allocation.holderId ? byHolder.get(allocation.holderId) : undefined;
+          return {
+            ...allocation,
+            resourceLabel: labels.get(allocation.recordId) ?? "Unnamed resource",
+            customerLabel: customerLabel(order?.customer),
+            orderId: order?.id ?? null,
+          };
+        })
       : null,
     ok: orders !== null || allocations !== null,
   };
@@ -137,3 +173,84 @@ export function todayWindow(now: Date = new Date(), days = 1): OperationsWindow 
   from.setHours(0, 0, 0, 0);
   return { from, to: new Date(from.getTime() + days * 86_400_000) };
 }
+
+export type ApiCustomerMoney = {
+  currency: string;
+  bookedMinor: number;
+  paidMinor: number;
+  outstandingMinor: number;
+};
+
+export type ApiCustomer = {
+  id: string;
+  entityId: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
+  recordIds: string[];
+  orderCount: number;
+  openOrderCount: number;
+  money: ApiCustomerMoney[];
+  firstOrderAt: string;
+  lastOrderAt: string;
+};
+
+export type ApiSubmission = {
+  id: string;
+  createdAt: string;
+  form: { id: string; name: string | null };
+  recordId: string;
+  customer: ApiCustomerRef | null;
+  order: {
+    id: string;
+    status: OrderStatus;
+    currency: string;
+    totalMinor: number;
+    balanceMinor: number;
+  } | null;
+};
+
+export type ApiBusinessSummary = {
+  currency: string | null;
+  otherCurrencies: string[];
+  orders: {
+    total: number;
+    open: number;
+    byStatus: Record<OrderStatus, number>;
+    last7Days: number;
+    previous7Days: number;
+  };
+  money: {
+    outstandingMinor: number;
+    bookedLast30DaysMinor: number;
+    bookedPrevious30DaysMinor: number;
+    collectedLast30DaysMinor: number;
+  };
+  customers: { total: number; newLast30Days: number };
+  submissions: { last7Days: number };
+  truncated: boolean;
+};
+
+export type ApiSalesReport = {
+  from: string;
+  to: string;
+  currency: string | null;
+  otherCurrencies: string[];
+  totals: {
+    orders: number;
+    cancelled: number;
+    bookedMinor: number;
+    collectedMinor: number;
+    outstandingMinor: number;
+    averageOrderMinor: number;
+  };
+  series: { date: string; orders: number; bookedMinor: number; collectedMinor: number }[];
+  topItems: { description: string; quantity: number; revenueMinor: number }[];
+  bySource: {
+    formId: string | null;
+    formName: string | null;
+    orders: number;
+    bookedMinor: number;
+  }[];
+  customers: { total: number; repeat: number };
+};

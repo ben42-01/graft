@@ -5,6 +5,9 @@
  * line items are what they agreed to. DELETE cancels first (releasing the
  * order's allocations) and then soft-deletes — an order is a financial record,
  * so there is no hard delete.
+ *
+ * GET also resolves `customer`, `source` and `answers` — who the order is
+ * for, the form submission that raised it, and what they entered on it.
  */
 import {
   deleteOrder,
@@ -13,6 +16,7 @@ import {
   updateOrder,
   updateOrderSchema,
 } from "@/server/services/orders";
+import { orderWithCustomer } from "@/server/services/customers";
 import { jsonOk } from "@/server/http/envelope";
 import { route } from "@/server/http/handler";
 import { parseBody, parseParams } from "@/server/http/validate";
@@ -24,7 +28,7 @@ type Params = { orderId: string };
 export const GET = route<Params>(async (_request, { requestId, context, params }) => {
   const ctx = await context();
   const { orderId } = parseParams(params, orderIdParamSchema);
-  return jsonOk(await getOrder(ctx, orderId), requestId);
+  return jsonOk(await orderWithCustomer(ctx, await getOrder(ctx, orderId)), requestId);
 });
 
 export const PATCH = route<Params>(async (request, { requestId, context, params }) => {

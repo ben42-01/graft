@@ -70,7 +70,8 @@ The Free tier must be genuinely useful (a solo business can run on it), but grow
 | Audit log | — | 90-day retention | Unlimited + export |
 | Scheduling plugin | Basic calendar | Full (reminders, availability) | Full + resource scheduling |
 | Invoicing plugin | — | ✓ | ✓ + custom templates |
-| Reports plugin | — | ✓ | ✓ + scheduled report emails |
+| Reports plugin (sales trend, best sellers, orders by source, repeat customers) | Headline figures only | ✓ | ✓ + scheduled report emails |
+| Orders, customers and submissions inbox | ✓ | ✓ | ✓ |
 | Email notifications | Graft-branded | Custom sender name | Custom SMTP/domain (DKIM) |
 
 ### 2.5 Enterprise-only

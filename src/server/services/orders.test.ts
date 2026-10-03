@@ -20,6 +20,7 @@ import {
   createOrder,
   deleteOrder,
   getOrder,
+  listFilter,
   listOrders,
   priceOrder,
   toOrderView,
@@ -493,6 +494,16 @@ describe("listOrders", () => {
 
     await listOrders(ctx, { status: "confirmed" }, { ...deps().deps, repo: spy });
     expect(captured[0].status).toBe("confirmed");
+  });
+
+  it("narrows by customer and by a created window", () => {
+    expect(listFilter({})).toEqual({});
+    const from = new Date("2026-06-01T00:00:00.000Z");
+    const to = new Date("2026-07-01T00:00:00.000Z");
+    const filter = listFilter({ customerRecordId: ALLOC_A, from, to });
+    expect(String(filter.customerRecordId)).toBe(ALLOC_A);
+    expect(filter.createdAt).toEqual({ $gte: from, $lt: to });
+    expect(listFilter({ from }).createdAt).toEqual({ $gte: from });
   });
 
   it("refuses a status that is not in the state machine", async () => {

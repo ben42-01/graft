@@ -5,13 +5,13 @@ meta {
 }
 
 get {
-  url: {{baseUrl}}/api/v1/orders/{{createdOrderId}}/ledger
+  url: {{baseUrl}}/api/v1/orders/{{invoiceOrderId}}/ledger
   body: none
   auth: none
 }
 
 headers {
-  Authorization: Bearer {{loginAccessToken}}
+  Authorization: Bearer {{invoiceAccessToken}}
 }
 
 assert {

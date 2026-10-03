@@ -1,0 +1,40 @@
+meta {
+  name: A Free tenant is refused the sales report on the server
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{baseUrl}}/api/v1/reports/sales
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsFreeAccessToken}}
+}
+
+script:pre-request {
+  // qa-at-quota is a Free workspace. Not qa-free: that tenant's api budget is
+  // spent in full by the rest of the suite.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const login = await axios.post(`${baseUrl}/api/v1/auth/login`, {
+    email: "owner@qa-at-quota.test",
+    password: bru.getEnvVar("qaPassword"),
+  });
+  bru.setVar("bmsFreeAccessToken", login.data.data.accessToken);
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq FORBIDDEN
+  res.body.error.details.feature: eq reports
+  res.body.data: isUndefined
+}
+
+docs {
+  The gate is `can(ctx, "reports")` in src/server/services/sales-report.ts —
+  the Overview hides the chart for a Free tenant, and this refuses the same
+  question again for a caller that skips the UI.
+}

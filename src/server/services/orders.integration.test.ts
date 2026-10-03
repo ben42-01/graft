@@ -23,7 +23,12 @@ import { createContext, type Ctx } from "@/server/context";
 import { getDb, getMongoClient } from "@/server/db/mongo";
 import { holdResource, isAvailable } from "./availability";
 import type { InventoryPoolDoc } from "./inventory";
-import { issueInvoice, ledgerForOrder, listInvoices } from "./invoices";
+import { issueInvoice as issueInvoiceGated, ledgerForOrder, listInvoices } from "./invoices";
+
+/** These tests are about numbering and isolation, not the plan: the plan gate
+ * (invoices.test.ts) is answered yes so no tenant document has to exist. */
+const issueInvoice = (ctx: Ctx, input: unknown) =>
+  issueInvoiceGated(ctx, input, { can: async () => true });
 import { createOrder, getOrder, recordPayment, transitionOrder } from "./orders";
 import { resourceLineItem } from "./pricing";
 

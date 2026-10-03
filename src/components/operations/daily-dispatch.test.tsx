@@ -155,6 +155,30 @@ describe("DailyDispatch", () => {
     expect(screen.getAllByText("Kayak #3").length).toBeGreaterThan(0);
   });
 
+  it("says who a booking is for and links the row to their order", () => {
+    const dispatch = buildDispatch(
+      [
+        allocation({
+          resourceLabel: "Kayak #3",
+          startAt: at(2),
+          endAt: at(30),
+          status: "held",
+          customerLabel: "Jane Doe",
+          orderId: "order-9",
+        }),
+      ],
+      [],
+      NOW,
+    );
+    render(<DailyDispatch dispatch={dispatch} />);
+
+    expect(screen.getByRole("link", { name: "Kayak #3" })).toHaveAttribute(
+      "href",
+      "/operations/orders/order-9",
+    );
+    expect(screen.getByText("Jane Doe · Unconfirmed hold")).toBeInTheDocument();
+  });
+
   it("flags an unconfirmed hold, which lapses if nobody acts", () => {
     const dispatch = buildDispatch(
       [allocation({ startAt: at(2), endAt: at(4), status: "held" })],

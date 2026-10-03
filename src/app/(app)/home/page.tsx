@@ -11,7 +11,7 @@
  * way you get a dashboard — it is the way you get a *different* dashboard —
  * and this screen gives everyone the BMS experience without building anything.
  *
- * Three decisions worth stating:
+ * Four decisions worth stating:
  *
  *   - **Composed, not configured.** Like `/operations`, every panel comes
  *     from endpoints that already exist (`src/lib/bms/reads.ts` is shared
@@ -22,6 +22,12 @@
  *     reader that panel and nothing else. The screen only errors when the
  *     tenant's own entities can't be read, which is the one thing nothing
  *     here works without.
+ *   - **The headline figures are the one server-computed read.**
+ *     `GET /api/v1/reports/summary` totals what a page of 100 orders cannot:
+ *     30 days of bookings and payments, and customers counted by person
+ *     rather than by order. It is still an independent panel — refused, the
+ *     tiles say so and the rest of the screen is unaffected. The trend behind
+ *     those figures (`SalesPanel`) is Premium and gated on the server.
  *   - **It is a hub, not a terminus.** Every number is a doorway into the
  *     screen that can act on it. A dashboard whose figures can only be looked
  *     at sends the reader off to find the real screen themselves.
@@ -51,7 +57,10 @@ import {
   hasOutstandingStep,
   SetupChecklist,
 } from "@/components/home/setup-checklist";
-import { getJson, loadOperations, todayWindow } from "@/lib/bms/reads";
+import { SalesPanel } from "@/components/home/sales-panel";
+import { SubmissionsInbox } from "@/components/operations/submissions-inbox";
+import { formatMoney } from "@/lib/bms/format";
+import { getJson, loadOperations, todayWindow, type ApiBusinessSummary } from "@/lib/bms/reads";
 import { useMe } from "@/lib/session";
 
 /** The schedule reads a week ahead; the dispatch panel narrows it to today. */
@@ -68,6 +77,8 @@ type Overview = {
   allocations: TimelineAllocation[] | null;
   records: MeterReading | null;
   submissions: MeterReading | null;
+  /** The server's headline figures — every tier gets these. */
+  summary: ApiBusinessSummary | null;
 };
 
 type State = { status: "loading" } | { status: "error" } | ({ status: "ready" } & Overview);
@@ -112,6 +123,18 @@ function outstanding(orders: BoardOrder[]): { amount: string; others: number } |
   return { amount: money(top[1], top[0]), others: ranked.length - 1 };
 }
 
+/** This 30 days against the last, in words — a percentage of nothing is not
+ * a trend, so the first sales and a quiet month each get a plain sentence. */
+function bookedTrend(summary: ApiBusinessSummary): string {
+  const current = summary.money.bookedLast30DaysMinor;
+  const previous = summary.money.bookedPrevious30DaysMinor;
+  if (!summary.currency) return "No orders yet";
+  if (previous === 0)
+    return current === 0 ? "Nothing booked yet" : "No sales the 30 days before";
+  const change = Math.round(((current - previous) / previous) * 100);
+  return `${change >= 0 ? "+" : "−"}${Math.abs(change)}% on the 30 days before`;
+}
+
 /** How much of a metered allowance is gone — amber past the 80% the server
  * itself warns at, red at the ceiling. */
 function quotaTone(reading: MeterReading | null): StatTone {
@@ -130,12 +153,13 @@ export default function AppHomePage() {
   const window = useMemo(() => todayWindow(new Date(), WINDOW_DAYS), []);
 
   const load = useCallback(async () => {
-    const [entities, forms, operations, records, submissions] = await Promise.all([
+    const [entities, forms, operations, records, submissions, summary] = await Promise.all([
       getJson<unknown[]>("/api/v1/entities"),
       getJson<unknown[]>("/api/v1/forms?limit=100"),
       loadOperations(window),
       getJson<MeterReading>("/api/v1/meters/records"),
       getJson<MeterReading>("/api/v1/meters/form_submissions"),
+      getJson<ApiBusinessSummary>("/api/v1/reports/summary"),
     ]);
 
     // Entities are what every other panel is ultimately about; if that read
@@ -153,6 +177,7 @@ export default function AppHomePage() {
       allocations: operations.allocations,
       records,
       submissions,
+      summary,
     });
   }, [window]);
 
@@ -190,6 +215,9 @@ export default function AppHomePage() {
   });
   const setupIncomplete = hasOutstandingStep(steps);
 
+  const { summary } = state;
+  const canSeeReports = me?.tenant.features?.reports === true;
+
   return (
     <div className="mx-auto flex max-w-6xl flex-col gap-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -203,7 +231,7 @@ export default function AppHomePage() {
               day: "numeric",
               month: "long",
             })}{" "}
-            — today&apos;s work, your pipeline and how the plan is holding up.
+            — how the business is doing, today&apos;s work and your pipeline.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -224,6 +252,57 @@ export default function AppHomePage() {
             </Button>
           </GatedControl>
         </div>
+      </div>
+
+      {/* The business first — what was sold, what came in, who is owed — then
+       * the day's workload underneath. */}
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatTile
+          label="Booked · 30 days"
+          value={
+            summary?.currency
+              ? formatMoney(summary.money.bookedLast30DaysMinor, summary.currency, {
+                  whole: true,
+                })
+              : "—"
+          }
+          hint={summary ? bookedTrend(summary) : "Unavailable"}
+          href="/operations?tab=orders"
+          loading={summary === null}
+        />
+        <StatTile
+          label="Collected · 30 days"
+          value={
+            summary?.currency
+              ? formatMoney(summary.money.collectedLast30DaysMinor, summary.currency, {
+                  whole: true,
+                })
+              : "—"
+          }
+          hint={summary ? "Payments received" : "Unavailable"}
+          href="/operations?tab=orders"
+          loading={summary === null}
+        />
+        <StatTile
+          label="Customers"
+          value={summary ? summary.customers.total.toLocaleString() : "—"}
+          hint={
+            summary
+              ? summary.customers.newLast30Days > 0
+                ? `${summary.customers.newLast30Days} new in 30 days`
+                : "Everyone who has ordered"
+              : "Unavailable"
+          }
+          href="/operations?tab=customers"
+          loading={summary === null}
+        />
+        <StatTile
+          label="New orders · 7 days"
+          value={summary ? summary.orders.last7Days.toLocaleString() : "—"}
+          hint={summary ? `${summary.orders.previous7Days} the week before` : "Unavailable"}
+          href="/operations?tab=orders"
+          loading={summary === null}
+        />
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -268,6 +347,23 @@ export default function AppHomePage() {
         />
       </div>
 
+      {/* Only once something has been sold: an empty trend, or an upgrade
+       * prompt for a chart of nothing, is not what a new tenant needs. */}
+      {orders.length > 0 ? (
+        // `min-w-0` on each cell: a grid item will not shrink below its
+        // content, and a truncated line counts as full-width content — without
+        // it a long name pushes the card off a phone screen.
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="min-w-0 lg:col-span-2">
+            <SalesPanel allowed={canSeeReports} />
+          </div>
+          <Card className="min-w-0 gap-3 px-5 py-5">
+            <SectionHeading title="Latest activity" href="/operations?tab=inbox" cta="Inbox" />
+            <SubmissionsInbox limit={6} />
+          </Card>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           {hasOperations ? (
@@ -284,7 +380,7 @@ export default function AppHomePage() {
 
         <div className="flex flex-col gap-4">
           <Card className="gap-3 px-5 py-5">
-            <SectionHeading title="Pipeline" href="/operations" cta="Board" />
+            <SectionHeading title="Pipeline" href="/operations?tab=board" cta="Board" />
             <PipelineSummary orders={orders} />
           </Card>
 

@@ -23,6 +23,7 @@
  *     targets only from states that can actually reach them.
  */
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { GripVerticalIcon, Loader2Icon } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
@@ -78,6 +79,10 @@ export type BoardOrder = {
   totalMinor: number;
   balanceMinor: number;
   customerLabel: string | null;
+  /** The customer's id, when there is one to open. */
+  customerId?: string | null;
+  /** The form the order came in through, when it came through one. */
+  sourceLabel?: string | null;
   lineSummary: string;
   createdAt: string;
 };
@@ -250,8 +255,19 @@ function BoardCard({
           />
         ) : null}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{order.customerLabel ?? "No customer"}</p>
+          {/* The name is the way into the order: who it is for, what they
+           * entered, what they have paid. */}
+          <Link
+            href={`/operations/orders/${order.id}`}
+            draggable={false}
+            className="block truncate text-sm font-medium underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"
+          >
+            {order.customerLabel ?? "No customer"}
+          </Link>
           <p className="truncate text-xs text-muted-foreground">{order.lineSummary}</p>
+          {order.sourceLabel ? (
+            <p className="truncate text-xs text-muted-foreground">via {order.sourceLabel}</p>
+          ) : null}
         </div>
       </div>
 

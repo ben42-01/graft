@@ -75,7 +75,7 @@ export function PaymentEditor({
   const invalid = url.trim() !== "" && !isPaymentLinkUrl(url.trim());
   const linkReady = isPaymentLinkUrl(url.trim());
 
-  const connect = useConnectStatus(enabled && mode === "checkout");
+  const [connect, reloadConnect] = useConnectStatus(enabled && mode === "checkout");
   const checkoutReady = connect.status === "ready" && connect.value.chargesEnabled;
   const ready = mode === "link" ? linkReady : checkoutReady;
 
@@ -162,7 +162,12 @@ export function PaymentEditor({
                 )}
               </div>
             ) : (
-              <CheckoutSetup connect={connect} formId={formId} hasBooking={hasBooking} />
+              <CheckoutSetup
+                connect={connect}
+                formId={formId}
+                hasBooking={hasBooking}
+                onDisconnected={reloadConnect}
+              />
             )}
 
             <label className="flex items-start gap-2 text-sm">
@@ -252,7 +257,7 @@ function ModeOption({
   );
 }
 
-function useConnectStatus(active: boolean): ConnectState {
+function useConnectStatus(active: boolean): [ConnectState, () => Promise<void>] {
   const [state, setState] = useState<ConnectState>({ status: "loading" });
   const load = useCallback(async () => {
     try {
@@ -269,19 +274,22 @@ function useConnectStatus(active: boolean): ConnectState {
   useEffect(() => {
     if (active) void load();
   }, [active, load]);
-  return state;
+  return [state, load];
 }
 
 function CheckoutSetup({
   connect,
   formId,
   hasBooking,
+  onDisconnected,
 }: {
   connect: ConnectState;
   formId?: string;
   hasBooking: boolean;
+  onDisconnected: () => Promise<void>;
 }) {
   const [starting, setStarting] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function startOnboarding() {
@@ -309,6 +317,49 @@ function CheckoutSetup({
       setStarting(false);
     }
   }
+
+  // Forgets the link to the Stripe account (the account itself stays the
+  // owner's), so they can connect a different one or start onboarding afresh.
+  async function disconnect() {
+    if (
+      !window.confirm(
+        "Disconnect this Stripe account from Graft? The account itself is not deleted — you can connect it or a different one afterwards.",
+      )
+    ) {
+      return;
+    }
+    setDisconnecting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/v1/payments/stripe-connect", {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!response.ok) {
+        setError("We couldn't disconnect Stripe just now.");
+        return;
+      }
+      await onDisconnected();
+    } catch {
+      setError("We couldn't disconnect Stripe just now.");
+    } finally {
+      setDisconnecting(false);
+    }
+  }
+
+  const disconnectButton =
+    connect.status === "ready" && connect.value.connected ? (
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="self-start text-muted-foreground"
+        disabled={disconnecting}
+        onClick={() => void disconnect()}
+      >
+        {disconnecting ? "Disconnecting…" : "Use a different Stripe account"}
+      </Button>
+    ) : null;
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border bg-muted/30 p-3">
@@ -353,6 +404,7 @@ function CheckoutSetup({
           ) : null}
         </div>
       )}
+      {disconnectButton}
 
       {!hasBooking ? (
         <p className="text-xs text-amber-700 dark:text-amber-400">

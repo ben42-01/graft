@@ -1,0 +1,36 @@
+meta {
+  name: A Free tenant cannot issue an invoice
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/v1/invoices
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{loginAccessToken}}
+}
+
+body:json {
+  {
+    "orderId": "{{createdOrderId}}",
+    "kind": "full"
+  }
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq FEATURE_NOT_AVAILABLE
+  res.body.error.details.feature: eq invoicing
+  res.body.data: isUndefined
+}
+
+docs {
+  docs/TIERS.md §2.4 — the Invoicing plugin is Premium+. The order is the Free
+  tenant's own and perfectly valid (create.bru), so the refusal is the plan
+  and nothing else. Reading and voiding existing invoices are not gated: a
+  downgraded tenant keeps what they issued.
+}

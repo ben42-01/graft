@@ -173,6 +173,9 @@ describe("CatalogueBrowser", () => {
     await waitFor(() => expect(screen.getByText("Pontoon")).toBeInTheDocument());
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
+    // The observer is created in an effect that runs after the first page has
+    // rendered; on a loaded machine the card is on screen a tick before it.
+    await waitFor(() => expect(trigger).not.toBeNull());
     trigger!();
 
     await waitFor(() => expect(screen.getByText("Kayak")).toBeInTheDocument());

@@ -1,0 +1,54 @@
+meta {
+  name: The sales report gives a zero-filled daily series and the best sellers
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/reports/sales
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.currency: eq EUR
+  res.body.data.series: length 31
+  res.body.data.totals.orders: gte 2
+  res.body.data.totals.bookedMinor: gte 7500
+  res.body.data.totals.outstandingMinor: gte 7500
+  res.body.data.customers.total: gte 1
+  res.body.data.truncated: eq false
+  res.body.error: isUndefined
+}
+
+tests {
+  const report = res.getBody().data;
+
+  test("the series ends today and its bookings add up to the total", function () {
+    const today = new Date().toISOString().slice(0, 10);
+    expect(report.series[report.series.length - 1].date).to.equal(today);
+    const booked = report.series.reduce((sum, day) => sum + day.bookedMinor, 0);
+    expect(booked).to.equal(report.totals.bookedMinor);
+  });
+
+  test("the fixture's items are among the sellers", function () {
+    const sold = report.topItems.map((item) => item.description);
+    expect(sold).to.include("QA fruit box");
+  });
+
+  test("orders drafted through the API are reported with no source form", function () {
+    const direct = report.bySource.find((source) => source.formId === null);
+    expect(direct.orders).to.be.at.least(2);
+  });
+}
+
+docs {
+  Premium (docs/TIERS.md §2.4, the `reports` feature). Defaults to the last 30
+  days, bucketed by UTC day — 31 rows, since the window starts part-way
+  through its first day. `from`, `to` and `currency` narrow it.
+}

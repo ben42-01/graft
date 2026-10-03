@@ -33,6 +33,16 @@ describe("OrderBoard", () => {
     expect(column(/^Completed, 0 orders$/)).toBeInTheDocument();
   });
 
+  it("names the customer on the card and links it to the order", () => {
+    render(<OrderBoard orders={[order({ sourceLabel: "Boat hire form" })]} onMove={vi.fn()} />);
+
+    expect(screen.getByRole("link", { name: "Jane Doe" })).toHaveAttribute(
+      "href",
+      "/operations/orders/order-1",
+    );
+    expect(screen.getByText("via Boat hire form")).toBeInTheDocument();
+  });
+
   it("offers only the transitions the state machine allows", async () => {
     render(<OrderBoard orders={[order({ status: "draft" })]} onMove={vi.fn()} />);
 

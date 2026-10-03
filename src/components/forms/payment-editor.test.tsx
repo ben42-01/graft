@@ -184,4 +184,50 @@ describe("PaymentEditor — Stripe Checkout", () => {
 
     expect(await screen.findByText(/takes no bookings yet/i)).toBeInTheDocument();
   });
+
+  it("lets the owner drop a half-finished Stripe account and start again", async () => {
+    let connected = true;
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "DELETE") connected = false;
+      return Promise.resolve(
+        new Response(
+          JSON.stringify({
+            data: { connected, chargesEnabled: false, detailsSubmitted: false },
+          }),
+          { status: 200 },
+        ),
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<PaymentEditor {...props()} />);
+    await chooseCheckout();
+
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: /use a different stripe account/i }));
+
+    expect(await screen.findByRole("button", { name: "Connect Stripe" })).toBeInTheDocument();
+    const [url, init] = fetchMock.mock.calls.find(([, i]) => i?.method === "DELETE")!;
+    expect(String(url)).toBe("/api/v1/payments/stripe-connect");
+    expect(init?.method).toBe("DELETE");
+  });
+
+  it("does not disconnect when the owner cancels the confirmation", async () => {
+    const fetchMock = connectStatus({
+      connected: true,
+      chargesEnabled: false,
+      detailsSubmitted: false,
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<PaymentEditor {...props()} />);
+    await chooseCheckout();
+
+    await userEvent
+      .setup()
+      .click(await screen.findByRole("button", { name: /use a different stripe account/i }));
+
+    expect(fetchMock.mock.calls.some(([, i]) => i?.method === "DELETE")).toBe(false);
+  });
 });

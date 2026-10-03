@@ -1,0 +1,31 @@
+meta {
+  name: The order list narrows to one customer record and names them on every row
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/v1/orders?customerRecordId={{bmsRecordId}}
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{bmsAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data: length 1
+  res.body.data[0].id: eq {{bmsOrderId}}
+  res.body.data[0].customer.name: eq {{bmsName}}
+  res.body.data[0].customer.email: eq {{bmsEmail}}
+  res.body.data[0].source: eq null
+  res.body.meta.hasMore: eq false
+  res.body.error: isUndefined
+}
+
+docs {
+  Requires customers/order-names-customer.bru (seq 1) for the fixture and the
+  token. `from` and `to` (ISO instants on `createdAt`) narrow the same list.
+}
