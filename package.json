@@ -15,6 +15,7 @@
     "dev:db:nuke": "docker compose --env-file .env.dev -f docker/docker-compose.dev.yml down -v",
     "dev:seed": "dotenv -e .env.dev -- tsx scripts/wait-for-mongo.ts && dotenv -e .env.dev -- tsx scripts/create-indexes.ts && dotenv -e .env.dev -- tsx scripts/ensure-bucket.ts && dotenv -e .env.dev -- tsx scripts/seed-dev.ts",
     "dev:reset": "dotenv -e .env.dev -- tsx scripts/reset-db.ts && npm run dev:seed",
+    "devctl": "node tools/devctl/index.mjs",
     "dev:full": "npm run dev:db && npm run dev:seed && npm run dev",
     "qa:db": "docker compose --env-file .env.qa -f docker/docker-compose.qa.yml up -d --wait",
     "qa:db:down": "docker compose --env-file .env.qa -f docker/docker-compose.qa.yml down -v",

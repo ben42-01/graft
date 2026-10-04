@@ -137,7 +137,7 @@ async function exec(line) {
         return showStatus();
       case "mute":
       case "unmute":
-        for (const n of resolveNames(args)) cmd === "mute" ? muted.add(n) : muted.delete(n);
+        for (const n of resolveNames(args)) muted[cmd === "mute" ? "add" : "delete"](n);
         return showStatus();
       case "clear":
         return out.write("\x1b[2J\x1b[H");
@@ -195,7 +195,7 @@ function pick() {
       if (key.name === "up") cur = (cur + rows.length - 1) % rows.length;
       else if (key.name === "down") cur = (cur + 1) % rows.length;
       else if (key.name === "space")
-        on.has(rows[cur].name) ? on.delete(rows[cur].name) : on.add(rows[cur].name);
+        on[on.has(rows[cur].name) ? "delete" : "add"](rows[cur].name);
       else if (
         key.name === "return" ||
         key.name === "q" ||

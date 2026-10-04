@@ -14,7 +14,10 @@ export class Supervisor extends EventEmitter {
   #inflight = new Map();
 
   status(name) {
-    return this.procs.get(name)?.status ?? (this.done.has(name) ? "done" : "idle");
+    const status = this.procs.get(name)?.status;
+    if (status === "running") return status;
+    if (this.done.has(name)) return "done";
+    return status ?? "idle";
   }
 
   isRunning(name) {
