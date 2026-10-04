@@ -26,7 +26,7 @@ const TABLE: ReadonlyArray<{ pattern: RegExp; policy: RoutePolicy }> = [
 
   // The credential-guessing surface: ip + email, charged on failure only (AC3).
   {
-    pattern: /^\/api\/v1\/auth\/(login|signup|verify-email)\b/,
+    pattern: /^\/api\/v1\/auth\/(login|signup|verify-email|resend-verification)\b/,
     policy: { scopes: ["global-ip", "auth"] },
   },
 

@@ -12,6 +12,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthShell } from "@/components/brand/auth-shell";
+import { ResendVerification } from "@/components/brand/resend-verification";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,7 +26,7 @@ import { sanitizeRedirectTarget } from "@/lib/safe-redirect";
 /** Wire field names → the labels this form actually shows. */
 const LOGIN_FIELD_LABELS = { email: "Email", password: "Password" };
 
-type LoginResult = { ok: true } | { ok: false; message: string };
+type LoginResult = { ok: true } | { ok: false; message: string; code: string | null };
 
 async function login(email: string, password: string): Promise<LoginResult> {
   try {
@@ -39,11 +40,15 @@ async function login(email: string, password: string): Promise<LoginResult> {
     if (!response.ok || !body || isApiError(body)) {
       // The server's per-field reasons, not just its generic
       // "Invalid request body" — see src/lib/api-error.ts.
-      return { ok: false, message: errorMessage(body, LOGIN_FIELD_LABELS) };
+      return {
+        ok: false,
+        message: errorMessage(body, LOGIN_FIELD_LABELS),
+        code: isApiError(body) ? body.error.code : null,
+      };
     }
     return { ok: true };
   } catch {
-    return { ok: false, message: "Network error. Try again." };
+    return { ok: false, message: "Network error. Try again.", code: null };
   }
 }
 
@@ -55,6 +60,8 @@ function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  /** The address that came back EMAIL_NOT_VERIFIED, for the resend offer. */
+  const [unverified, setUnverified] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const target = sanitizeRedirectTarget(searchParams.get("redirect"));
@@ -73,11 +80,13 @@ function LoginForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setUnverified(null);
     setSubmitting(true);
     const result = await login(email, password);
     setSubmitting(false);
     if (!result.ok) {
       setError(result.message);
+      if (result.code === "EMAIL_NOT_VERIFIED") setUnverified(email);
       return;
     }
     router.push(target);
@@ -129,6 +138,12 @@ function LoginForm() {
           </p>
         </CardFooter>
       </form>
+      {/* Outside the login form: it is a form of its own, and forms do not nest. */}
+      {unverified ? (
+        <CardContent className="mt-4 border-t pt-4">
+          <ResendVerification email={unverified} />
+        </CardContent>
+      ) : null}
     </AuthShell>
   );
 }

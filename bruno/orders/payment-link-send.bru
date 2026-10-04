@@ -1,0 +1,58 @@
+meta {
+  name: A payment link is emailed to the order's customer and the order records when
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/api/v1/orders/{{sendOrderId}}/payment-link/send
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{invoiceAccessToken}}
+}
+
+script:pre-request {
+  // An order for a customer record with an email address, with a payment link
+  // attached — built synchronously here, because an async `test()` body is not
+  // counted by the Bruno CLI. qa-premium's "Customers" entity is
+  // 000000000000000000000016 (scripts/seed-qa.ts).
+  //
+  // The QA stack has no SMTP configured, so the mailer prints the message to
+  // the app's stdout instead of sending it: this proves the route, the checks
+  // and the stamp, never a real delivery.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const auth = { headers: { Authorization: `Bearer ${bru.getVar("invoiceAccessToken")}` } };
+  const stamp = Date.now();
+  const record = await axios.post(
+    `${baseUrl}/api/v1/entities/000000000000000000000016/records`,
+    { name: `QA Payer ${stamp}`, email: `payer-${stamp}@qa-premium.test` },
+    auth,
+  );
+  const order = await axios.post(
+    `${baseUrl}/api/v1/orders`,
+    {
+      currency: "EUR",
+      customerRecordId: record.data.data.id,
+      lineItems: [{ kind: "resource", description: "QA hamper", quantity: 1, unitAmountMinor: 4200 }],
+    },
+    auth,
+  );
+  const id = order.data.data.id;
+  await axios.put(
+    `${baseUrl}/api/v1/orders/${id}/payment-link`,
+    { url: "https://buy.stripe.com/test_qa_send" },
+    auth,
+  );
+  bru.setVar("sendOrderId", id);
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.id: eq {{sendOrderId}}
+  res.body.data.paymentLink.url: eq https://buy.stripe.com/test_qa_send
+  res.body.data.paymentLink.emailedAt: isString
+}

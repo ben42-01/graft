@@ -773,7 +773,7 @@ describe("paymentSchema (GRAFT-24 AC1, AC2, AC3)", () => {
       mode: "link",
       link: { url: "https://buy.stripe.com/a" },
     });
-    expect(parsed.required).toBe(false);
+    expect(parsed).toMatchObject({ required: false });
   });
   it("accepts checkout mode, which carries no URL and no amount", () => {
     expect(paymentSchema.parse({ mode: "checkout", required: true })).toEqual({
@@ -785,6 +785,38 @@ describe("paymentSchema (GRAFT-24 AC1, AC2, AC3)", () => {
   it("drops an amount a caller tries to store on checkout mode — the order prices it", () => {
     const parsed = paymentSchema.parse({ mode: "checkout", amountMinor: 1 });
     expect(parsed).toEqual({ mode: "checkout", required: false });
+  });
+
+  it("accepts manual mode, trimming the instructions and defaulting them to empty", () => {
+    expect(
+      paymentSchema.parse({ mode: "manual", instructions: "  Pay by bank transfer.  " }),
+    ).toEqual({ mode: "manual", instructions: "Pay by bank transfer." });
+    expect(paymentSchema.parse({ mode: "manual" })).toEqual({
+      mode: "manual",
+      instructions: "",
+    });
+  });
+
+  it("drops a URL or redirect flag sent with manual mode — nothing is redirected", () => {
+    expect(
+      paymentSchema.parse({
+        mode: "manual",
+        link: { url: "https://buy.stripe.com/a" },
+        required: true,
+      }),
+    ).toEqual({ mode: "manual", instructions: "" });
+  });
+
+  it("refuses manual instructions longer than the cap", () => {
+    expect(
+      paymentSchema.safeParse({ mode: "manual", instructions: "x".repeat(1_001) }).success,
+    ).toBe(false);
+  });
+
+  it("has no mode that takes Stripe API keys", () => {
+    expect(paymentSchema.safeParse({ mode: "keys", secretKey: "sk_test_x" }).success).toBe(
+      false,
+    );
   });
 });
 
@@ -1312,10 +1344,13 @@ describe("catalogue.multiple — cart mode (GRAFT-30.1)", () => {
       ).toEqual(["catalogue.multiple", "payment"]);
     });
 
-    it("accepts a booking with no quantity and Checkout or no payment", () => {
+    it("accepts a booking with no quantity and Checkout, manual or no payment", () => {
       expect(cartConfigErrors({ multiple: true }, booking, null)).toEqual({});
       expect(
         cartConfigErrors({ multiple: true }, booking, { mode: "checkout", required: false }),
+      ).toEqual({});
+      expect(
+        cartConfigErrors({ multiple: true }, booking, { mode: "manual", instructions: "" }),
       ).toEqual({});
     });
   });

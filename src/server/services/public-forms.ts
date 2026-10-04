@@ -157,9 +157,23 @@ export type PaymentHandoff = { url: string; required: boolean };
 /**
  * The `payment` key is *absent*, not null, on a form that takes no money —
  * every form that exists today keeps the response it has always had
- * (GRAFT-24 AC5).
+ * (GRAFT-24 AC5). `paymentInstructions` is the manual-mode counterpart: the
+ * tenant's own words on how to pay, present only when they wrote some. It is
+ * a separate key so a client that redirects on `payment.url` never meets a
+ * payment block without one.
  */
-export type SubmitFormResult = { submissionId: string; payment?: PaymentHandoff };
+export type SubmitFormResult = {
+  submissionId: string;
+  payment?: PaymentHandoff;
+  paymentInstructions?: string;
+};
+
+/** Manual mode's thank-you text, as a spreadable fragment of the response. */
+function instructionsFor(payment: FormDoc["payment"]): { paymentInstructions?: string } {
+  return payment?.mode === "manual" && payment.instructions !== ""
+    ? { paymentInstructions: payment.instructions }
+    : {};
+}
 
 /**
  * GRAFT-24 AC4–AC8 — the payment half of a submission response.
@@ -722,7 +736,8 @@ async function paymentFor(
   requestId: string,
 ): Promise<PaymentHandoff | null> {
   const payment = form.payment;
-  if (!payment) return null;
+  // Manual mode sends nobody anywhere; its instructions travel separately.
+  if (!payment || payment.mode === "manual") return null;
   // AC6, AC7 — the order the bridge raised is the reference when there is
   // one, because that is the row the tenant confirms on the order board;
   // otherwise the submission itself.
@@ -808,7 +823,11 @@ export async function submitPublicForm(
     // whenever card payment cannot be offered — so absence gives nothing away.)
     const submissionId = new ObjectId().toHexString();
     const handoff = resolvePaymentHandoff(form.payment, submissionId);
-    return { submissionId, ...(handoff ? { payment: handoff } : {}) };
+    return {
+      submissionId,
+      ...(handoff ? { payment: handoff } : {}),
+      ...instructionsFor(form.payment),
+    };
   }
 
   const entity = await deps.getEntity(ctx, form.entityDefId.toHexString()).catch((error) => {
@@ -843,5 +862,9 @@ export async function submitPublicForm(
   }
 
   const handoff = await paymentFor(deps, form, publicSlug, committed, requestId);
-  return { submissionId: committed.submissionId, ...(handoff ? { payment: handoff } : {}) };
+  return {
+    submissionId: committed.submissionId,
+    ...(handoff ? { payment: handoff } : {}),
+    ...instructionsFor(form.payment),
+  };
 }

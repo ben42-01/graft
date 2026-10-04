@@ -98,6 +98,8 @@ function InviteDialog({
   const [role, setRole] = useState<"admin" | "member">("member");
   const [email, setEmail] = useState("");
   const [url, setUrl] = useState<string | null>(null);
+  /** The address the server emailed the link to, when it did. */
+  const [emailedTo, setEmailedTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -108,6 +110,7 @@ function InviteDialog({
     setRole("member");
     setEmail("");
     setUrl(null);
+    setEmailedTo(null);
     setError(null);
     setCopied(false);
   }, [open]);
@@ -116,13 +119,17 @@ function InviteDialog({
     e.preventDefault();
     setError(null);
     setSubmitting(true);
-    const result = await call<{ url: string }>("/api/v1/team/invites", {
-      method: "POST",
-      body: JSON.stringify({ role, ...(email.trim() ? { email: email.trim() } : {}) }),
-    });
+    const result = await call<{ url: string; emailed?: boolean; invite: TeamInvite }>(
+      "/api/v1/team/invites",
+      {
+        method: "POST",
+        body: JSON.stringify({ role, ...(email.trim() ? { email: email.trim() } : {}) }),
+      },
+    );
     setSubmitting(false);
     if (result.ok) {
       setUrl(result.data.url);
+      setEmailedTo(result.data.emailed ? result.data.invite.email : null);
       onCreated();
     } else if (result.code === "QUOTA_EXCEEDED") {
       onOpenChange(false);
@@ -148,11 +155,17 @@ function InviteDialog({
         <DialogHeader>
           <DialogTitle>Invite someone</DialogTitle>
           <DialogDescription id="invite-description">
-            Create a link and send it to them yourself.
+            Add their email and we&apos;ll send them the link, or create one to share yourself.
           </DialogDescription>
         </DialogHeader>
         {url ? (
           <div className="flex flex-col gap-3">
+            {emailedTo ? (
+              <p className="text-sm">
+                We emailed the invite to <span className="font-medium">{emailedTo}</span>. You
+                can also copy the link below.
+              </p>
+            ) : null}
             <Label htmlFor="invite-link">Invite link</Label>
             <div className="flex gap-2">
               <Input id="invite-link" readOnly value={url} onFocus={(e) => e.target.select()} />
@@ -189,7 +202,7 @@ function InviteDialog({
                 onChange={(e) => setEmail(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                If you add one, only that address can use the link.
+                If you add one, we email them the link and only that address can use it.
               </p>
             </div>
           </form>

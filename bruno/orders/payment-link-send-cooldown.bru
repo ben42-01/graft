@@ -1,0 +1,25 @@
+meta {
+  name: Emailing the same payment link again within a minute is refused
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/api/v1/orders/{{sendOrderId}}/payment-link/send
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{invoiceAccessToken}}
+}
+
+assert {
+  res.status: eq 429
+  res.body.error.code: eq RATE_LIMITED
+}
+
+docs {
+  payment-link-send.bru sent this order's link moments ago. A double click or an
+  impatient retry must be one email, not two.
+}

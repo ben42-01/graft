@@ -40,6 +40,12 @@ the same `/api/v1/entities`, `/api/v1/forms`, `/api/v1/plugins/*`,
 wizard-only path to miss.
 
 1. **Sign up fresh** (dev) — new email, through the real signup form, verify email link.
+   With SMTP set in `.env.dev` the link arrives by email; without it, copy it from the
+   `mail.logged` line in the dev server's output. The link opens `/verify-email`, which
+   confirms and points you to log in. Opening it a second time says the link is spent.
+   **Resend verification email** appears on signup's "Check your email" step, on login
+   when the account is unverified, and on a dead link (asks for the address). It always
+   answers the same way; a new link is sent at most once a minute and five times a day.
 2. **Onboarding wizard**
    - Business profile: name, industry, size, region, currency, timezone.
    - Template: pick an industry template or start blank (`BLANK_TEMPLATE`) — try both across two signups if time allows, template pre-fills entity fields and is worth checking separately from blank.
@@ -149,9 +155,11 @@ field (`src/components/operations/order-payment-link.tsx`).
    Create invoice** and copy the hosted invoice link, `https://invoice.stripe.com/i/…`).
 4. Paste it into the order's **Payment link** section and save. Try
    `https://buy.stripe.com.evil.test/x` first — refused inline.
-5. **Email customer** opens your mail app addressed to the customer with the
-   order number, amount and link; **Copy message** / **Copy link** copy them.
-   A Payment Link opened from there carries `client_reference_id=<order id>`.
+5. **Email customer** has Graft send the customer an email with the order
+   number, amount and a Pay button, from "<Business> via Graft" with Reply-To set
+   to you. The panel then shows "Emailed to … · <time>" and the button becomes
+   **Email again**; pressing it again within a minute is refused. **Copy message** /
+   **Copy link** still copy them. The link carries `client_reference_id=<order id>`.
 6. Pay with `4242…`, then record the payment on the order by hand.
 
 ---

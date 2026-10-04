@@ -524,6 +524,39 @@
       ]
     },
     {
+      "id": "POST /api/v1/auth/resend-verification",
+      "method": "POST",
+      "path": "/api/v1/auth/resend-verification",
+      "group": "auth",
+      "params": [],
+      "auth": "public",
+      "summary": "a fresh verification link for an account that has not confirmed its email yet.",
+      "source": "src/app/api/v1/auth/resend-verification/route.ts",
+      "examples": [
+        {
+          "name": "Asking for a verification link without a valid address is a validation error",
+          "file": "bruno/auth/resend-verification-invalid.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"email\": \"not-an-email\"\n}"
+        },
+        {
+          "name": "Asking for a verification link for an unknown address looks exactly the same",
+          "file": "bruno/auth/resend-verification-unknown.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"email\": \"nobody-at-all@qa.test\"\n}"
+        },
+        {
+          "name": "A new verification link is requested for an account that still needs one",
+          "file": "bruno/auth/resend-verification.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{\n  \"email\": \"unverified@qa.test\"\n}"
+        }
+      ]
+    },
+    {
       "id": "POST /api/v1/auth/signup",
       "method": "POST",
       "path": "/api/v1/auth/signup",
@@ -1313,6 +1346,15 @@
           },
           "query": {},
           "body": "{\n  \"payment\": {\n    \"mode\": \"link\",\n    \"link\": { \"url\": \"https://buy.stripe.com/attacker-link\" },\n    \"required\": true\n  }\n}"
+        },
+        {
+          "name": "Manual payment shows the tenant's instructions and redirects nobody",
+          "file": "bruno/forms/payment-manual.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": "{\n  \"payment\": {\n    \"mode\": \"manual\",\n    \"instructions\": \"  Pay by bank transfer within 7 days.  \",\n    \"required\": true,\n    \"link\": { \"url\": \"https://buy.stripe.com/should-be-dropped\" }\n  }\n}"
         }
       ]
     },
@@ -2108,6 +2150,47 @@
       "summary": "the link the customer pays this order through: a Stripe Payment Link or hosted invoice the tenant made in their own dashboard for the order's amount.",
       "source": "src/app/api/v1/orders/[orderId]/payment-link/route.ts",
       "examples": []
+    },
+    {
+      "id": "POST /api/v1/orders/:orderId/payment-link/send",
+      "method": "POST",
+      "path": "/api/v1/orders/:orderId/payment-link/send",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "emails the order's payment link to its customer, from Graft, with replies going to the sender. No body: the address and the link are the order's own (see order-emails.ts).",
+      "source": "src/app/api/v1/orders/[orderId]/payment-link/send/route.ts",
+      "examples": [
+        {
+          "name": "Emailing the same payment link again within a minute is refused",
+          "file": "bruno/orders/payment-link-send-cooldown.bru",
+          "pathParams": {
+            "orderId": "{{sendOrderId}}"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Emailing a payment link is refused when the order has no customer address",
+          "file": "bruno/orders/payment-link-send-no-customer.bru",
+          "pathParams": {
+            "orderId": "{{draftEditOrderId}}"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A payment link is emailed to the order's customer and the order records when",
+          "file": "bruno/orders/payment-link-send.bru",
+          "pathParams": {
+            "orderId": "{{sendOrderId}}"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
     },
     {
       "id": "POST /api/v1/orders/:orderId/payments",

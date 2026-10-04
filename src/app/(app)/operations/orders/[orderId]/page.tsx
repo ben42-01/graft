@@ -316,6 +316,14 @@ export default function OrderPage({ params }: { params: Promise<{ orderId: strin
                   await load();
                   return failure;
                 }}
+                onSend={async () => {
+                  const failure = await post(
+                    `/api/v1/orders/${order.id}/payment-link/send`,
+                    {},
+                  );
+                  await load();
+                  return failure;
+                }}
               />
             ) : null}
 

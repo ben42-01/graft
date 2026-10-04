@@ -7,9 +7,12 @@
  *     `member` with FORBIDDEN before it parses input or reads anything (AC4).
  *     Tenant role `admin` is shown as "Manager" in the product and grants
  *     nothing on the platform-admin console (src/server/auth/platform-admin.ts).
- *   - **An invite is a link, not an email.** The raw token is 32 random bytes,
- *     returned once inside `url` and never stored: `invites.tokenHash` is its
- *     SHA-256, the same treatment email-verification tokens get (AC1).
+ *   - **An invite is a link; the email is a courtesy.** The raw token is 32
+ *     random bytes, returned once inside `url` and never stored:
+ *     `invites.tokenHash` is its SHA-256, the same treatment email-verification
+ *     tokens get (AC1). When the owner names an address the link is also
+ *     emailed there, but the invite stands whether or not that send succeeds —
+ *     `emailed` says which, and the owner can still copy the link.
  *   - **Seats are counted, not metered.** `used` is this tenant's members plus
  *     its pending invites (unexpired, unrevoked, unaccepted), against the
  *     resolved `seats` entitlement. A pending invite holds a seat so an owner
@@ -30,6 +33,8 @@ import { getDb } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
+import { inviteEmail } from "@/server/mail/messages";
+import { sendMail, type MailMessage } from "@/server/mail/transport";
 import { createRepository, type Repository } from "@/server/repositories/base";
 import {
   mongoAccountStore,
@@ -95,6 +100,7 @@ export type TeamDeps = {
   entitlements: (ctx: Ctx) => Promise<Entitlements>;
   appUrl: () => string;
   now: () => Date;
+  sendMail: (message: MailMessage) => Promise<void>;
 };
 
 export type InviteRow = WithId<InviteDoc>;
@@ -181,6 +187,7 @@ function resolveDeps(overrides: Partial<TeamDeps> = {}): TeamDeps {
     entitlements: overrides.entitlements ?? loadEntitlements,
     appUrl: overrides.appUrl ?? (() => env().APP_URL),
     now: overrides.now ?? (() => new Date()),
+    sendMail: overrides.sendMail ?? sendMail,
   };
 }
 
@@ -219,7 +226,7 @@ export async function createInvite(
   ctx: Ctx,
   input: unknown,
   overrides: Partial<TeamDeps> = {},
-): Promise<{ invite: InviteView; url: string }> {
+): Promise<{ invite: InviteView; url: string; emailed: boolean }> {
   assertOwner(ctx);
   const body = parse(createInviteSchema, input, "body");
   const deps = resolveDeps(overrides);
@@ -256,7 +263,40 @@ export async function createInvite(
     tenantId: ctx.tenantId,
     userId: ctx.userId,
   });
-  return { invite: toInviteView(row), url: `${deps.appUrl()}/invite/${token}` };
+  const url = `${deps.appUrl()}/invite/${token}`;
+  const emailed = row.email ? await emailInvite(ctx, deps, row, url) : false;
+  return { invite: toInviteView(row), url, emailed };
+}
+
+/** Never throws: a failed send leaves a valid invite and a link to copy. */
+async function emailInvite(
+  ctx: Ctx,
+  deps: TeamDeps,
+  invite: WithId<InviteDoc>,
+  url: string,
+): Promise<boolean> {
+  const log = createLogger({ requestId: ctx.requestId });
+  try {
+    const [tenant, owner] = await Promise.all([
+      deps.accounts.findTenantById(ctx.tenantId),
+      deps.accounts.findUserById(ctx.userId),
+    ]);
+    await deps.sendMail({
+      kind: "team.invite",
+      to: invite.email!,
+      replyTo: owner?.email,
+      ...inviteEmail({
+        businessName: tenant?.name ?? "a workspace",
+        role: invite.role,
+        url,
+        ttlDays: INVITE_TTL_MS / (24 * 60 * 60 * 1000),
+      }),
+    });
+    return true;
+  } catch (error) {
+    log.error("team.invite_email_failed", { inviteId: invite._id.toHexString(), error });
+    return false;
+  }
 }
 
 /** AC5 — this tenant only; pending invites only; no hash, no token. */

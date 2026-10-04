@@ -26,14 +26,28 @@ Payment Link gets the order id as `client_reference_id`. The order page
 offers *Email customer* (opens the tenant's own mail app — Graft sends no
 email yet) and *Copy message*. Payment is still recorded by hand.
 
-## Connect Checkout — retired from new forms (2026-10-03)
+## Payment options on a form (2026-10-04)
 
-Connect Checkout made Graft create and onboard a **new** Stripe account for
-every tenant (there is no way to attach an account they already have without
-OAuth), and Stripe's hosted onboarding was too much to ask. The form builder
-now only offers it on a form that already uses it; everything below — the
-service, the webhook, the stored account ids — is left in place and still
-works for those forms. Payment links above are the default.
+The form builder's Payment panel offers three modes (`paymentSchema` in
+`src/server/services/forms.ts`):
+
+| Mode | What happens | Verified? | Cart forms |
+|---|---|---|---|
+| `checkout` — **recommended** | Connect Checkout on the tenant's connected account, for the order's amount due (below) | Yes — the connected-account webhook records the payment | Yes |
+| `link` | Redirect to the tenant's own Payment Link | No — tenant confirms by hand | No (fixed price); attach a link per order instead |
+| `manual` | Nothing is redirected. Optional `instructions` (≤ 1,000 chars, plain text) come back as `paymentInstructions` on the submit response and show on the thank-you page | No — tenant records payments on the order page (`POST /orders/:id/payments`) | Yes |
+
+Connect Checkout was hidden from new forms on 2026-10-03 and brought back on
+2026-10-04 as the recommended option. Onboarding still creates a connected
+account through the API (`v2.core.accounts.create`); a tenant who signs in
+with an existing Stripe login during onboarding should get their details
+pre-filled, but it is still worth checking in test mode what that leaves in
+their dashboard.
+
+**Graft never asks a tenant for their Stripe API keys.** It was considered
+(creating links on the fly with the tenant's key) and rejected: Connect does
+the same job without Graft holding a credential that can move the tenant's
+money.
 
 ## Connect Checkout: itemised vs single-line sessions
 
