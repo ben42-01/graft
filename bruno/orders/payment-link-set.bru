@@ -27,10 +27,16 @@ assert {
 
 tests {
   test("the link sent to the customer carries the order id, and keeps the tenant's own query", function () {
+    // Bruno's sandbox has no `URL` global, so the query is read by hand.
     const data = res.getBody().data;
-    const pay = new URL(data.paymentLink.payUrl);
-    expect(pay.host).to.equal("buy.stripe.com");
-    expect(pay.searchParams.get("client_reference_id")).to.equal(data.id);
-    expect(pay.searchParams.get("prefilled_email")).to.equal("ada@example.test");
+    const [origin, query] = data.paymentLink.payUrl.split("?");
+    const params = {};
+    for (const pair of query.split("&")) {
+      const [key, value] = pair.split("=");
+      params[key] = decodeURIComponent(value);
+    }
+    expect(origin).to.equal("https://buy.stripe.com/test_qa_order");
+    expect(params.client_reference_id).to.equal(data.id);
+    expect(params.prefilled_email).to.equal("ada@example.test");
   });
 }

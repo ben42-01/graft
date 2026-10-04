@@ -22,6 +22,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
+import { env } from "@/env";
 import {
   DuplicateKeyError,
   mongoAccountStore,
@@ -34,6 +35,8 @@ import { newRequestId, type Ctx } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
+import { verificationEmail } from "@/server/mail/messages";
+import { sendMail } from "@/server/mail/transport";
 import { TIER_LIMITS, type Tier, type TierFeatures, type TierLimits } from "@/server/tiers";
 import {
   mongoBillingStore,
@@ -108,7 +111,7 @@ export const switchTenantSchema = z.object({ tenantId: objectIdHex });
 export type SignupInput = z.infer<typeof signupSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 
-/** What the mailer will send once transactional email exists (out of scope). */
+/** What the verification email is built from. */
 export type VerificationIssued = {
   userId: string;
   email: string;
@@ -120,7 +123,8 @@ export type AccountDeps = {
   accounts: AccountStore;
   now: () => Date;
   issue: (input: AccessTokenInput) => Promise<Session>;
-  emitVerificationToken: (event: VerificationIssued) => void;
+  /** Awaited, and expected not to throw — see `sendVerificationEmail`. */
+  emitVerificationToken: (event: VerificationIssued) => unknown;
   /**
    * The trial grant, as a seam. It is a separate write rather than a field on
    * `insertTenant` for a structural reason: `AccountStore` lives in
@@ -152,37 +156,29 @@ export type AccountDeps = {
 };
 
 /**
- * The mailer seam. Until GRAFT sends real email, the token goes to the log so a
- * developer can complete the flow by hand. The address is included because this
- * line only ever exists in dev and QA — see the guard.
+ * The verification email (src/server/mail). Without SMTP configured the mailer
+ * prints the message — link included — to stdout outside production, which is
+ * how a developer completes signup by hand on a dev stack.
  *
- * The dev/QA branch writes straight to stdout rather than through
- * `createLogger`: `redact()` (server/log.ts) blanket-strips any field named
- * `email` or `token` in every environment — that deny-list is the security
- * checklist's "no PII in logs" contract and must stay blunt, not learn a
- * dev-mode exception. So this is the one line in the app that is allowed to
- * print a live credential, and it only exists outside production.
+ * A send that fails does not fail the signup: the account and its token exist
+ * either way, and refusing the request would only invite a retry that hits
+ * the duplicate-email conflict. The failure is logged without the address.
  */
-const logVerificationToken = (event: VerificationIssued): void => {
-  if (process.env.APP_ENV === "production") {
-    // AC4 / §1.5: never write a live credential to a production log. The seam
-    // stays, the value does not — a real mailer replaces this branch.
-    const log = createLogger({ requestId: "auth.verification" });
-    log.info("auth.verification.issued", { userId: event.userId });
-    return;
-  }
-  console.log(
-    JSON.stringify({
-      ts: new Date().toISOString(),
-      level: "info",
-      msg: "auth.verification.issued",
-      requestId: "auth.verification",
+export const sendVerificationEmail = async (event: VerificationIssued): Promise<void> => {
+  const url = new URL("/verify-email", env().APP_URL);
+  url.searchParams.set("token", event.token);
+  try {
+    await sendMail({
+      kind: "auth.verification",
+      to: event.email,
+      ...verificationEmail({ url: url.toString(), ttlHours: VERIFICATION_TTL_SECONDS / 3600 }),
+    });
+  } catch (error) {
+    createLogger({ requestId: "auth.verification" }).error("auth.verification.send_failed", {
       userId: event.userId,
-      email: event.email,
-      token: event.token,
-      expiresAt: event.expiresAt.toISOString(),
-    }),
-  );
+      error,
+    });
+  }
 };
 
 function resolve(overrides: Partial<AccountDeps> = {}): AccountDeps {
@@ -190,7 +186,7 @@ function resolve(overrides: Partial<AccountDeps> = {}): AccountDeps {
     accounts: overrides.accounts ?? mongoAccountStore(),
     now: overrides.now ?? (() => new Date()),
     issue: overrides.issue ?? ((input) => issueSession(input)),
-    emitVerificationToken: overrides.emitVerificationToken ?? logVerificationToken,
+    emitVerificationToken: overrides.emitVerificationToken ?? sendVerificationEmail,
     startTrial: overrides.startTrial ?? ((tenantId) => startTrialDefault(tenantId)),
     billing: overrides.billing ?? mongoBillingStore(),
     entitlements: overrides.entitlements ?? loadEntitlements,
@@ -261,7 +257,7 @@ async function createVerification(
     tokenHash: hashToken(token),
     expiresAt,
   });
-  deps.emitVerificationToken({ userId: user.id, email: user.email, token, expiresAt });
+  await deps.emitVerificationToken({ userId: user.id, email: user.email, token, expiresAt });
 }
 
 /**

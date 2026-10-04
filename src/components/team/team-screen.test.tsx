@@ -87,6 +87,35 @@ describe("TeamScreen", () => {
     expect(await within(dialog).findByRole("status")).toHaveTextContent("Link copied");
   });
 
+  it("says the invite was emailed when the server sent it", async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) =>
+      init?.method === "POST"
+        ? ok(
+            {
+              invite: { ...TEAM.invites[0], email: "grace@example.test" },
+              url: "https://graft.test/invite/abc",
+              emailed: true,
+            },
+            201,
+          )
+        : ok(TEAM),
+    );
+    render(<TeamScreen me={meWith(["owner"])} />);
+
+    await user.click(await screen.findByRole("button", { name: "Invite someone" }));
+    const dialog = screen.getByRole("dialog", { name: "Invite someone" });
+    await user.type(within(dialog).getByLabelText("Email (optional)"), "grace@example.test");
+    await user.click(within(dialog).getByRole("button", { name: "Create link" }));
+
+    expect(await within(dialog).findByText(/We emailed the invite to/)).toHaveTextContent(
+      "grace@example.test",
+    );
+    expect(
+      within(dialog).getByDisplayValue("https://graft.test/invite/abc"),
+    ).toBeInTheDocument();
+  });
+
   it("AC2 — at the seat limit there is no invite button, only the explanation and an upgrade link", async () => {
     fetchMock.mockResolvedValue(ok({ ...TEAM, seats: { used: 15, limit: 15 } }));
     render(<TeamScreen me={meWith(["owner"])} />);

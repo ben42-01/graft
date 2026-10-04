@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+/** A variable that may be absent — `KEY=` with nothing after it counts as absent. */
+const optionalText = z
+  .string()
+  .transform((value) => value.trim() || undefined)
+  .optional();
+
 /**
  * Server environment, validated once at the boundary (docs/BACKEND.md §1.3).
  * A missing or malformed variable fails loudly at startup rather than as a
@@ -34,6 +40,23 @@ export const schema = z.object({
    * until they expire (GRAFT-03.1 AC8). Unset the rest of the time.
    */
   JWT_PREVIOUS_PUBLIC_KEY_PATH: z.string().min(1).optional(),
+
+  /**
+   * Outgoing mail (src/server/mail). All optional: with no SMTP_HOST the app
+   * prints each message to stdout instead of sending it, so tests, CI and the
+   * QA stack never need a mailbox. Gmail is `smtp.gmail.com`, 465, the Gmail
+   * address and a Google App Password — which Google displays in groups of
+   * four, so whitespace is stripped rather than becoming a login failure.
+   */
+  SMTP_HOST: optionalText,
+  SMTP_PORT: z.coerce.number().int().positive().default(465),
+  SMTP_USER: optionalText,
+  SMTP_PASS: z
+    .string()
+    .transform((value) => value.replace(/\s+/g, "") || undefined)
+    .optional(),
+  /** `Graft <you@gmail.com>`. Defaults to SMTP_USER; Gmail rewrites any other address. */
+  MAIL_FROM: optionalText,
 });
 
 export type Env = z.infer<typeof schema>;

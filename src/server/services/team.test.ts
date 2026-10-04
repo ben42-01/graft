@@ -188,6 +188,7 @@ function deps(overrides: Partial<TeamDeps> = {}, rows: Row[] = []) {
     entitlements: async () => entitlementsWith(15),
     appUrl: () => "https://app.example.test",
     now: () => NOW,
+    sendMail: vi.fn(async () => {}),
     ...overrides,
   };
   return { d, docs: invites.docs, removeMembership, accounts, inviteStore };
@@ -230,6 +231,50 @@ describe("createInvite", () => {
     const { d, docs } = deps();
     await createInvite(ctxAs("owner"), { role: "admin", email: " Sam@Example.TEST " }, d);
     expect(docs[0]).toMatchObject({ role: "admin", email: "sam@example.test" });
+  });
+
+  it("emails the link when an address is given, with replies going to the owner", async () => {
+    const sendMail = vi.fn(async () => {});
+    const { d } = deps({ sendMail });
+    (d.accounts!.findUserById as ReturnType<typeof vi.fn>).mockResolvedValue(
+      userRecord({ id: OWNER, email: "owner@example.test" }),
+    );
+    const result = await createInvite(
+      ctxAs("owner"),
+      { role: "admin", email: "sam@example.test" },
+      d,
+    );
+
+    expect(result.emailed).toBe(true);
+    expect(sendMail).toHaveBeenCalledOnce();
+    const message = (sendMail.mock.calls[0] as unknown[])[0] as Record<string, string>;
+    expect(message).toMatchObject({
+      kind: "team.invite",
+      to: "sam@example.test",
+      replyTo: "owner@example.test",
+      subject: "You're invited to join Harbour Boats on Graft",
+    });
+    expect(message.html).toContain(result.url);
+    expect(message.text).toContain("Manager");
+  });
+
+  it("sends nothing for a link-only invite", async () => {
+    const sendMail = vi.fn(async () => {});
+    const result = await createInvite(ctxAs("owner"), { role: "member" }, deps({ sendMail }).d);
+    expect(result.emailed).toBe(false);
+    expect(sendMail).not.toHaveBeenCalled();
+  });
+
+  it("keeps the invite when the email fails, and says it was not sent", async () => {
+    const { d, docs } = deps({ sendMail: vi.fn(async () => Promise.reject(new Error("535"))) });
+    const result = await createInvite(
+      ctxAs("owner"),
+      { role: "member", email: "sam@example.test" },
+      d,
+    );
+    expect(result.emailed).toBe(false);
+    expect(result.url).toMatch(/\/invite\//);
+    expect(docs).toHaveLength(1);
   });
 
   it.each([

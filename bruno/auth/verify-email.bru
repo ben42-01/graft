@@ -25,16 +25,17 @@ docs {
   (scripts/seed-qa.ts, `VERIFICATION_TOKEN`). A 204 means the account is
   activated and can log in.
   
-  It has to be seeded rather than obtained: a live token is only ever *logged*,
-  as an `auth.verification.issued` line (src/server/services/accounts.ts) —
-  that branch is the one place allowed to print a live credential, and only
-  outside production — and is never returned in a response body. So no amount
-  of signing up from here can get hold of one.
+  It has to be seeded rather than obtained: a live token is only ever emailed
+  (src/server/services/accounts.ts) — or, with no SMTP configured, printed in
+  a `mail.logged` line (src/server/mail/transport.ts), the one place allowed
+  to print a live credential, and only outside production — and is never
+  returned in a response body. So no amount of signing up from here can get
+  hold of one.
   
   One-shot: claiming the token deletes it, so this passes once per seed. CI
   reseeds every run. Locally, re-run `npm run qa:seed` before sending it again.
   
-  Against a dev stack rather than QA, this token does not exist. Copy one off
-  the `auth.verification.issued` log line for the account you just signed up
-  and paste it into the body instead.
+  Against a dev stack rather than QA, this token does not exist. Take one from
+  the verification email (or the `mail.logged` line) for the account you just
+  signed up and paste it into the body instead.
 }

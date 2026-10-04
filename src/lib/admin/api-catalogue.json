@@ -2110,6 +2110,47 @@
       "examples": []
     },
     {
+      "id": "POST /api/v1/orders/:orderId/payment-link/send",
+      "method": "POST",
+      "path": "/api/v1/orders/:orderId/payment-link/send",
+      "group": "orders",
+      "params": [
+        "orderId"
+      ],
+      "auth": "session",
+      "summary": "emails the order's payment link to its customer, from Graft, with replies going to the sender. No body: the address and the link are the order's own (see order-emails.ts).",
+      "source": "src/app/api/v1/orders/[orderId]/payment-link/send/route.ts",
+      "examples": [
+        {
+          "name": "Emailing the same payment link again within a minute is refused",
+          "file": "bruno/orders/payment-link-send-cooldown.bru",
+          "pathParams": {
+            "orderId": "{{sendOrderId}}"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "Emailing a payment link is refused when the order has no customer address",
+          "file": "bruno/orders/payment-link-send-no-customer.bru",
+          "pathParams": {
+            "orderId": "{{draftEditOrderId}}"
+          },
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "A payment link is emailed to the order's customer and the order records when",
+          "file": "bruno/orders/payment-link-send.bru",
+          "pathParams": {
+            "orderId": "{{sendOrderId}}"
+          },
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
       "id": "POST /api/v1/orders/:orderId/payments",
       "method": "POST",
       "path": "/api/v1/orders/:orderId/payments",

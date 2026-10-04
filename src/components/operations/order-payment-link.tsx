@@ -10,18 +10,25 @@
  * pastes it here. Graft never talks to Stripe for this: it checks the address
  * is Stripe's (`isOrderPaymentUrl`) and helps send it to the customer.
  *
- * Graft cannot send email yet, so "Email customer" opens the tenant's own mail
- * app with the message written, and "Copy message" covers everything else.
+ * "Email customer" has Graft send the message (POST …/payment-link/send),
+ * from Graft and with replies going to whoever pressed it. "Copy message"
+ * covers customers with no address on the order, or any other channel.
  */
 import { useEffect, useState } from "react";
 import { CheckIcon, CopyIcon, ExternalLinkIcon, MailIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { formatMoney, orderNumber } from "@/lib/bms/format";
+import { formatDateTime, formatMoney, orderNumber } from "@/lib/bms/format";
 import { INVOICE_LINK_HOST, PAYMENT_LINK_HOST, isOrderPaymentUrl } from "@/lib/payment-links";
 
-export type OrderPaymentLinkView = { url: string; payUrl: string; setAt: string } | null;
+export type OrderPaymentLinkView = {
+  url: string;
+  payUrl: string;
+  setAt: string;
+  /** When Graft last emailed this link to the customer; null if never. */
+  emailedAt?: string | null;
+} | null;
 
 /** What the customer is sent, in the tenant's voice. */
 export function paymentMessage(input: {
@@ -58,6 +65,7 @@ export function OrderPaymentLink({
   customerName,
   customerEmail,
   onSave,
+  onSend,
 }: {
   orderId: string;
   link: OrderPaymentLinkView;
@@ -71,6 +79,8 @@ export function OrderPaymentLink({
   customerEmail: string | null;
   /** Resolves to the server's refusal, or null when it was saved. */
   onSave: (url: string | null) => Promise<string | null>;
+  /** Emails the saved link to `customerEmail`; same contract as `onSave`. */
+  onSend: () => Promise<string | null>;
 }) {
   const [draft, setDraft] = useState(link?.url ?? "");
   const [editing, setEditing] = useState(link === null);
@@ -90,6 +100,14 @@ export function OrderPaymentLink({
     setBusy(true);
     setError(null);
     const failure = await onSave(url);
+    setBusy(false);
+    if (failure) setError(failure);
+  }
+
+  async function send() {
+    setBusy(true);
+    setError(null);
+    const failure = await onSend();
     setBusy(false);
     if (failure) setError(failure);
   }
@@ -114,10 +132,6 @@ export function OrderPaymentLink({
         payUrl: link.payUrl,
       })
     : null;
-  const mailto =
-    message && customerEmail
-      ? `mailto:${encodeURIComponent(customerEmail)}?subject=${encodeURIComponent(message.subject)}&body=${encodeURIComponent(message.body)}`
-      : null;
 
   return (
     <div className="flex flex-col gap-3 border-t pt-3">
@@ -141,11 +155,9 @@ export function OrderPaymentLink({
             <span className="truncate">{link.url}</span>
           </a>
           <div className="flex flex-wrap gap-2">
-            {mailto ? (
-              <Button asChild size="sm">
-                <a href={mailto}>
-                  <MailIcon /> Email customer
-                </a>
+            {customerEmail && editable ? (
+              <Button type="button" size="sm" loading={busy} onClick={() => void send()}>
+                <MailIcon /> {link.emailedAt ? "Email again" : "Email customer"}
               </Button>
             ) : null}
             <Button
@@ -188,6 +200,11 @@ export function OrderPaymentLink({
               </>
             ) : null}
           </div>
+          {link.emailedAt && customerEmail ? (
+            <p className="text-xs text-muted-foreground">
+              Emailed to {customerEmail} · {formatDateTime(link.emailedAt)}
+            </p>
+          ) : null}
           {!customerEmail ? (
             <p className="text-xs text-muted-foreground">
               No email address is on this order — copy the message and send it your own way.

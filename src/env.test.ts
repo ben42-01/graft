@@ -32,4 +32,12 @@ describe("env schema", () => {
       expect(schema.safeParse({ ...valid, APP_ENV }).success, APP_ENV).toBe(false);
     }
   });
+
+  it("treats an empty mail variable as unset, so a blank KEY= line never breaks startup", () => {
+    const parsed = schema.parse({ ...valid, SMTP_HOST: "", SMTP_USER: " ", SMTP_PASS: "" });
+    expect(parsed.SMTP_HOST).toBeUndefined();
+    expect(parsed.SMTP_USER).toBeUndefined();
+    expect(parsed.SMTP_PASS).toBeUndefined();
+    expect(parsed.SMTP_PORT).toBe(465);
+  });
 });

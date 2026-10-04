@@ -1,7 +1,7 @@
 /**
  * The payment link on one order — component coverage: a link the server would
- * refuse never leaves the browser, and a saved one becomes a message the tenant
- * can send from their own mail app.
+ * refuse never leaves the browser, and a saved one is emailed to the customer
+ * by Graft, or copied when there is no address to send to.
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -20,6 +20,7 @@ const props = (over: Partial<Parameters<typeof OrderPaymentLink>[0]> = {}) => ({
   customerName: "Ada",
   customerEmail: "ada@example.test",
   onSave: vi.fn(async (): Promise<string | null> => null),
+  onSend: vi.fn(async (): Promise<string | null> => null),
   ...over,
 });
 
@@ -79,13 +80,29 @@ describe("OrderPaymentLink", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/cancelled order/i);
   });
 
-  it("emails the customer the link with the order id on it", () => {
-    render(<OrderPaymentLink {...props({ link: saved })} />);
-    const mail = screen.getByRole("link", { name: /email customer/i });
-    const href = mail.getAttribute("href")!;
-    expect(href.startsWith("mailto:ada%40example.test?")).toBe(true);
-    const body = new URLSearchParams(href.split("?")[1]).get("body")!;
-    expect(body).toContain(saved.payUrl);
+  it("has Graft email the customer, rather than opening a mail app", async () => {
+    const p = props({ link: saved });
+    render(<OrderPaymentLink {...p} />);
+    expect(screen.queryByRole("link", { name: /email customer/i })).not.toBeInTheDocument();
+    await userEvent.setup().click(screen.getByRole("button", { name: /email customer/i }));
+    expect(p.onSend).toHaveBeenCalledOnce();
+  });
+
+  it("says when the link was emailed, and offers to send it again", () => {
+    render(
+      <OrderPaymentLink
+        {...props({ link: { ...saved, emailedAt: "2026-10-03T10:00:00.000Z" } })}
+      />,
+    );
+    expect(screen.getByText(/emailed to ada@example\.test/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /email again/i })).toBeInTheDocument();
+  });
+
+  it("shows why a send failed", async () => {
+    const p = props({ link: saved, onSend: vi.fn(async () => "The email couldn't be sent.") });
+    render(<OrderPaymentLink {...p} />);
+    await userEvent.setup().click(screen.getByRole("button", { name: /email customer/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/couldn't be sent/i);
   });
 
   it("offers copying instead when the order has no email address", async () => {
@@ -93,7 +110,7 @@ describe("OrderPaymentLink", () => {
     const user = userEvent.setup();
     render(<OrderPaymentLink {...props({ link: saved, customerEmail: null })} />);
 
-    expect(screen.queryByRole("link", { name: /email customer/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /email customer/i })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /copy link/i }));
     await waitFor(async () => expect(await navigator.clipboard.readText()).toBe(saved.payUrl));
   });
@@ -107,7 +124,9 @@ describe("OrderPaymentLink", () => {
 
   it("is read-only on an order that is finished", () => {
     render(<OrderPaymentLink {...props({ link: saved, editable: false })} />);
-    expect(screen.queryByRole("button", { name: /change|remove/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /change|remove|email customer/i }),
+    ).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /copy link/i })).toBeInTheDocument();
   });
 });

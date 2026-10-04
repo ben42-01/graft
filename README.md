@@ -49,6 +49,19 @@ No credential is committed. `npm run setup` generates `.env.dev`, `.env.qa` and 
 RS256 keypair with per-machine random values; the docker compose files interpolate
 them at runtime. Only `.env.example` — placeholders, no values — is tracked.
 
+### Email
+
+Graft sends its email (verification, team invites, order payment links) over SMTP,
+configured by `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` and `MAIL_FROM`
+(see `.env.example`). With them unset, every message is printed to the app's stdout
+as a `mail.logged` line instead — that is how dev, QA and CI run.
+
+To send through a Gmail account: turn on 2-Step Verification, create an App Password
+at <https://myaccount.google.com/apppasswords> (one per environment), and put it in
+that environment's env file with `SMTP_HOST=smtp.gmail.com` and `SMTP_PORT=465`.
+Gmail sends from your own address only and caps a consumer account at roughly 500
+recipients a day; replies go to the business through Reply-To.
+
 ## How Graft gets built
 
 Humans set direction, agents draft contracts, implement them from a queue, and

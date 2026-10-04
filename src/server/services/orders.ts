@@ -181,7 +181,7 @@ export type OrderDoc = {
    * Where the customer pays for this order — a public URL the tenant pasted,
    * never a credential. Absent on orders written before it existed.
    */
-  paymentLink?: { url: string; setAt: Date } | null;
+  paymentLink?: { url: string; setAt: Date; emailedAt?: Date | null } | null;
   /** When the order reached each terminal-ish state; null until it does. */
   confirmedAt: Date | null;
   completedAt: Date | null;
@@ -211,7 +211,7 @@ export type OrderView = {
    * `url` is what the tenant pasted; `payUrl` is what to send the customer,
    * with the order id on it as `client_reference_id` where Stripe takes one.
    */
-  paymentLink: { url: string; payUrl: string; setAt: Date } | null;
+  paymentLink: { url: string; payUrl: string; setAt: Date; emailedAt: Date | null } | null;
   confirmedAt: Date | null;
   completedAt: Date | null;
   cancelledAt: Date | null;
@@ -247,11 +247,13 @@ export function toOrderView(doc: OrderDoc & { _id: ObjectId }): OrderView {
 /** Fails closed: a stored value that no longer validates is not shown. */
 function paymentLinkView(
   orderId: string,
-  link: { url: string; setAt: Date } | null,
+  link: OrderDoc["paymentLink"] | null,
 ): OrderView["paymentLink"] {
   if (!link) return null;
   const payUrl = buildOrderPaymentUrl(link.url, orderId);
-  return payUrl ? { url: link.url, payUrl, setAt: link.setAt } : null;
+  return payUrl
+    ? { url: link.url, payUrl, setAt: link.setAt, emailedAt: link.emailedAt ?? null }
+    : null;
 }
 
 export type OrderDeps = {
@@ -588,6 +590,26 @@ export async function setOrderPaymentLink(
     ctx,
     { _id: new ObjectId(orderId) } as Filter<OrderDoc>,
     { $set: { paymentLink: parsed.url ? { url: parsed.url, setAt: deps.now() } : null } },
+  );
+  if (!updated) throw new AppError("NOT_FOUND", "Order not found");
+  return toOrderView(updated);
+}
+
+/**
+ * Stamps when the current link was last emailed to the customer
+ * (order-emails.ts). Changing the link writes a fresh object without it, so a
+ * new link reads as never sent.
+ */
+export async function markPaymentLinkEmailed(
+  ctx: Ctx,
+  orderId: string,
+  overrides: Partial<OrderDeps> = {},
+): Promise<OrderView> {
+  const deps = resolveDeps(overrides);
+  const updated = await deps.repo.updateOne(
+    ctx,
+    { _id: new ObjectId(orderId), paymentLink: { $ne: null } } as Filter<OrderDoc>,
+    { $set: { "paymentLink.emailedAt": deps.now() } },
   );
   if (!updated) throw new AppError("NOT_FOUND", "Order not found");
   return toOrderView(updated);

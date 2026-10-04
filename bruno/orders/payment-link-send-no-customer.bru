@@ -1,0 +1,26 @@
+meta {
+  name: Emailing a payment link is refused when the order has no customer address
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/api/v1/orders/{{draftEditOrderId}}/payment-link/send
+  body: none
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{invoiceAccessToken}}
+}
+
+assert {
+  res.status: eq 409
+  res.body.error.code: eq CONFLICT
+  res.body.error.message: contains no customer email
+}
+
+docs {
+  The draft from update-draft.bru was entered by hand with no customer, and
+  payment-link-set.bru gave it a link, so the link exists but has nowhere to go.
+}
