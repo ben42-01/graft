@@ -52,6 +52,7 @@
  *    (`subscribe-premium-monthly` / `-annual`) of whichever period is
  *    selected; monthly is the default, which is what AC3/AC4/AC5 click.
  */
+import { DEVELOPER_DOCS_URL, DOCS_URL } from "@/lib/docs-links";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -380,6 +381,12 @@ export default function PricingPage() {
             <GraftLockup className="h-7" />
           </Link>
           <nav aria-label="Primary" className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+              <a href={DOCS_URL}>Docs</a>
+            </Button>
+            <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+              <a href={DEVELOPER_DOCS_URL}>Developers</a>
+            </Button>
             <Button asChild variant="ghost" size="sm">
               <a href="/login">Log in</a>
             </Button>
@@ -560,6 +567,15 @@ export default function PricingPage() {
             <span>Graft together the business system that fits you.</span>
           </div>
           <div className="flex items-center gap-4">
+            <a href={DOCS_URL} className="underline underline-offset-4 hover:text-foreground">
+              Docs
+            </a>
+            <a
+              href={DEVELOPER_DOCS_URL}
+              className="underline underline-offset-4 hover:text-foreground"
+            >
+              Developers
+            </a>
             <Link
               href="/privacy"
               className="underline underline-offset-4 hover:text-foreground"
