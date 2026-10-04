@@ -23,15 +23,18 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { env } from "@/env";
+import { ObjectId } from "mongodb";
 import {
   DuplicateKeyError,
   mongoAccountStore,
+  VERIFICATION_COLLECTION,
   type AccountStore,
   type Membership,
   type UserRecord,
 } from "@/server/auth/accounts-store";
 import { hashPassword, passwordSchema, verifyPassword } from "@/server/auth/passwords";
 import { newRequestId, type Ctx } from "@/server/context";
+import { getDb } from "@/server/db/mongo";
 import { AppError } from "@/server/http/envelope";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
@@ -106,6 +109,12 @@ export const verificationTokenSchema = z
 
 export const verifyEmailSchema = z.object({ token: verificationTokenSchema });
 
+export const resendVerificationSchema = z.object({ email: emailSchema });
+
+/** One fresh link a minute, five a day, per account — see `resendVerificationNow`. */
+export const RESEND_COOLDOWN_SECONDS = 60;
+export const RESEND_DAILY_LIMIT = 5;
+
 export const switchTenantSchema = z.object({ tenantId: objectIdHex });
 
 export type SignupInput = z.infer<typeof signupSchema>;
@@ -153,6 +162,12 @@ export type AccountDeps = {
    * `claimInvite`, the same code path an existing user's accept takes.
    */
   claimInvite: (token: string, email: string) => Promise<ClaimedInvite>;
+  /**
+   * How many verification links this user was issued after `since` — the
+   * resend throttle. A port beside `accounts` rather than a method on it
+   * because `AccountStore` is a protected path (src/server/auth/**).
+   */
+  verificationsIssuedSince: (userId: string, since: Date) => Promise<number>;
 };
 
 /**
@@ -181,6 +196,19 @@ export const sendVerificationEmail = async (event: VerificationIssued): Promise<
   }
 };
 
+/**
+ * Tokens carry no creation time, but every one expires exactly
+ * VERIFICATION_TTL_SECONDS after it was issued — so "issued after `since`" is
+ * "expires after `since` + TTL".
+ */
+const countVerificationsSince = async (userId: string, since: Date): Promise<number> => {
+  const db = await getDb();
+  return db.collection(VERIFICATION_COLLECTION).countDocuments({
+    userId: new ObjectId(userId),
+    expiresAt: { $gt: new Date(since.getTime() + VERIFICATION_TTL_SECONDS * 1000) },
+  });
+};
+
 function resolve(overrides: Partial<AccountDeps> = {}): AccountDeps {
   return {
     accounts: overrides.accounts ?? mongoAccountStore(),
@@ -194,6 +222,7 @@ function resolve(overrides: Partial<AccountDeps> = {}): AccountDeps {
     claimInvite:
       overrides.claimInvite ??
       ((token, email) => claimInvite(token, { email, memberships: [] })),
+    verificationsIssuedSince: overrides.verificationsIssuedSince ?? countVerificationsSince,
   };
 }
 
@@ -428,6 +457,49 @@ export async function verifyEmail(
   if (!claimed) throw new AppError("NOT_FOUND", "That verification link is no longer valid");
 
   await deps.accounts.markEmailVerified(claimed.userId, now);
+}
+
+/**
+ * POST /auth/resend-verification. The answer is the same 204 whatever the
+ * address — unknown, already verified, throttled or sent — so this endpoint
+ * cannot be used to find out who has an account. For the same reason the
+ * work is not awaited: a known, unverified address would otherwise answer
+ * measurably slower than an unknown one, because it waits on SMTP.
+ */
+export async function resendVerification(
+  input: unknown,
+  overrides: Partial<AccountDeps> = {},
+): Promise<void> {
+  const { email } = parse(resendVerificationSchema, input, "body");
+  void resendVerificationNow(email, overrides).catch((error: unknown) => {
+    createLogger({ requestId: "auth.verification" }).error("auth.verification.resend_failed", {
+      error,
+    });
+  });
+}
+
+/**
+ * The work behind `resendVerification`, exported so tests can await it. A new
+ * link does not revoke the old ones — each still expires on its own clock — so
+ * whichever email the person opens works.
+ */
+export async function resendVerificationNow(
+  email: string,
+  overrides: Partial<AccountDeps> = {},
+): Promise<"sent" | "skipped"> {
+  const deps = resolve(overrides);
+  const user = await deps.accounts.findUserByEmail(email.trim().toLowerCase());
+  if (!user || user.emailVerifiedAt) return "skipped";
+
+  const now = deps.now().getTime();
+  const [lastMinute, lastDay] = await Promise.all([
+    deps.verificationsIssuedSince(user.id, new Date(now - RESEND_COOLDOWN_SECONDS * 1000)),
+    deps.verificationsIssuedSince(user.id, new Date(now - VERIFICATION_TTL_SECONDS * 1000)),
+  ]);
+  if (lastMinute > 0 || lastDay >= RESEND_DAILY_LIMIT) return "skipped";
+
+  await createVerification({ id: user.id, email: user.email }, deps);
+  return "sent";
 }
 
 /** The tenant a login lands in: the first membership, which for a fresh account

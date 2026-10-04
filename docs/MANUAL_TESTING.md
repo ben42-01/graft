@@ -43,6 +43,9 @@ wizard-only path to miss.
    With SMTP set in `.env.dev` the link arrives by email; without it, copy it from the
    `mail.logged` line in the dev server's output. The link opens `/verify-email`, which
    confirms and points you to log in. Opening it a second time says the link is spent.
+   **Resend verification email** appears on signup's "Check your email" step, on login
+   when the account is unverified, and on a dead link (asks for the address). It always
+   answers the same way; a new link is sent at most once a minute and five times a day.
 2. **Onboarding wizard**
    - Business profile: name, industry, size, region, currency, timezone.
    - Template: pick an industry template or start blank (`BLANK_TEMPLATE`) — try both across two signups if time allows, template pre-fills entity fields and is worth checking separately from blank.

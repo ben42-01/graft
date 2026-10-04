@@ -17,6 +17,7 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { AuthShell } from "@/components/brand/auth-shell";
+import { ResendVerification } from "@/components/brand/resend-verification";
 import { Button } from "@/components/ui/button";
 import { CardContent, CardFooter } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -107,11 +108,13 @@ function SignupForm() {
   if (done) {
     return (
       <AuthShell title="Check your email">
-        <CardContent>
+        <CardContent className="flex flex-col gap-4">
           <p className="text-sm text-muted-foreground">
             We sent a verification link to <span className="font-medium">{email}</span>. Follow
             it to activate your account, then log in.
           </p>
+          <p className="text-sm text-muted-foreground">Nothing after a few minutes?</p>
+          <ResendVerification email={email} />
         </CardContent>
         <CardFooter className="mt-6">
           <a

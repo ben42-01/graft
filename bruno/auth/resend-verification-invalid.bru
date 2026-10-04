@@ -1,0 +1,23 @@
+meta {
+  name: Asking for a verification link without a valid address is a validation error
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/resend-verification
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "not-an-email"
+  }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+  res.body.error.details.fields.email: isString
+}

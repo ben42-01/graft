@@ -12,6 +12,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { AuthShell } from "@/components/brand/auth-shell";
+import { ResendVerification } from "@/components/brand/resend-verification";
 import { CardContent, CardFooter } from "@/components/ui/card";
 import { LoadingState } from "@/components/shell/loading-state";
 import { errorMessage } from "@/lib/api-error";
@@ -73,14 +74,15 @@ function VerifyEmail() {
 
   return (
     <AuthShell title="This link didn't work">
-      <CardContent className="flex flex-col gap-2">
+      <CardContent className="flex flex-col gap-3">
         <p role="alert" className="text-sm text-destructive">
           {state.message}
         </p>
         <p className="text-sm text-muted-foreground">
           Verification links work once and expire after 24 hours. If you already confirmed your
-          email, just log in.
+          email, just log in — otherwise ask for a new link.
         </p>
+        <ResendVerification />
       </CardContent>
       <CardFooter className="mt-6">
         <a href="/login" className={linkClass}>

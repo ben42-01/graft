@@ -1,0 +1,28 @@
+meta {
+  name: A new verification link is requested for an account that still needs one
+  type: http
+  seq: 16
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/resend-verification
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "email": "unverified@qa.test"
+  }
+}
+
+assert {
+  res.status: eq 204
+}
+
+docs {
+  `unverified@qa.test` is seeded unverified (scripts/seed-qa.ts). The QA stack
+  has no SMTP, so the new link is printed as a `mail.logged` line in the app
+  output rather than sent. The seeded token verify-email.bru spends stays valid:
+  a new link does not revoke the old ones.
+}

@@ -26,7 +26,18 @@ import type { Session } from "@/server/services/tokens";
 import { startTrial, TRIAL_DAYS, type BillingStore, type StripeClient } from "./billing";
 import { resolveEntitlements } from "./entitlements";
 import { emitActivity, type ActivityInput } from "./activity-log";
-import { getMe, login, signup, switchTenant, verifyEmail, type AccountDeps } from "./accounts";
+import {
+  getMe,
+  login,
+  RESEND_DAILY_LIMIT,
+  resendVerification,
+  resendVerificationNow,
+  signup,
+  switchTenant,
+  verifyEmail,
+  VERIFICATION_TTL_SECONDS,
+  type AccountDeps,
+} from "./accounts";
 
 const PASSWORD = "correct horse battery staple";
 const NOW = new Date("2026-03-01T12:00:00.000Z");
@@ -212,6 +223,13 @@ beforeEach(() => {
       return session;
     },
     emitVerificationToken: (event) => emitted.push(event),
+    // The real throttle query's meaning, over the fake token map.
+    verificationsIssuedSince: async (userId, since) =>
+      [...fake.verifications.values()].filter(
+        (token) =>
+          token.userId === userId &&
+          token.expiresAt.getTime() > since.getTime() + VERIFICATION_TTL_SECONDS * 1000,
+      ).length,
     // The real resolver over the fake tenant, so `features` is exactly what
     // `can()` would decide — overrides included.
     entitlements: async (ctx) => {
@@ -444,6 +462,55 @@ describe("verifyEmail", () => {
 
   it("rejects a malformed token as a validation error", async () => {
     const error = await rejection(() => verifyEmail("!!", deps));
+    expect(error.code).toBe("VALIDATION_FAILED");
+  });
+});
+
+describe("resendVerification", () => {
+  const MINUTE = 60_000;
+  const at = (ms: number) => ({ ...deps, now: () => new Date(NOW.getTime() + ms) });
+
+  it("issues a fresh link that works, and leaves the first one working too", async () => {
+    const { userId } = await signup(signupInput, deps);
+    expect(await resendVerificationNow("Owner@Example.test", at(2 * MINUTE))).toBe("sent");
+
+    expect(emitted).toHaveLength(2);
+    expect(emitted[1]).toMatchObject({ userId, email: "owner@example.test" });
+    expect(emitted[1].token).not.toBe(emitted[0].token);
+    await verifyEmail(emitted[1].token, at(2 * MINUTE));
+    expect(fake.users.get(userId)!.emailVerifiedAt).not.toBeNull();
+  });
+
+  it("sends nothing for an unknown address or an account that is already verified", async () => {
+    expect(await resendVerificationNow("nobody@example.test", deps)).toBe("skipped");
+    await signup(signupInput, deps);
+    await verifyEmail(emitted[0].token, deps);
+    expect(await resendVerificationNow(signupInput.email, at(2 * MINUTE))).toBe("skipped");
+    expect(emitted).toHaveLength(1);
+  });
+
+  it("allows one link a minute", async () => {
+    await signup(signupInput, deps);
+    expect(await resendVerificationNow(signupInput.email, at(30_000))).toBe("skipped");
+    expect(await resendVerificationNow(signupInput.email, at(MINUTE + 1))).toBe("sent");
+  });
+
+  it(`stops at ${RESEND_DAILY_LIMIT} live links a day`, async () => {
+    await signup(signupInput, deps);
+    for (let i = 1; i < RESEND_DAILY_LIMIT; i++) {
+      expect(await resendVerificationNow(signupInput.email, at(i * 2 * MINUTE))).toBe("sent");
+    }
+    expect(
+      await resendVerificationNow(signupInput.email, at(RESEND_DAILY_LIMIT * 2 * MINUTE)),
+    ).toBe("skipped");
+    expect(emitted).toHaveLength(RESEND_DAILY_LIMIT);
+  });
+
+  it("answers the same for every address, and validates the shape first", async () => {
+    await expect(
+      resendVerification({ email: "nobody@example.test" }, deps),
+    ).resolves.toBeUndefined();
+    const error = await rejection(() => resendVerification({ email: "nope" }, deps));
     expect(error.code).toBe("VALIDATION_FAILED");
   });
 });
