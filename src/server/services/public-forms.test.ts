@@ -312,7 +312,9 @@ describe("resolvePaymentHandoff", () => {
   const ORDER_ID = "0000000000000000000000a1";
   const SUBMISSION_ID = "0000000000000000000000b2";
 
-  const payment = (over: Partial<NonNullable<FormDoc["payment"]>> = {}) => ({
+  const payment = (
+    over: Partial<Extract<NonNullable<FormDoc["payment"]>, { mode: "link" }>> = {},
+  ) => ({
     mode: "link" as const,
     link: { url: "https://buy.stripe.com/abc" },
     required: true,
@@ -425,6 +427,37 @@ describe("submitPublicForm — the payment block on the response (GRAFT-24)", ()
     );
     expect("payment" in result).toBe(false);
     expect(checkout.createCheckout).not.toHaveBeenCalled();
+  });
+
+  it("a manual form answers with its instructions and no payment block, spam or not", async () => {
+    const manual = { ...overrides(), createCheckout: vi.fn() };
+    manual.findByPublicSlug.mockResolvedValue(
+      form({ payment: { mode: "manual", instructions: "We'll email bank details." } }),
+    );
+    const result = await submitPublicForm(
+      "req-1",
+      ["acme", "contact"],
+      body({ _hp: "filled" }),
+      manual,
+    );
+    expect("payment" in result).toBe(false);
+    expect(result.paymentInstructions).toBe("We'll email bank details.");
+    expect(manual.createCheckout).not.toHaveBeenCalled();
+  });
+
+  it("a manual form with no instructions carries no instructions key", async () => {
+    const manual = overrides();
+    manual.findByPublicSlug.mockResolvedValue(
+      form({ payment: { mode: "manual", instructions: "" } }),
+    );
+    const result = await submitPublicForm(
+      "req-1",
+      ["acme", "contact"],
+      body({ _hp: "filled" }),
+      manual,
+    );
+    expect("payment" in result).toBe(false);
+    expect("paymentInstructions" in result).toBe(false);
   });
 
   it("AC5 — an ordinary form's response has no payment key at all", async () => {

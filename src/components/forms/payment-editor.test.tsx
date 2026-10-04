@@ -1,13 +1,14 @@
 /**
  * Configuring payment collection (GRAFT-24 AC11).
  *
- * The panel's whole job is to stop a URL the server will refuse from ever
- * being sent — the same allow-list rule (`isPaymentLinkUrl`), applied here so
- * the builder sees why, inline, rather than as a save that throws.
+ * The panel's whole job is to stop a config the server will refuse from ever
+ * being sent — the same allow-list rule (`isPaymentLinkUrl`) and the same
+ * cart rule (`cartConfigErrors`), applied here so the builder sees why,
+ * inline, rather than as a save that throws.
  */
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { PaymentEditor, type PaymentView } from "./payment-editor";
 
 const props = () => ({
@@ -19,11 +20,56 @@ const props = () => ({
 const enable = () =>
   userEvent.setup().click(screen.getByRole("checkbox", { name: /take payment/i }));
 
+const chooseLink = () =>
+  userEvent.setup().click(screen.getByRole("radio", { name: /payment link/i }));
+
+const chooseManual = () =>
+  userEvent.setup().click(screen.getByRole("radio", { name: /i handle payment/i }));
+
 describe("PaymentEditor", () => {
+  // Checkout is the default mode, and choosing it asks for the Connect status.
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              data: { connected: false, chargesEnabled: false, detailsSubmitted: false },
+            }),
+            { status: 200 },
+          ),
+        ),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("offers Checkout (recommended, and the default), a payment link and manual payment", async () => {
+    render(<PaymentEditor {...props()} hasBooking />);
+    await enable();
+    const checkout = screen.getByRole("radio", { name: /stripe checkout/i });
+    expect(checkout).toBeChecked();
+    expect(checkout).toHaveTextContent(/recommended/i);
+    expect(screen.getByRole("radio", { name: /payment link/i })).not.toBeChecked();
+    expect(screen.getByRole("radio", { name: /i handle payment/i })).not.toBeChecked();
+    expect(await screen.findByRole("button", { name: "Connect Stripe" })).toBeInTheDocument();
+  });
+
+  it("never asks for Stripe API keys", async () => {
+    render(<PaymentEditor {...props()} hasBooking />);
+    await enable();
+    expect(screen.queryByText(/api key|secret key|sk_/i)).not.toBeInTheDocument();
+  });
+
   it("AC11 — saves a pasted Stripe payment link", async () => {
     const p = props();
     render(<PaymentEditor {...p} />);
     await enable();
+    await chooseLink();
 
     const user = userEvent.setup();
     await user.type(screen.getByLabelText(/payment link/i), "https://buy.stripe.com/abc");
@@ -40,6 +86,7 @@ describe("PaymentEditor", () => {
     const p = props();
     render(<PaymentEditor {...p} />);
     await enable();
+    await chooseLink();
 
     const user = userEvent.setup();
     await user.type(screen.getByLabelText(/payment link/i), "https://buy.stripe.com/abc");
@@ -53,6 +100,7 @@ describe("PaymentEditor", () => {
     const p = props();
     render(<PaymentEditor {...p} />);
     await enable();
+    await chooseLink();
 
     const user = userEvent.setup();
     await user.type(screen.getByLabelText(/payment link/i), "https://evil.test/x");
@@ -94,20 +142,57 @@ describe("PaymentEditor", () => {
     expect(screen.getByLabelText(/payment link/i)).toHaveValue("https://buy.stripe.com/abc");
   });
 
-  it("no longer offers Stripe Checkout on a form that does not already use it", async () => {
-    render(<PaymentEditor {...props()} hasBooking />);
+  it("saves manual payment with the instructions trimmed, and no redirect toggle", async () => {
+    const p = props();
+    render(<PaymentEditor {...p} />);
     await enable();
-    expect(screen.queryByRole("radio", { name: /stripe checkout/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /connect stripe/i })).not.toBeInTheDocument();
+    await chooseManual();
+
+    expect(
+      screen.queryByRole("checkbox", { name: /send them straight to payment/i }),
+    ).not.toBeInTheDocument();
+    const user = userEvent.setup();
+    await user.type(
+      screen.getByLabelText(/how customers should pay/i),
+      "  Bank transfer to IE00 1234.  ",
+    );
+    await user.click(screen.getByRole("button", { name: /save payment/i }));
+
+    expect(p.onSave).toHaveBeenCalledWith({
+      mode: "manual",
+      instructions: "Bank transfer to IE00 1234.",
+    });
   });
 
-  it("sends a cart form's payment to its orders instead of the form", () => {
+  it("saves manual payment with no instructions at all", async () => {
+    const p = props();
+    render(<PaymentEditor {...p} />);
+    await enable();
+    await chooseManual();
+    await userEvent.setup().click(screen.getByRole("button", { name: /save payment/i }));
+    expect(p.onSave).toHaveBeenCalledWith({ mode: "manual", instructions: "" });
+  });
+
+  it("shows the manual instructions already configured", () => {
+    render(
+      <PaymentEditor
+        {...props()}
+        payment={{ mode: "manual", instructions: "Pay on pickup." }}
+      />,
+    );
+    expect(screen.getByRole("radio", { name: /i handle payment/i })).toBeChecked();
+    expect(screen.getByLabelText(/how customers should pay/i)).toHaveValue("Pay on pickup.");
+  });
+
+  it("does not offer a payment link on a cart form, but does offer Checkout and manual", async () => {
     render(<PaymentEditor {...props()} hasBooking isCart />);
-    expect(screen.getByText(/takes no payment on the form/i)).toBeInTheDocument();
-    expect(screen.queryByRole("checkbox", { name: /take payment/i })).not.toBeInTheDocument();
+    await enable();
+    expect(screen.getByRole("radio", { name: /payment link/i })).toBeDisabled();
+    expect(screen.getByRole("radio", { name: /stripe checkout/i })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: /i handle payment/i })).toBeEnabled();
   });
 
-  it("lets a cart form drop a payment setting it was saved with", async () => {
+  it("will not re-save a cart form's old payment link, and lets it move to manual", async () => {
     const p = {
       ...props(),
       payment: {
@@ -117,14 +202,15 @@ describe("PaymentEditor", () => {
       },
     };
     render(<PaymentEditor {...p} isCart />);
-    await userEvent
-      .setup()
-      .click(screen.getByRole("button", { name: /remove the old payment/i }));
-    expect(p.onSave).toHaveBeenCalledWith(null);
+    expect(screen.getByRole("alert")).toHaveTextContent(/several items/i);
+    expect(screen.getByRole("button", { name: /save payment/i })).toBeDisabled();
+
+    await chooseManual();
+    await userEvent.setup().click(screen.getByRole("button", { name: /save payment/i }));
+    expect(p.onSave).toHaveBeenCalledWith({ mode: "manual", instructions: "" });
   });
 });
 
-/** Checkout is only offered on a form already saved with it. */
 describe("PaymentEditor — Stripe Checkout", () => {
   const props = () => ({
     payment: { mode: "checkout", required: false } as PaymentView | null,
@@ -148,7 +234,7 @@ describe("PaymentEditor — Stripe Checkout", () => {
   const chooseCheckout = () =>
     userEvent.setup().click(screen.getByRole("radio", { name: /stripe checkout/i }));
 
-  it("still offers Checkout beside a payment link on a form that uses it", () => {
+  it("shows Checkout selected on a form that uses it", () => {
     vi.stubGlobal(
       "fetch",
       connectStatus({ connected: true, chargesEnabled: true, detailsSubmitted: true }),

@@ -1346,6 +1346,15 @@
           },
           "query": {},
           "body": "{\n  \"payment\": {\n    \"mode\": \"link\",\n    \"link\": { \"url\": \"https://buy.stripe.com/attacker-link\" },\n    \"required\": true\n  }\n}"
+        },
+        {
+          "name": "Manual payment shows the tenant's instructions and redirects nobody",
+          "file": "bruno/forms/payment-manual.bru",
+          "pathParams": {
+            "formId": "000000000000000000000026"
+          },
+          "query": {},
+          "body": "{\n  \"payment\": {\n    \"mode\": \"manual\",\n    \"instructions\": \"  Pay by bank transfer within 7 days.  \",\n    \"required\": true,\n    \"link\": { \"url\": \"https://buy.stripe.com/should-be-dropped\" }\n  }\n}"
         }
       ]
     },

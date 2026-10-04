@@ -491,3 +491,35 @@ describe("submitPublicForm — a Stripe Checkout form", () => {
     expect(result.submissionId).toMatch(/^[0-9a-f]{24}$/);
   });
 });
+
+describe("submitPublicForm — a manual-payment form", () => {
+  const ORDER_ID = new ObjectId("0000000000000000000000b1");
+
+  beforeEach(async () => {
+    const db = await getDb();
+    await db
+      .collection("forms")
+      .updateOne(
+        { _id: FORM_A },
+        { $set: { payment: { mode: "manual", instructions: "Pay at the counter." } } },
+      );
+  });
+
+  it("keeps the submission, links the order and opens no Stripe session", async () => {
+    const createCheckout = vi.fn();
+    const result = await submitPublicForm("req-1", ["acme", "contact"], validBody(), {
+      ...deps(),
+      bridgeBooking: async () => ({ orderId: ORDER_ID, allocationId: null }),
+      createCheckout,
+    });
+
+    expect("payment" in result).toBe(false);
+    expect(result.paymentInstructions).toBe("Pay at the counter.");
+    expect(createCheckout).not.toHaveBeenCalled();
+    const db = await getDb();
+    const submission = await db
+      .collection("form_submissions")
+      .findOne({ _id: new ObjectId(result.submissionId) });
+    expect(submission?.orderId).toEqual(ORDER_ID);
+  });
+});

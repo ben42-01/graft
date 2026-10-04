@@ -32,7 +32,11 @@ import { clampLimit } from "@/server/http/pagination";
 import { parse } from "@/server/http/validate";
 import { createLogger } from "@/server/log";
 import { mongoAccountStore, type AccountStore } from "@/server/auth/accounts-store";
-import { PAYMENT_LINK_HOST, isPaymentLinkUrl } from "@/lib/payment-links";
+import {
+  MANUAL_INSTRUCTIONS_MAX,
+  PAYMENT_LINK_HOST,
+  isPaymentLinkUrl,
+} from "@/lib/payment-links";
 import {
   MAX_BLOCK_TITLE,
   MAX_CONTENT_BLOCKS,
@@ -206,7 +210,8 @@ export type BookingInput = z.input<typeof bookingSchema>;
  *   - **`mode` discriminates, it is not a boolean.** `link` redirects to a
  *     Stripe Payment Link the tenant created in their own account; `checkout`
  *     has Graft open a Checkout Session on the tenant's connected account
- *     (stripe-connect.ts). Neither migrates a stored document.
+ *     (stripe-connect.ts); `manual` leaves collecting to the tenant. None
+ *     migrates a stored document.
  *   - **The URL is allow-listed, not merely parsed.** This value is where an
  *     unauthenticated visitor's browser is sent, so it is checked against
  *     `buy.stripe.com` on write here *and* again on read in public-forms.ts.
@@ -239,6 +244,17 @@ export const paymentSchema = z.discriminatedUnion("mode", [
   z.object({
     mode: z.literal("checkout"),
     required: z.boolean().default(false),
+  }),
+  /**
+   * The tenant takes the money themselves — bank transfer, cash, their own
+   * till — and Graft is only the order engine. Nothing is redirected and
+   * nothing is verified: what arrives is recorded on the order
+   * (`POST /orders/:id/payments`). `instructions` is shown to the submitter
+   * on the thank-you page as plain text, so it is length-capped, not parsed.
+   */
+  z.object({
+    mode: z.literal("manual"),
+    instructions: z.string().trim().max(MANUAL_INSTRUCTIONS_MAX).default(""),
   }),
 ]);
 
@@ -498,7 +514,8 @@ export type BookingConfig = {
  */
 export type PaymentConfig =
   | { mode: "link"; link: { url: string }; required: boolean }
-  | { mode: "checkout"; required: boolean };
+  | { mode: "checkout"; required: boolean }
+  | { mode: "manual"; instructions: string };
 
 export type CatalogueConfig = {
   entityDefId: ObjectId;
@@ -548,7 +565,7 @@ export function toCatalogueView(
  *     single `quantityKey` would be a second, disagreeing answer.
  *   - **No payment link.** A link charges a fixed price set in Stripe, which
  *     cannot equal a computed cart total. Checkout (priced server-side from
- *     the order) or no payment at all are both fine.
+ *     the order), manual payment or no payment at all are all fine.
  */
 export function cartConfigErrors(
   catalogue: Pick<CatalogueConfig, "multiple"> | null,

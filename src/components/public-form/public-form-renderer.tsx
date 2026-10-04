@@ -94,7 +94,7 @@ export type PaymentHandoff = { url: string; required: boolean };
 type SubmitState =
   | { status: "idle" }
   | { status: "submitting" }
-  | { status: "success"; payment: PaymentHandoff | null }
+  | { status: "success"; payment: PaymentHandoff | null; instructions: string | null }
   | { status: "error"; message: string };
 
 export function PublicFormRenderer({
@@ -265,7 +265,12 @@ export function PublicFormRenderer({
       // increment do not depend on the visitor ever paying. `required` only
       // decides whether they are sent to Stripe or offered the link.
       const payment = (body?.data?.payment as PaymentHandoff | undefined) ?? null;
-      setState({ status: "success", payment });
+      // Manual payment: the business's own words on how to pay, shown as text.
+      const instructions =
+        typeof body?.data?.paymentInstructions === "string"
+          ? body.data.paymentInstructions
+          : null;
+      setState({ status: "success", payment, instructions });
       if (payment?.required) navigate(payment.url);
     } catch {
       setState({ status: "error", message: "Network error. Please try again." });
@@ -306,6 +311,11 @@ export function PublicFormRenderer({
               </a>
             </Button>
           )
+        ) : state.instructions ? (
+          <div className="mt-2 w-full max-w-md rounded-lg border px-4 py-3 text-left text-sm">
+            <p className="mb-1 font-medium">How to pay</p>
+            <p className="whitespace-pre-line text-muted-foreground">{state.instructions}</p>
+          </div>
         ) : multiple ? (
           // A cart's total is settled on the order, so payment follows by
           // message rather than from here (order-payment-link.tsx).

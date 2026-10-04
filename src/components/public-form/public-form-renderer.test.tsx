@@ -159,6 +159,26 @@ describe("PublicFormRenderer — payment handoff", () => {
     expect(navigate).not.toHaveBeenCalled();
     expect(screen.queryByRole("link", { name: /pay now/i })).not.toBeInTheDocument();
   });
+
+  it("shows a manual-payment form's instructions as text, and goes nowhere", async () => {
+    (fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: {
+          submissionId: "abc",
+          paymentInstructions: "Bank transfer:\n<b>IE00 1234</b>",
+        },
+      }),
+    });
+    const navigate = vi.fn();
+    await submit(navigate);
+
+    await screen.findByText("How to pay");
+    // Rendered as text — the tenant's markup is shown, not interpreted.
+    expect(screen.getByText(/<b>IE00 1234<\/b>/)).toBeInTheDocument();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(screen.queryByRole("link", { name: /pay now/i })).not.toBeInTheDocument();
+  });
 });
 
 describe("PublicFormRenderer — notes and links for customers", () => {

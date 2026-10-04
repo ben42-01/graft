@@ -76,3 +76,8 @@ export function buildPaymentLinkUrl(storedUrl: string, reference: string): strin
   url.searchParams.set("client_reference_id", reference);
   return url.toString();
 }
+
+/** Longest "how to pay" text a manual-payment form shows on its thank-you
+ * page. Here, not in the service, for the same reason as the rule above: the
+ * builder caps the textarea with it. */
+export const MANUAL_INSTRUCTIONS_MAX = 1_000;
