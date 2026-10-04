@@ -4,8 +4,10 @@ import { AppError } from "@/server/http/envelope";
 import type { OrderWithCustomer } from "./customers";
 import {
   PAYMENT_EMAIL_COOLDOWN_MS,
+  sendOrderPaidEmails,
   sendOrderPaymentLink,
   type OrderEmailDeps,
+  type PaidEmailDeps,
 } from "./order-emails";
 
 const TENANT = "000000000000000000000002";
@@ -136,5 +138,67 @@ describe("sendOrderPaymentLink", () => {
       "VALIDATION_FAILED",
     );
     expect(loadOrder).not.toHaveBeenCalled();
+  });
+});
+
+describe("sendOrderPaidEmails", () => {
+  const paid = (
+    current: OrderWithCustomer = order({ balanceMinor: 0, status: "confirmed" }),
+  ) => {
+    const sendMail = vi.fn(async (message: { to: string }) => void message);
+    const d: Partial<PaidEmailDeps> = {
+      loadOrder: async () => current,
+      accounts: { findTenantById: vi.fn(async () => ({ name: "Lough Boats" }) as never) },
+      ownerEmails: async () => ["owner@lough.test"],
+      sendMail,
+      appUrl: () => "https://app.graft.test",
+    };
+    return { d, sendMail };
+  };
+
+  it("confirms to the customer and notifies the owner", async () => {
+    const { d, sendMail } = paid();
+    await sendOrderPaidEmails(ctx, ORDER_ID, 18_600, d);
+
+    expect(sendMail).toHaveBeenCalledTimes(2);
+    const [customer, owner] = sendMail.mock.calls.map((c) => c[0]) as Record<string, string>[];
+    expect(customer).toMatchObject({
+      kind: "order.paid",
+      to: "ada@example.test",
+      replyTo: "owner@lough.test",
+      fromName: "Lough Boats via Graft",
+    });
+    expect(customer.text).toContain("paid in full");
+    expect(owner).toMatchObject({
+      kind: "order.paid_owner",
+      to: "owner@lough.test",
+      replyTo: "ada@example.test",
+    });
+    expect(owner.text).toContain(`https://app.graft.test/operations/orders/${ORDER_ID}`);
+  });
+
+  it("states the remaining balance after a deposit", async () => {
+    const { d, sendMail } = paid(order({ balanceMinor: 12_000, status: "confirmed" }));
+    await sendOrderPaidEmails(ctx, ORDER_ID, 6_600, d);
+    const customer = sendMail.mock.calls[0]![0] as unknown as { text: string };
+    expect(customer.text).toContain("remaining balance");
+    expect(customer.text).not.toContain("paid in full");
+  });
+
+  it("still notifies the owner when the customer has no email", async () => {
+    const { d, sendMail } = paid(order({ customer: null }));
+    await sendOrderPaidEmails(ctx, ORDER_ID, 18_600, d);
+    expect(sendMail).toHaveBeenCalledTimes(1);
+    expect(sendMail.mock.calls[0]![0].to).toBe("owner@lough.test");
+  });
+
+  it("never throws, and one failed send does not stop the other", async () => {
+    const { d, sendMail } = paid();
+    sendMail.mockRejectedValueOnce(new Error("smtp down"));
+    await expect(sendOrderPaidEmails(ctx, ORDER_ID, 18_600, d)).resolves.toBeUndefined();
+    expect(sendMail).toHaveBeenCalledTimes(2);
+
+    const broken = { ...d, loadOrder: async () => Promise.reject(new Error("mongo")) };
+    await expect(sendOrderPaidEmails(ctx, ORDER_ID, 18_600, broken)).resolves.toBeUndefined();
   });
 });

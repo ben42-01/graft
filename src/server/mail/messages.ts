@@ -73,3 +73,64 @@ export function orderPaymentEmail(input: {
     }),
   };
 }
+
+type PaidInput = {
+  businessName: string;
+  customerName: string | null;
+  orderId: string;
+  /** What this payment was — not the order's running total. */
+  paidMinor: number;
+  /** Still owed after this payment; 0 when the order is settled. */
+  balanceMinor: number;
+  currency: string;
+  confirmed: boolean;
+};
+
+const balanceLine = (input: PaidInput): string =>
+  input.balanceMinor > 0
+    ? `The remaining balance is ${formatMoney(input.balanceMinor, input.currency)}.`
+    : "Your order is paid in full.";
+
+/** To the customer, when their card payment has been recorded. */
+export function orderPaidEmail(input: PaidInput): BuiltEmail {
+  const number = orderNumber(input.orderId);
+  const amount = formatMoney(input.paidMinor, input.currency);
+  return {
+    subject: `Payment received for order ${number}`,
+    ...renderEmail({
+      preheader: `We received ${amount} for order ${number}.`,
+      heading: "Payment received",
+      paragraphs: [
+        input.customerName ? `Hi ${input.customerName},` : "Hi,",
+        `Thank you — ${input.businessName} received your payment of ${amount} for order ${number}.`,
+        balanceLine(input),
+        ...(input.confirmed ? ["Your order is confirmed."] : []),
+      ],
+      signoff: input.businessName,
+      footnote: "Keep this email for your records. Questions about your order? Reply to it.",
+    }),
+  };
+}
+
+/** To the business owner, so a payment never goes unnoticed. */
+export function orderPaidOwnerEmail(input: PaidInput & { orderUrl: string }): BuiltEmail {
+  const number = orderNumber(input.orderId);
+  const amount = formatMoney(input.paidMinor, input.currency);
+  const who = input.customerName ?? "A customer";
+  return {
+    subject: `${amount} received for order ${number}`,
+    ...renderEmail({
+      preheader: `${who} paid ${amount}.`,
+      heading: "You've been paid",
+      paragraphs: [
+        `${who} paid ${amount} for order ${number}.`,
+        input.balanceMinor > 0
+          ? `${formatMoney(input.balanceMinor, input.currency)} is still outstanding.`
+          : "The order is paid in full.",
+        ...(input.confirmed ? ["The order has been marked confirmed."] : []),
+      ],
+      action: { label: "View order", url: input.orderUrl },
+      footnote: "Sent to the owners of this workspace when a card payment arrives.",
+    }),
+  };
+}

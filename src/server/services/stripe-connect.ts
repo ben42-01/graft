@@ -50,6 +50,7 @@ import {
 } from "@/lib/stripe-connect-countries";
 import { recordPayment as recordPaymentDefault, type OrderDoc } from "./orders";
 import { isDuplicateKey } from "./billing";
+import { sendOrderPaidEmails } from "./order-emails";
 
 /** Stored on the tenant document. Absent until the tenant starts onboarding. */
 export type StripeConnectDoc = {
@@ -151,6 +152,8 @@ export type ConnectDeps = {
   store: ConnectStore;
   events: ConnectEventStore;
   recordPayment: (ctx: Ctx, orderId: string, input: unknown) => Promise<unknown>;
+  /** Confirmation emails after a payment is recorded. Must not throw. */
+  notifyPaid: (ctx: Ctx, orderId: string, paidMinor: number) => Promise<void>;
   connectEnv: () => ConnectEnv;
   appUrl: () => string;
   now: () => Date;
@@ -327,6 +330,7 @@ function resolveDeps(overrides: Partial<ConnectDeps> = {}): ConnectDeps {
     recordPayment:
       overrides.recordPayment ??
       ((ctx, orderId, input) => recordPaymentDefault(ctx, orderId, input)),
+    notifyPaid: overrides.notifyPaid ?? sendOrderPaidEmails,
     connectEnv: overrides.connectEnv ?? connectEnv,
     appUrl: overrides.appUrl ?? (() => env().APP_URL),
     now: overrides.now ?? (() => new Date()),
@@ -563,10 +567,12 @@ async function applyPaidSession(deps: ConnectDeps, event: ConnectEvent, requestI
   }
 
   try {
-    await deps.recordPayment(systemCtx(tenantId, tenant.tier, requestId), orderId, {
+    const ctx = systemCtx(tenantId, tenant.tier, requestId);
+    await deps.recordPayment(ctx, orderId, {
       amountMinor: amount,
       reference: str(session.payment_intent) ?? str(session.id) ?? undefined,
     });
+    await deps.notifyPaid(ctx, orderId, amount);
   } catch (error) {
     // A cancelled or deleted order cannot take a payment. The money is in the
     // tenant's Stripe account either way; retrying would not change the answer.
