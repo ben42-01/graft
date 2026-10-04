@@ -49,6 +49,22 @@ their dashboard.
 the same job without Graft holding a credential that can move the tenant's
 money.
 
+## Emails after a card payment
+
+When the Connect webhook records a payment (`applyPaidSession`), Graft emails
+(`sendOrderPaidEmails`, `src/server/services/order-emails.ts`):
+
+- the **customer** — "Payment received": the amount, the remaining balance or
+  "paid in full", and whether the order is now confirmed. From
+  "<Business> via Graft", Reply-To the workspace owner;
+- every **owner** of the workspace — "<amount> received for order #…" with a
+  link to the order. Reply-To the customer.
+
+It never fails the webhook: a mail error is logged (`order.paid_email_failed`)
+and the payment stays recorded. A duplicate delivery is dropped before this
+runs, so nobody is emailed twice for one event. Manual payments entered on the
+order page do not send these emails.
+
 ## Connect Checkout: itemised vs single-line sessions
 
 When a form uses Checkout mode (`src/server/services/stripe-connect.ts`,

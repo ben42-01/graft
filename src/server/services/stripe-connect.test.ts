@@ -108,6 +108,7 @@ function harness(
       release: vi.fn(async (id: string) => void claimed.delete(id)),
     },
     recordPayment: vi.fn(async () => ({})),
+    notifyPaid: vi.fn(async () => {}),
     connectEnv: () => ({
       STRIPE_SECRET_KEY: "sk_test",
       STRIPE_CONNECT_WEBHOOK_SECRET: "whsec",
@@ -570,6 +571,16 @@ describe("handleConnectWebhookEvent", () => {
     expect(paymentCtx.tenantId).toBe(TENANT);
     expect(orderId).toBe(ORDER);
     expect(body).toEqual({ amountMinor: 10_000, reference: "pi_1" });
+    // Told once, with this payment's amount — the duplicate delivery is dropped upstream.
+    expect(deps.notifyPaid).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(deps.notifyPaid).mock.calls[0]!.slice(1)).toEqual([ORDER, 10_000]);
+  });
+
+  it("sends no paid emails when the payment could not be recorded", async () => {
+    const { deps } = harness({ connect: { [TENANT]: connected() }, event: paid() });
+    vi.mocked(deps.recordPayment).mockRejectedValue(new AppError("CONFLICT", "cancelled"));
+    await handleConnectWebhookEvent("{}", "sig", "r", deps);
+    expect(deps.notifyPaid).not.toHaveBeenCalled();
   });
 
   it("ignores a session whose account is not the tenant's own — metadata alone proves nothing", async () => {
