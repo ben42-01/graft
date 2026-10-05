@@ -5,13 +5,16 @@ import { usePathname } from "next/navigation";
 import {
   BlocksIcon,
   BookOpenIcon,
+  CodeIcon,
   ExternalLinkIcon,
   CreditCardIcon,
   DatabaseIcon,
   FileTextIcon,
   KanbanIcon,
   LayoutDashboardIcon,
+  LibraryIcon,
 } from "lucide-react";
+import { DEVELOPER_DOCS_URL, DOCS_URL } from "@/lib/docs-links";
 import { cn } from "@/lib/utils";
 
 /**
@@ -62,6 +65,9 @@ const NAV_ITEMS: NavItem[] = [
   // their plan includes every plugin and have nowhere to turn one on.
   { href: "/plugins", label: "Plugins", icon: BlocksIcon },
   { href: "/guide", label: "Guide", icon: BookOpenIcon, newTab: true },
+  // The public docs site (a separate deployment): reference material, so new tab.
+  { href: DOCS_URL, label: "Docs", icon: LibraryIcon, newTab: true },
+  { href: DEVELOPER_DOCS_URL, label: "Developers", icon: CodeIcon, newTab: true },
   { href: "/account", label: "Account", icon: CreditCardIcon },
 ];
 
