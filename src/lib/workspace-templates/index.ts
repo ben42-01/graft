@@ -25,6 +25,7 @@ import restaurant from "./templates/restaurant.json";
 import salon from "./templates/salon.json";
 import school from "./templates/school.json";
 import shop from "./templates/shop.json";
+import supportDesk from "./templates/support-desk.json";
 import tours from "./templates/tours.json";
 import trades from "./templates/trades.json";
 import vehicleRental from "./templates/vehicle-rental.json";
@@ -47,6 +48,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
   garage,
   school,
   tours,
+  supportDesk,
 ].map((raw) => workspaceTemplateSchema.parse(raw));
 
 export function findWorkspaceTemplate(id: string): WorkspaceTemplate | undefined {

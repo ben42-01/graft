@@ -122,4 +122,10 @@ describe("formatCell", () => {
     expect(formatCell(1234, FIELDS[2])).toBe("1,234");
     expect(formatCell("not a date", FIELDS[3])).toBe("not a date");
   });
+
+  it("flattens long text onto one line and cuts it short", () => {
+    const details: FieldLike = { key: "details", label: "Details", type: "longtext" };
+    expect(formatCell("First line\n\nsecond   line", details)).toBe("First line second line");
+    expect(formatCell("x".repeat(200), details)).toBe(`${"x".repeat(80)}…`);
+  });
 });

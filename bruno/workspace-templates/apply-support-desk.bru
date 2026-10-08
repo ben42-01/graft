@@ -1,0 +1,97 @@
+meta {
+  name: Graft Support Desk takes a multi-line ticket as plain text and refuses an oversized one
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/v1/entities/{{supportTicketsEntityId}}/records
+  body: json
+  auth: none
+}
+
+headers {
+  Authorization: Bearer {{templatesAccessToken}}
+}
+
+script:pre-request {
+  // Applied here so the request this file asserts on is synchronous — an
+  // async `test()` body would not count towards the gate. Premium tenant,
+  // token minted by list.bru (seq 1): the free fixture tenant's `api` budget
+  // is spent. The apply's outcome and the oversized write are carried across
+  // in vars and asserted in synchronous tests below.
+  const axios = require("axios");
+  const baseUrl = bru.getEnvVar("baseUrl");
+  const headers = { Authorization: `Bearer ${bru.getVar("templatesAccessToken")}` };
+  const apply = await axios.post(
+    `${baseUrl}/api/v1/workspace-templates/support_desk/apply`,
+    { answers: {} },
+    { headers, validateStatus: () => true },
+  );
+  const data = apply.data?.data;
+  const tickets = (data?.entities ?? []).find((entity) => entity.ref === "tickets");
+  const entityId = tickets?.id ?? "000000000000000000000000";
+  bru.setVar("supportApplyStatus", apply.status);
+  bru.setVar("supportApplyRunStatus", data?.status);
+  bru.setVar("supportTicketsEntityId", entityId);
+
+  const oversized = await axios.post(
+    `${baseUrl}/api/v1/entities/${entityId}/records`,
+    {
+      name: "Grace Hopper",
+      email: "grace@example.com",
+      category: "Bug",
+      subject: "Too long",
+      details: "x".repeat(5001),
+    },
+    { headers, validateStatus: () => true },
+  );
+  bru.setVar("supportOversizedStatus", oversized.status);
+  bru.setVar("supportOversizedCode", oversized.data?.error?.code);
+}
+
+body:json {
+  {
+    "name": "Grace Hopper",
+    "email": "grace@example.com",
+    "category": "Bug",
+    "subject": "Export does nothing",
+    "details": "Line one.\n\nLine three <b>not bold</b> & <script>alert(1)</script>",
+    "steps": "1. Open Reports\n2. Press Export"
+  }
+}
+
+assert {
+  res.status: eq 201
+  res.body.error: isUndefined
+}
+
+tests {
+  test("the template applies and creates the tickets entity", function () {
+    expect(String(bru.getVar("supportApplyStatus"))).to.equal("201");
+    expect(bru.getVar("supportApplyRunStatus")).to.equal("completed");
+    expect(res.getBody().data.entityId).to.equal(bru.getVar("supportTicketsEntityId"));
+  });
+
+  test("long text keeps its line breaks and is stored exactly as typed, markup included", function () {
+    const data = res.getBody().data.data;
+    expect(data.details).to.equal(
+      "Line one.\n\nLine three <b>not bold</b> & <script>alert(1)</script>",
+    );
+    expect(data.steps).to.equal("1. Open Reports\n2. Press Export");
+  });
+
+  test("a long-text value over the 5,000-character default is refused", function () {
+    expect(String(bru.getVar("supportOversizedStatus"))).to.equal("400");
+    expect(bru.getVar("supportOversizedCode")).to.equal("VALIDATION_FAILED");
+  });
+}
+
+docs {
+  The long-text field type and the Support Desk template, end to end through
+  the real apply and records endpoints. Markup is accepted and returned
+  verbatim on purpose: it is never interpreted anywhere it is shown (React and
+  the email layout escape it, CSV export quotes it), so stripping it would
+  only lose what the customer wrote. Control-character refusal and the hard
+  cap are covered in src/server/services/entities.test.ts.
+}

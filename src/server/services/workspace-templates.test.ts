@@ -139,9 +139,9 @@ function harness(
 }
 
 describe("listWorkspaceTemplates", () => {
-  it("lists the fifteen businesses as gallery cards, without their blueprints", () => {
+  it("lists the sixteen businesses as gallery cards, without their blueprints", () => {
     const cards = listWorkspaceTemplates();
-    expect(cards).toHaveLength(15);
+    expect(cards).toHaveLength(16);
     expect(cards[0]).toMatchObject({ id: "hotel", name: "Graft Hotel" });
     expect(cards[0]).not.toHaveProperty("entities");
   });

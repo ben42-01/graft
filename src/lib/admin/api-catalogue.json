@@ -1058,6 +1058,15 @@
           },
           "query": {},
           "body": "{\n  \"name\": \"Ada King\",\n  \"email\": \"ada.king@example.com\",\n  \"phone\": \"+353 1 000 0009\"\n}"
+        },
+        {
+          "name": "Graft Support Desk takes a multi-line ticket as plain text and refuses an oversized one",
+          "file": "bruno/workspace-templates/apply-support-desk.bru",
+          "pathParams": {
+            "entityId": "{{supportTicketsEntityId}}"
+          },
+          "query": {},
+          "body": "{\n  \"name\": \"Grace Hopper\",\n  \"email\": \"grace@example.com\",\n  \"category\": \"Bug\",\n  \"subject\": \"Export does nothing\",\n  \"details\": \"Line one.\\n\\nLine three <b>not bold</b> & <script>alert(1)</script>\",\n  \"steps\": \"1. Open Reports\\n2. Press Export\"\n}"
         }
       ]
     },
@@ -2891,7 +2900,7 @@
       "source": "src/app/api/v1/workspace-templates/route.ts",
       "examples": [
         {
-          "name": "The template gallery lists the fifteen business templates",
+          "name": "The template gallery lists the sixteen business templates",
           "file": "bruno/workspace-templates/list.bru",
           "pathParams": {},
           "query": {},

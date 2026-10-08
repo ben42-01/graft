@@ -57,6 +57,12 @@ describe("csvCell", () => {
     expect(csvCell("=HYPERLINK(1)", text)).toBe("'=HYPERLINK(1)");
     expect(csvCell(-3, { key: "n", label: "N", type: "number" })).toBe("-3");
   });
+
+  it("quotes multi-line long text whole and still defuses a leading formula", () => {
+    const details: FieldLike = { key: "d", label: "D", type: "longtext" };
+    expect(csvCell('Line one\nsaid "hi"', details)).toBe('"Line one\nsaid ""hi"""');
+    expect(csvCell("=cmd|' /C calc'!A0\nmore", details)).toBe("\"'=cmd|' /C calc'!A0\nmore\"");
+  });
 });
 
 describe("exportFilename", () => {

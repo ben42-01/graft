@@ -1,0 +1,211 @@
+{
+  "id": "support_desk",
+  "name": "Graft Support Desk",
+  "tagline": "Software teams, IT providers, agencies and anyone who answers support requests",
+  "description": "A public page where your customers' users report incidents, bugs and questions, a ticket list you work through by priority and status, and an optional list of known issues with their workarounds.",
+  "icon": "🎧",
+  "industry": "Customer support",
+  "highlights": [
+    "A public page for reporting incidents, bugs and questions",
+    "Full written details, with steps to reproduce for software issues",
+    "Priority, status and an owner on every ticket",
+    "Optional known-issues list with workarounds"
+  ],
+  "nouns": [
+    {
+      "id": "ticket",
+      "singular": "Ticket",
+      "plural": "Tickets",
+      "question": "What do you call the requests people send you? (Tickets, Cases, Requests…)"
+    }
+  ],
+  "toggles": [
+    {
+      "id": "support_kind",
+      "kind": "choice",
+      "label": "What kind of support do you give?",
+      "help": "Sets the categories people choose from when they report something.",
+      "options": [
+        { "value": "software", "label": "Software or IT — incidents, bugs, access" },
+        { "value": "general", "label": "General customer service" }
+      ],
+      "default": "software"
+    },
+    {
+      "id": "ask_priority",
+      "kind": "boolean",
+      "label": "Let people say how urgent it is",
+      "help": "On: the form asks for a priority. Off: the form doesn't ask, and you set it yourself.",
+      "default": true
+    }
+  ],
+  "modules": [
+    {
+      "id": "known_issues",
+      "name": "Known issues",
+      "description": "Problems you already know about, their status and a workaround to send people."
+    }
+  ],
+  "policy": {
+    "title": "Before you send this",
+    "body": "We answer {ticket.plural} on working days, urgent incidents first. Please don't include passwords or payment card numbers — we will never ask for them."
+  },
+  "entities": [
+    {
+      "ref": "tickets",
+      "key": "tickets",
+      "name": "Tickets",
+      "noun": "ticket",
+      "fields": [
+        { "key": "name", "label": "Your name", "type": "text", "required": true },
+        { "key": "email", "label": "Email", "type": "email", "required": true },
+        { "key": "organisation", "label": "Company or team", "type": "text", "optional": true },
+        {
+          "key": "category",
+          "label": "What is it?",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Incident — something is down",
+            "Bug",
+            "Access or account",
+            "Question",
+            "Feature request"
+          ],
+          "when": [{ "toggle": "support_kind", "equals": "software" }]
+        },
+        {
+          "key": "category",
+          "label": "What is it?",
+          "type": "select",
+          "required": true,
+          "options": ["Problem", "Question", "Complaint", "Feedback"],
+          "when": [{ "toggle": "support_kind", "equals": "general" }]
+        },
+        {
+          "key": "priority",
+          "label": "Priority",
+          "type": "select",
+          "options": ["Low", "Normal", "High", "Urgent"]
+        },
+        { "key": "subject", "label": "Subject", "type": "text", "required": true },
+        { "key": "details", "label": "What happened?", "type": "longtext", "required": true },
+        {
+          "key": "steps",
+          "label": "Steps to reproduce",
+          "type": "longtext",
+          "optional": true,
+          "when": [{ "toggle": "support_kind", "equals": "software" }]
+        },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "options": ["New", "Open", "Waiting on customer", "Resolved", "Closed"]
+        },
+        { "key": "assignee", "label": "Assigned to", "type": "text" },
+        {
+          "key": "internal_notes",
+          "label": "Internal notes",
+          "type": "longtext",
+          "optional": true
+        }
+      ]
+    },
+    {
+      "ref": "known_issues",
+      "key": "known_issues",
+      "name": "Known issues",
+      "module": "known_issues",
+      "fields": [
+        { "key": "title", "label": "Issue", "type": "text", "required": true },
+        {
+          "key": "status",
+          "label": "Status",
+          "type": "select",
+          "required": true,
+          "options": ["Investigating", "Fix in progress", "Fixed", "Won't fix"]
+        },
+        { "key": "details", "label": "What's affected", "type": "longtext", "required": true },
+        { "key": "workaround", "label": "Workaround", "type": "longtext", "optional": true }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "entityRef": "tickets",
+      "when": [{ "toggle": "support_kind", "equals": "software" }],
+      "records": [
+        {
+          "data": {
+            "name": "Sample customer",
+            "email": "customer@example.com",
+            "category": "Bug",
+            "priority": "Normal",
+            "subject": "Example: export button does nothing",
+            "details": "This is an example ticket so you can see how one looks.\n\nDelete it once your first real one arrives.",
+            "steps": "1. Open the Reports page\n2. Press Export\n3. Nothing downloads",
+            "status": "New"
+          }
+        }
+      ]
+    },
+    {
+      "entityRef": "tickets",
+      "when": [{ "toggle": "support_kind", "equals": "general" }],
+      "records": [
+        {
+          "data": {
+            "name": "Sample customer",
+            "email": "customer@example.com",
+            "category": "Question",
+            "priority": "Normal",
+            "subject": "Example: when will my order arrive?",
+            "details": "This is an example ticket so you can see how one looks.\n\nDelete it once your first real one arrives.",
+            "status": "New"
+          }
+        }
+      ]
+    }
+  ],
+  "forms": [
+    {
+      "ref": "report",
+      "entityRef": "tickets",
+      "name": "Report an issue",
+      "slug": "report-an-issue",
+      "visibility": "public",
+      "when": [{ "toggle": "ask_priority", "equals": true }],
+      "fields": [
+        "name",
+        "email",
+        "organisation",
+        "category",
+        "priority",
+        "subject",
+        "details",
+        "steps"
+      ],
+      "terms": true
+    },
+    {
+      "ref": "report_unprioritised",
+      "entityRef": "tickets",
+      "name": "Report an issue",
+      "slug": "report-an-issue",
+      "visibility": "public",
+      "when": [{ "toggle": "ask_priority", "equals": false }],
+      "fields": ["name", "email", "organisation", "category", "subject", "details", "steps"],
+      "terms": true
+    },
+    {
+      "ref": "add_known_issue",
+      "entityRef": "known_issues",
+      "module": "known_issues",
+      "name": "Add a known issue",
+      "slug": "add-a-known-issue",
+      "visibility": "internal",
+      "fields": ["title", "status", "details", "workaround"]
+    }
+  ]
+}
