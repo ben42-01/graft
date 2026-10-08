@@ -62,6 +62,73 @@ that environment's env file with `SMTP_HOST=smtp.gmail.com` and `SMTP_PORT=465`.
 Gmail sends from your own address only and caps a consumer account at roughly 500
 recipients a day; replies go to the business through Reply-To.
 
+## Hosted QA on the Raspberry Pi
+
+A checklist of everything the Pi needs, in one place. Written from the repo, not yet
+walked through on the Pi itself — fix whatever turns out to differ.
+
+**1. Machine**
+
+- 64-bit OS, Node 20+, Docker with the compose plugin, git.
+- `mongo:7` needs an ARMv8.2 CPU: a Pi 5 is fine, a Pi 4 is not (use a 4.4 image or
+  point `MONGODB_URI` at Atlas instead).
+- The MinIO image is digest-pinned in `docker/docker-compose.qa.yml` (GRAFT-32):
+  confirm that digest has an `arm64` manifest. It runs as uid 65532, so the data
+  volume must be writable by it.
+
+**2. App**
+
+```bash
+git clone <repo> && cd graft && npm install   # generates .env.qa and JWT keys
+```
+
+Edit `.env.qa` (it is gitignored; `npm run setup` will not overwrite an existing file):
+
+| Variable | Set to |
+|---|---|
+| `APP_URL` | The public tunnel URL, no trailing slash — every email link, Stripe return URL and invite link is built from it |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASS` / `MAIL_FROM` | Gmail App Password (see [Email](#email)); unset = mail only logged to stdout |
+| `STRIPE_SECRET_KEY` | A real **test-mode** `sk_test_…` (the generated one is a dummy) |
+| `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` | From the two dashboard endpoints in step 4 — different values |
+| `STRIPE_PRICE_PREMIUM_MONTHLY` / `_ANNUAL` | Real test-mode price ids |
+
+Then `npm run qa:full` (db → indexes → fixtures → build → app on :3100). Note that
+`qa:db:down` deletes the volumes, so this stack is ephemeral by design. For a Pi that
+should keep its data, run the compose file without `-v`.
+
+**3. Public URL**
+
+The app keeps listening on `localhost:3100`; the tunnel sits in front of it.
+
+- Tailscale: `tailscale funnel 3100` gives `https://<host>.<tailnet>.ts.net`.
+- Cloudflare Tunnel (prod): point the hostname at `http://localhost:<port>`.
+
+Put that URL in `APP_URL` and restart (env is read once at startup). Smoke test:
+sign up → open the verification link from the email → log in → confirm the session
+cookie sticks over HTTPS.
+
+**4. Stripe (test mode)**
+
+Because the funnel is publicly reachable, the **Stripe CLI is not needed** on the Pi —
+use dashboard endpoints (full detail in [docs/STRIPE.md](docs/STRIPE.md)):
+
+1. Dashboard (test mode) → Connect → *Get started*, once.
+2. Developers → Webhooks → add `https://<APP_URL host>/api/v1/webhooks/stripe-connect`,
+   listening to **Events from connected accounts**: `checkout.session.completed`,
+   `checkout.session.async_payment_succeeded`, `account.updated`. Copy its signing
+   secret to `STRIPE_CONNECT_WEBHOOK_SECRET`.
+3. Add a second endpoint `…/api/v1/webhooks/stripe` (Premium billing) and copy its
+   secret to `STRIPE_WEBHOOK_SECRET`.
+4. Restart the app. Deliveries should show `200` on each endpoint's page in Stripe.
+
+The CLI (`stripe listen --forward-connect-to …`) is only for a laptop without a
+public URL.
+
+**5. Afterwards**
+
+`npm run db:migrate` and `npm run db:indexes` on any database that is not freshly
+created by `qa:full`.
+
 ## How Graft gets built
 
 Humans set direction, agents draft contracts, implement them from a queue, and
