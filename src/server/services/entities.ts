@@ -18,6 +18,7 @@
  */
 import { ObjectId, MongoServerError, type Filter } from "mongodb";
 import { z } from "zod";
+import { LONGTEXT_DEFAULT_MAX, LONGTEXT_HARD_MAX } from "@/lib/entities/field-types";
 import type { Ctx } from "@/server/context";
 import { AppError } from "@/server/http/envelope";
 import { clampLimit } from "@/server/http/pagination";
@@ -27,6 +28,14 @@ import { createRepository, type Repository } from "@/server/repositories/base";
 
 export const FIELD_TYPES = [
   "text",
+  /**
+   * Multi-line plain text — a description, a support ticket's details. Never
+   * markup: it is stored as typed and every surface renders it as text (React
+   * escapes it; the email layout escapes everything; CSV export quotes it and
+   * defuses formulas). So the only things checked here are size and the
+   * control characters no keyboard produces.
+   */
+  "longtext",
   "number",
   "date",
   "select",
@@ -172,6 +181,9 @@ function assertUniqueFieldKeys(fields: FieldDef[]): void {
   }
 }
 
+/** Anything but C0 controls other than tab, newline and carriage return. */
+const LONGTEXT_ALLOWED = /^[^\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]*$/;
+
 /**
  * AC2 — one field, one Zod type. Pure and side-effect-free so it is cheap to
  * call on every cache miss and easy to unit test in isolation.
@@ -184,6 +196,16 @@ export function compileFieldSchema(field: FieldDef): z.ZodTypeAny {
       if (field.min !== undefined) base = (base as z.ZodString).min(field.min);
       if (field.max !== undefined) base = (base as z.ZodString).max(field.max);
       break;
+    case "longtext": {
+      const max = Math.min(field.max ?? LONGTEXT_DEFAULT_MAX, LONGTEXT_HARD_MAX);
+      let str = z
+        .string()
+        .max(max)
+        .regex(LONGTEXT_ALLOWED, "Contains characters that can't be stored");
+      if (field.min !== undefined) str = str.min(field.min);
+      base = str;
+      break;
+    }
     case "number": {
       let num = z.number();
       if (field.min !== undefined) num = num.min(field.min);

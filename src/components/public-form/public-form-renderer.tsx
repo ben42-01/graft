@@ -52,6 +52,8 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { longtextMax } from "@/lib/entities/field-types";
 import {
   Select,
   SelectContent,
@@ -665,6 +667,18 @@ function renderInput(
           onChange={(e) => rhf.onChange(e.target.value)}
           onBlur={rhf.onBlur}
           name={rhf.name}
+        />
+      );
+    case "longtext":
+      return (
+        <Textarea
+          rows={5}
+          maxLength={longtextMax(field)}
+          value={(rhf.value as string) ?? ""}
+          onChange={(e) => rhf.onChange(e.target.value)}
+          onBlur={rhf.onBlur}
+          name={rhf.name}
+          aria-label={field.label}
         />
       );
     case "file":

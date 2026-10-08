@@ -188,8 +188,8 @@ function allText(plan: WorkspacePlan): string[] {
 }
 
 describe("WORKSPACE_TEMPLATES", () => {
-  it("ships the fifteen business templates", () => {
-    expect(WORKSPACE_TEMPLATES).toHaveLength(15);
+  it("ships the sixteen business templates", () => {
+    expect(WORKSPACE_TEMPLATES).toHaveLength(16);
     const ids = WORKSPACE_TEMPLATES.map((template) => template.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
@@ -530,8 +530,10 @@ describe("cart mode (GRAFT-30.5)", () => {
     return createHash("sha256").update(JSON.stringify(plans)).digest("hex").slice(0, 16);
   }
 
+  // Templates added after cart mode have no "before" to compare with.
   const others = WORKSPACE_TEMPLATES.filter(
-    (template) => !CART_TEMPLATES.some(([id]) => id === template.id),
+    (template) =>
+      !CART_TEMPLATES.some(([id]) => id === template.id) && template.id in DIGEST_BEFORE_CART,
   );
 
   it("leaves the thirteen other templates exactly as they were (AC6)", () => {

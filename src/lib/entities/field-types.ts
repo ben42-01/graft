@@ -15,6 +15,7 @@ export const UNOFFERED_FIELD_TYPES = ["file"] as const;
 
 export const FIELD_TYPE_OPTIONS = [
   { type: "text", label: "Text" },
+  { type: "longtext", label: "Long text" },
   { type: "number", label: "Number" },
   { type: "date", label: "Date" },
   { type: "select", label: "Choice list" },
@@ -26,6 +27,16 @@ export const FIELD_TYPE_OPTIONS = [
   // picture is the thing a public catalogue is built out of.
   { type: "image", label: "Image" },
 ] as const;
+
+/** A long-text value with no `max` of its own stops here… */
+export const LONGTEXT_DEFAULT_MAX = 5000;
+/** …and no `max` can lift it past this: a record is one Mongo document. */
+export const LONGTEXT_HARD_MAX = 20000;
+
+/** The most characters a long-text input should let through — the client's
+ * mirror of what `compileFieldSchema` enforces. */
+export const longtextMax = (field: { max?: number }): number =>
+  Math.min(field.max ?? LONGTEXT_DEFAULT_MAX, LONGTEXT_HARD_MAX);
 
 /** A field whose value is a media id rather than a literal — the client's
  * mirror of the server's `isMediaField`. */

@@ -25,6 +25,7 @@ export type FieldLike = {
   type: string;
   required?: boolean;
   options?: string[];
+  max?: number;
 };
 
 /** A field whose value is a media id the upload flow owns, not the form. */
@@ -100,6 +101,9 @@ export function toRecordPayload(
   return { ok: true, data };
 }
 
+/** How much of a long-text value a table cell shows before it is cut short. */
+export const LONGTEXT_CELL_CHARS = 80;
+
 /** One stored value as table-cell text. An image renders as a thumbnail, not
  * as text, so the table special-cases it before reaching here. */
 export function formatCell(value: unknown, field: FieldLike): string {
@@ -111,5 +115,10 @@ export function formatCell(value: unknown, field: FieldLike): string {
     return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString();
   }
   if (field.type === "number") return Number(value).toLocaleString();
+  if (field.type === "longtext") {
+    // A table row is one line: the whole text is in the record itself.
+    const flat = String(value).replace(/\s+/g, " ").trim();
+    return flat.length > LONGTEXT_CELL_CHARS ? `${flat.slice(0, LONGTEXT_CELL_CHARS)}…` : flat;
+  }
   return String(value);
 }

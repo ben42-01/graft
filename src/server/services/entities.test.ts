@@ -144,6 +144,28 @@ const seedDoc = (
 });
 
 describe("compileFieldSchema", () => {
+  it("keeps long text as plain multi-line text within its size", () => {
+    const long = field({ type: "longtext", key: "details", required: true });
+    expect(compileFieldSchema(long).safeParse("Line one\nLine two\r\n\tindented").success).toBe(
+      true,
+    );
+    // Markup is not refused — it is stored as typed and only ever rendered as text.
+    expect(compileFieldSchema(long).safeParse("<script>alert(1)</script>").success).toBe(true);
+    expect(compileFieldSchema(long).safeParse("a".repeat(5000)).success).toBe(true);
+    expect(compileFieldSchema(long).safeParse("a".repeat(5001)).success).toBe(false);
+    expect(compileFieldSchema(long).safeParse("bad\u0000byte").success).toBe(false);
+    expect(compileFieldSchema(long).safeParse("bell\u0007").success).toBe(false);
+    expect(compileFieldSchema(long).safeParse(5).success).toBe(false);
+  });
+
+  it("lets a long-text max lower the default but never lift it past the hard cap", () => {
+    const short = field({ type: "longtext", key: "d", required: true, max: 10 });
+    expect(compileFieldSchema(short).safeParse("a".repeat(11)).success).toBe(false);
+    const huge = field({ type: "longtext", key: "d", required: true, max: 1_000_000 });
+    expect(compileFieldSchema(huge).safeParse("a".repeat(20000)).success).toBe(true);
+    expect(compileFieldSchema(huge).safeParse("a".repeat(20001)).success).toBe(false);
+  });
+
   it("compiles every field type and rejects the wrong shape", () => {
     const cases: [FieldDef, unknown, boolean][] = [
       [field({ type: "text", required: true }), "hi", true],

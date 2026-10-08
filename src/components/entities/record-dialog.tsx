@@ -33,6 +33,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -49,6 +50,7 @@ import {
   type FieldLike,
   type FormValues,
 } from "@/lib/entities/record-values";
+import { longtextMax } from "@/lib/entities/field-types";
 import { ImageField } from "@/components/entities/image-field";
 import { DateField } from "@/components/ui/date-field";
 
@@ -216,6 +218,14 @@ export function RecordDialog({
                       ))}
                     </SelectContent>
                   </Select>
+                ) : field.type === "longtext" ? (
+                  <Textarea
+                    id={inputId}
+                    rows={5}
+                    maxLength={longtextMax(field)}
+                    value={typeof value === "string" ? value : ""}
+                    onChange={(event) => setValue(field.key, event.target.value)}
+                  />
                 ) : (
                   <Input
                     id={inputId}
