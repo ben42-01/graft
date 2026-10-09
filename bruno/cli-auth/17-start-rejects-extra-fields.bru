@@ -1,0 +1,25 @@
+meta {
+  name: Start refuses fields it does not know
+  type: http
+  seq: 17
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/device
+  body: json
+  auth: none
+}
+
+body:json {
+  { "tenantId": "000000000000000000000002" }
+}
+
+assert {
+  res.status: eq 400
+  res.body.error.code: eq VALIDATION_FAILED
+}
+
+docs {
+  A CLI cannot pick its own tenant or user — those come only from the
+  approving session.
+}

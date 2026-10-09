@@ -411,6 +411,159 @@
       ]
     },
     {
+      "id": "POST /api/v1/auth/device",
+      "method": "POST",
+      "path": "/api/v1/auth/device",
+      "group": "auth",
+      "params": [],
+      "auth": "public",
+      "summary": "the CLI starts a browser sign-in.",
+      "source": "src/app/api/v1/auth/device/route.ts",
+      "examples": [
+        {
+          "name": "CLI device sign-in starts",
+          "file": "bruno/cli-auth/01-start.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"client\": { \"name\": \"graft\", \"hostname\": \"qa-runner\", \"platform\": \"linux-x64\", \"version\": \"0.1.0\" } }"
+        },
+        {
+          "name": "A second request, to be denied",
+          "file": "bruno/cli-auth/13-deny-start.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{}"
+        },
+        {
+          "name": "Start refuses fields it does not know",
+          "file": "bruno/cli-auth/17-start-rejects-extra-fields.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"tenantId\": \"000000000000000000000002\" }"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/auth/device/decision",
+      "method": "POST",
+      "path": "/api/v1/auth/device/decision",
+      "group": "auth",
+      "params": [],
+      "auth": "session",
+      "summary": "approve or deny a CLI sign-in request.",
+      "source": "src/app/api/v1/auth/device/decision/route.ts",
+      "examples": [
+        {
+          "name": "The person approves",
+          "file": "bruno/cli-auth/07-approve.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"userCode\": \"{{cliUserCode}}\", \"decision\": \"approve\" }"
+        },
+        {
+          "name": "A request is decided only once",
+          "file": "bruno/cli-auth/08-decide-twice.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"userCode\": \"{{cliUserCode}}\", \"decision\": \"deny\" }"
+        },
+        {
+          "name": "The person denies it",
+          "file": "bruno/cli-auth/14-deny.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"userCode\": \"{{cliDeniedUserCode}}\", \"decision\": \"deny\" }"
+        },
+        {
+          "name": "Deciding a code nobody requested finds nothing",
+          "file": "bruno/cli-auth/18-decide-unknown-code.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"userCode\": \"BBBB-BBBB\", \"decision\": \"approve\" }"
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/auth/device/lookup",
+      "method": "POST",
+      "path": "/api/v1/auth/device/lookup",
+      "group": "auth",
+      "params": [],
+      "auth": "session",
+      "summary": "the approval page reads a pending request.",
+      "source": "src/app/api/v1/auth/device/lookup/route.ts",
+      "examples": [
+        {
+          "name": "Looking up a CLI request needs a session",
+          "file": "bruno/cli-auth/04-lookup-needs-session.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"userCode\": \"{{cliUserCode}}\" }"
+        },
+        {
+          "name": "The approval page sees which client is asking",
+          "file": "bruno/cli-auth/06-lookup.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        }
+      ]
+    },
+    {
+      "id": "POST /api/v1/auth/device/token",
+      "method": "POST",
+      "path": "/api/v1/auth/device/token",
+      "group": "auth",
+      "params": [],
+      "auth": "public",
+      "summary": "the CLI polls until its request is approved.",
+      "source": "src/app/api/v1/auth/device/token/route.ts",
+      "examples": [
+        {
+          "name": "CLI poll before approval is pending",
+          "file": "bruno/cli-auth/02-poll-pending.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"deviceCode\": \"{{cliDeviceCode}}\" }"
+        },
+        {
+          "name": "CLI polling faster than allowed is told to slow down",
+          "file": "bruno/cli-auth/03-poll-slow-down.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"deviceCode\": \"{{cliDeviceCode}}\" }"
+        },
+        {
+          "name": "The CLI collects an ordinary session",
+          "file": "bruno/cli-auth/09-poll-approved.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"deviceCode\": \"{{cliDeviceCode}}\" }"
+        },
+        {
+          "name": "The device code is single use",
+          "file": "bruno/cli-auth/10-poll-consumed.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"deviceCode\": \"{{cliDeviceCode}}\" }"
+        },
+        {
+          "name": "A denied request is FORBIDDEN to the CLI",
+          "file": "bruno/cli-auth/15-poll-denied.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"deviceCode\": \"{{cliDeniedDeviceCode}}\" }"
+        },
+        {
+          "name": "An unknown device code is UNAUTHORIZED",
+          "file": "bruno/cli-auth/16-poll-unknown.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"deviceCode\": \"not-a-real-device-code-0000000000000000000\" }"
+        }
+      ]
+    },
+    {
       "id": "POST /api/v1/auth/login",
       "method": "POST",
       "path": "/api/v1/auth/login",
@@ -433,6 +586,13 @@
           "pathParams": {},
           "query": {},
           "body": "{\n  \"email\": \"both@qa.test\",\n  \"password\": \"{{qaPassword}}\"\n}"
+        },
+        {
+          "name": "The approver logs in (browser side)",
+          "file": "bruno/cli-auth/05-approver-login.bru",
+          "pathParams": {},
+          "query": {},
+          "body": "{ \"email\": \"owner@qa-premium.test\", \"password\": \"{{qaPassword}}\" }"
         },
         {
           "name": "A spent budget answers 429 RATE_LIMITED with the full header set",
@@ -517,6 +677,13 @@
         {
           "name": "Refresh rotates the session",
           "file": "bruno/auth/refresh.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "The CLI refreshes through the ordinary refresh endpoint",
+          "file": "bruno/cli-auth/12-cli-refreshes.bru",
           "pathParams": {},
           "query": {},
           "body": null
@@ -1875,6 +2042,13 @@
         {
           "name": "A trialling tenant reports days remaining on /me",
           "file": "bruno/billing/trial-days-remaining.bru",
+          "pathParams": {},
+          "query": {},
+          "body": null
+        },
+        {
+          "name": "The CLI's access token works as a Bearer token",
+          "file": "bruno/cli-auth/11-cli-calls-api.bru",
           "pathParams": {},
           "query": {},
           "body": null

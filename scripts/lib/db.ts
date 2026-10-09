@@ -77,6 +77,10 @@ export const COLLECTIONS = [
   // Team invite links (GRAFT-33.1). Hashes only, same as the token collections
   // above; listed so a reset clears them and the QA emptiness check covers them.
   "invites",
+  // CLI browser sign-in requests (device authorization grant). Global — a
+  // request belongs to no tenant until approved — and short-lived; listed so a
+  // reset clears them and the QA emptiness check covers them.
+  "device_authorizations",
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];

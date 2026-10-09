@@ -1,0 +1,20 @@
+meta {
+  name: Looking up a CLI request needs a session
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/device/lookup
+  body: json
+  auth: none
+}
+
+body:json {
+  { "userCode": "{{cliUserCode}}" }
+}
+
+assert {
+  res.status: eq 401
+  res.body.error.code: eq UNAUTHORIZED
+}

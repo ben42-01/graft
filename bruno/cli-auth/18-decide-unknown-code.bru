@@ -1,0 +1,24 @@
+meta {
+  name: Deciding a code nobody requested finds nothing
+  type: http
+  seq: 18
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/device/decision
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{cliApproverToken}}
+}
+
+body:json {
+  { "userCode": "BBBB-BBBB", "decision": "approve" }
+}
+
+assert {
+  res.status: eq 404
+  res.body.error.code: eq NOT_FOUND
+}

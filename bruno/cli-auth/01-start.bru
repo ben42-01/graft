@@ -1,0 +1,45 @@
+meta {
+  name: CLI device sign-in starts
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/device
+  body: json
+  auth: none
+}
+
+body:json {
+  { "client": { "name": "graft", "hostname": "qa-runner", "platform": "linux-x64", "version": "0.1.0" } }
+}
+
+assert {
+  res.status: eq 201
+  res.body.data.deviceCode: isString
+  res.body.data.userCode: isString
+  res.body.data.expiresIn: eq 600
+  res.body.data.interval: eq 5
+}
+
+script:post-response {
+  bru.setVar("cliDeviceCode", res.body.data.deviceCode);
+  bru.setVar("cliUserCode", res.body.data.userCode);
+}
+
+tests {
+  const data = res.getBody().data;
+
+  test("the user code is short, dashed and vowel-free", function () {
+    expect(data.userCode).to.match(/^[BCDFGHJKLMNPQRSTVWXZ]{4}-[BCDFGHJKLMNPQRSTVWXZ]{4}$/);
+  });
+
+  test("the verification link never carries the code (anti-phishing)", function () {
+    expect(data.verificationUri).to.match(/\/device$/);
+    expect(data.verificationUri).to.not.contain(data.userCode);
+  });
+
+  test("the device code is long and opaque", function () {
+    expect(data.deviceCode.length).to.be.at.least(40);
+  });
+}

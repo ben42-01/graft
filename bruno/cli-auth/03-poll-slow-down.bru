@@ -1,0 +1,26 @@
+meta {
+  name: CLI polling faster than allowed is told to slow down
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/device/token
+  body: json
+  auth: none
+}
+
+body:json {
+  { "deviceCode": "{{cliDeviceCode}}" }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq slow_down
+  res.body.data.interval: gt 5
+}
+
+docs {
+  Runs well inside MIN_POLL_GAP_MS (2s) of 02-poll-pending.bru: the suite's
+  --delay is 500ms.
+}
