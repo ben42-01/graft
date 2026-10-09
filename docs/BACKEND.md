@@ -55,6 +55,7 @@
 - Access token delivered to the browser app via httpOnly cookie as well (not localStorage — XSS-safe); `Authorization: Bearer` supported for the public API / connectors.
 - Key rotation via JWKS endpoint; `kid` in header. Revocation: short expiry + a small deny-list (jti) in Redis for logout-everywhere.
 - Multi-tenant switching: user picks tenant → new access token minted with that `tid`. One token = one tenant, always.
+- **CLI sign-in (device authorization grant, RFC 8628).** `POST /auth/device` → the CLI shows a short code; the person types it at `/device` in a signed-in browser and approves (`/auth/device/lookup`, `/auth/device/decision`); the CLI polls `/auth/device/token` and receives an ordinary session — the refresh token in the body, since a CLI has no cookie jar. From then on it refreshes through the normal `/auth/refresh` by sending that token as the `graft_refresh` cookie, so there is no second kind of credential. The approval binds the session to the approver's user and current tenant; roles and tier are re-read at issue time. The code is always typed, never carried in a link (device-code phishing). Codes live 10 minutes, the device code is stored hashed and is single use. `src/server/services/device-auth.ts`, `bruno/cli-auth/`. Personal API keys are deliberately a later release.
 
 ### 3.2 Authorization
 

@@ -1,0 +1,21 @@
+meta {
+  name: A denied request is FORBIDDEN to the CLI
+  type: http
+  seq: 15
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/device/token
+  body: json
+  auth: none
+}
+
+body:json {
+  { "deviceCode": "{{cliDeniedDeviceCode}}" }
+}
+
+assert {
+  res.status: eq 403
+  res.body.error.code: eq FORBIDDEN
+  res.body.data: isUndefined
+}

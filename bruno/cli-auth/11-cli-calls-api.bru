@@ -1,0 +1,21 @@
+meta {
+  name: The CLI's access token works as a Bearer token
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{baseUrl}}/api/v1/me
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{cliAccessToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.user.email: eq owner@qa-premium.test
+  res.body.data.tenant.id: eq "000000000000000000000002"
+}

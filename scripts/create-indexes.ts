@@ -195,6 +195,27 @@ const INDEXES: IndexDef[] = [
   // history the owner may still want to see, and it holds no seat.
   { collection: "invites", keys: { tokenHash: 1 }, options: { unique: true } },
   { collection: "invites", keys: { tenantId: 1 } },
+
+  // CLI device sign-in (src/server/services/device-auth.ts). The CLI polls by
+  // the hash of its secret code, so one hash must never match two rows. The
+  // short userCode is unique only among *pending* rows: once a request is
+  // decided or expired its code may be generated again. TTL a day after expiry
+  // — the service refuses expired requests itself, this only reclaims space.
+  {
+    collection: "device_authorizations",
+    keys: { deviceCodeHash: 1 },
+    options: { unique: true },
+  },
+  {
+    collection: "device_authorizations",
+    keys: { userCode: 1 },
+    options: { unique: true, partialFilterExpression: { status: "pending" } },
+  },
+  {
+    collection: "device_authorizations",
+    keys: { expiresAt: 1 },
+    options: { expireAfterSeconds: 60 * 60 * 24 },
+  },
 ];
 
 async function main() {

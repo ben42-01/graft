@@ -1,0 +1,53 @@
+meta {
+  name: The CLI collects an ordinary session
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/device/token
+  body: json
+  auth: none
+}
+
+body:json {
+  { "deviceCode": "{{cliDeviceCode}}" }
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.status: eq approved
+  res.body.data.accessToken: isString
+  res.body.data.refreshToken: isString
+  res.body.data.refreshExpiresIn: eq 2592000
+}
+
+script:post-response {
+  bru.setVar("cliAccessToken", res.body.data.accessToken);
+  bru.setVar("cliRefreshToken", res.body.data.refreshToken);
+}
+
+tests {
+  test("a session-bearing response is never cached", function () {
+    expect(res.getHeader("cache-control")).to.equal("no-store");
+  });
+
+  const data = res.getBody().data;
+  const claims = JSON.parse(Buffer.from(data.accessToken.split(".")[1], "base64url").toString());
+
+  test("the session is the approver's, in the approver's workspace", function () {
+    expect(claims.sub).to.equal("00000000000000000000000c");
+    expect(claims.tid).to.equal("000000000000000000000002");
+    expect(claims.roles).to.eql(["owner"]);
+    expect(claims.tier).to.equal("premium");
+    expect(claims.exp - claims.iat).to.equal(900);
+  });
+
+  test("the refresh token routes to that tenant, like every refresh token", function () {
+    expect(data.refreshToken.split(".")[0]).to.equal("000000000000000000000002");
+  });
+
+  test("no cookies — a CLI has no jar", function () {
+    expect(res.getHeader("set-cookie")).to.equal(undefined);
+  });
+}

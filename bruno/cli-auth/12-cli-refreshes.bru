@@ -1,0 +1,30 @@
+meta {
+  name: The CLI refreshes through the ordinary refresh endpoint
+  type: http
+  seq: 12
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/refresh
+  body: none
+  auth: none
+}
+
+headers {
+  Cookie: graft_refresh={{cliRefreshToken}}
+}
+
+assert {
+  res.status: eq 200
+  res.body.data.accessToken: isString
+}
+
+tests {
+  test("a rotated refresh token comes back in Set-Cookie for the CLI to keep", function () {
+    const setCookie = res.getHeader("set-cookie");
+    const cookies = Array.isArray(setCookie) ? setCookie : [setCookie];
+    const refresh = cookies.find((c) => c && c.startsWith("graft_refresh="));
+    expect(refresh).to.be.a("string");
+    expect(refresh.split(";")[0].split("=")[1]).to.not.equal(bru.getVar("cliRefreshToken"));
+  });
+}

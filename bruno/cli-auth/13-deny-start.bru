@@ -1,0 +1,24 @@
+meta {
+  name: A second request, to be denied
+  type: http
+  seq: 13
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/device
+  body: json
+  auth: none
+}
+
+body:json {
+  {}
+}
+
+assert {
+  res.status: eq 201
+}
+
+script:post-response {
+  bru.setVar("cliDeniedDeviceCode", res.body.data.deviceCode);
+  bru.setVar("cliDeniedUserCode", res.body.data.userCode);
+}

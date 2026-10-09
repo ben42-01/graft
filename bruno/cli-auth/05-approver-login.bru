@@ -1,0 +1,23 @@
+meta {
+  name: The approver logs in (browser side)
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{baseUrl}}/api/v1/auth/login
+  body: json
+  auth: none
+}
+
+body:json {
+  { "email": "owner@qa-premium.test", "password": "{{qaPassword}}" }
+}
+
+assert {
+  res.status: eq 200
+}
+
+script:post-response {
+  bru.setVar("cliApproverToken", res.body.data.accessToken);
+}

@@ -119,7 +119,8 @@ export const ACTIVITY_REGISTRY = {
       "password_reset_completed",
     ] as const,
     context: z.object({
-      method: z.enum(["password", "oauth"]).optional(),
+      // `device`: the CLI's browser sign-in (services/device-auth.ts).
+      method: z.enum(["password", "oauth", "device"]).optional(),
     }),
   },
   entity: {
