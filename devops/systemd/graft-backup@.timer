@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Graft backup (%i)
+
+[Timer]
+OnCalendar=*-*-* 03:15
+RandomizedDelaySec=15m
+# Run at next boot if the machine was off at 03:15.
+Persistent=true
+
+[Install]
+WantedBy=timers.target

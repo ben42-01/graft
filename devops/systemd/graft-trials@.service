@@ -1,0 +1,11 @@
+# Trial expiry (scripts/expire-trials.ts, docs/GO-LIVE.md §4). Idempotent: a
+# downgraded trial has trialEndsAt cleared, so a second run selects nothing.
+[Unit]
+Description=Graft trial expiry (%i)
+
+[Service]
+Type=oneshot
+Environment=PATH=@NODE_DIR@:/usr/local/bin:/usr/bin:/bin
+Environment=GRAFT_ROOT=@ROOT@
+ExecStart=@ROOT@/%i/current/devops/ops job %i expire-trials
+SyslogIdentifier=graft-trials-%i

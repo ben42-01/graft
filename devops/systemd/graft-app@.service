@@ -1,0 +1,24 @@
+# Graft app for one hosted environment (%i = qa | prod). Installed by
+# `ops units <env> install` into ~/.config/systemd/user; @ROOT@ and @NODE_DIR@
+# are filled in at install time. A user unit, so deploys restart it without
+# sudo; `loginctl enable-linger` keeps it running with nobody logged in.
+[Unit]
+Description=Graft app (%i)
+Documentation=file://@ROOT@/%i/current/devops/README.md
+After=network-online.target
+
+[Service]
+Type=simple
+# `current` is resolved when the service starts, so a deploy is: switch the
+# symlink, restart this unit.
+WorkingDirectory=@ROOT@/%i/current
+Environment=PATH=@NODE_DIR@:/usr/local/bin:/usr/bin:/bin
+ExecStart=@ROOT@/%i/current/node_modules/.bin/dotenv -e @ROOT@/%i/shared/.env -- @ROOT@/%i/current/node_modules/.bin/next start
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+# Logs go to the journal: `ops logs <env> app`.
+SyslogIdentifier=graft-%i
+
+[Install]
+WantedBy=default.target
