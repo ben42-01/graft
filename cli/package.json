@@ -1,0 +1,20 @@
+{
+  "name": "@graft/cli",
+  "version": "0.1.0",
+  "description": "Graft from the terminal: sign in with your browser, then work with your workspace's records, forms, orders and more.",
+  "type": "module",
+  "bin": {
+    "graft": "dist/main.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs"
+  },
+  "license": "Apache-2.0"
+}
