@@ -1,0 +1,8 @@
+{
+  "name": "graft",
+  "version": "0.1.0",
+  "description": "Graft for Claude: answers questions about Graft from its docs, and reads or changes your workspace through the graft CLI, handing bulky read-only lookups to a cheaper helper model.",
+  "author": { "name": "Graft" },
+  "license": "Apache-2.0",
+  "keywords": ["graft", "business management", "crm", "bookings", "orders"]
+}

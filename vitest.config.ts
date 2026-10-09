@@ -11,6 +11,7 @@ export default defineConfig({
       "scripts/**/*.test.ts",
       "devops/**/*.test.ts",
       "cli/**/*.test.ts",
+      "plugins/**/*.test.ts",
     ],
     exclude: ["**/node_modules/**", "**/*.integration.test.ts"],
     coverage: {

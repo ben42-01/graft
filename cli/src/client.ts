@@ -40,6 +40,22 @@ export class AuthRequired extends Error {
   }
 }
 
+/**
+ * GRAFT_READONLY=1: every request except GET is refused before it is sent.
+ * For anything that should only ever look — a helper agent on a cheaper
+ * model, a reporting script — so "read-only" is enforced, not requested.
+ * Token refresh still works; it is housekeeping, not a change to your data.
+ */
+export const readOnly = (env: NodeJS.ProcessEnv) =>
+  /^(1|true|yes)$/i.test(env.GRAFT_READONLY ?? "");
+
+export class ReadOnlyRefused extends Error {
+  constructor(what: string) {
+    super(`GRAFT_READONLY is set — refusing ${what}. Only GET requests are allowed.`);
+    this.name = "ReadOnlyRefused";
+  }
+}
+
 export type Envelope = {
   data: unknown;
   meta: Record<string, unknown>;
@@ -158,6 +174,9 @@ export class GraftClient {
   }
 
   async request(method: string, path: string, options: RequestOptions = {}): Promise<Envelope> {
+    if (readOnly(this.deps.env) && method.toUpperCase() !== "GET") {
+      throw new ReadOnlyRefused(`${method.toUpperCase()} ${path}`);
+    }
     const send = (token: string | null) =>
       this.raw(method, path, {
         ...options,

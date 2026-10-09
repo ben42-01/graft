@@ -180,3 +180,26 @@ describe("sessions", () => {
     expect(readFileSync(join(dir, "config.json"), "utf8")).toContain("t.refresh-1");
   });
 });
+
+describe("GRAFT_READONLY", () => {
+  it("refuses anything but GET before it reaches the network", async () => {
+    seed(session());
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => json(200, { data: {} }));
+    const ro = client(fetch, { GRAFT_READONLY: "1" });
+    for (const method of ["POST", "PATCH", "PUT", "DELETE"]) {
+      await expect(ro.request(method, "/api/v1/orders")).rejects.toThrow(/GRAFT_READONLY/);
+    }
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(ro.request("GET", "/api/v1/orders")).resolves.toMatchObject({ data: {} });
+  });
+
+  it("still refreshes an expiring token — that is not a change to your data", async () => {
+    seed(session({ accessExpiresAt: later(0) }));
+    const fetch = vi.fn<typeof globalThis.fetch>(async (url) =>
+      String(url).endsWith("/auth/refresh") ? refreshed(2) : json(200, { data: 1 }),
+    );
+    await expect(
+      client(fetch, { GRAFT_READONLY: "true" }).request("GET", "/api/v1/me"),
+    ).resolves.toMatchObject({ data: 1 });
+  });
+});

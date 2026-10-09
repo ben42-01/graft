@@ -1,0 +1,11 @@
+{
+  "name": "graft",
+  "owner": { "name": "Graft" },
+  "plugins": [
+    {
+      "name": "graft",
+      "source": "./plugins/graft",
+      "description": "The Graft skill: Graft knowledge plus your workspace through the graft CLI."
+    }
+  ]
+}

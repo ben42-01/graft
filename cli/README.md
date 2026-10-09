@@ -40,7 +40,7 @@ graft entities list
 graft entities records list <entityId> --all   # every page
 graft entities records create <entityId> --set name="Ada" --set email=ada@example.com
 graft orders get <orderId>
-graft orders transitions <orderId> -d '{"to":"confirmed"}'
+graft orders transitions <orderId> -d '{"status":"confirmed"}'
 graft forms publish <formId>
 graft reports summary get
 
@@ -75,6 +75,7 @@ would treat as token theft and sign you out).
 | `GRAFT_URL` | Server URL, overriding the profile's |
 | `GRAFT_PROFILE` | Default profile |
 | `GRAFT_TOKEN` | An access token to use as-is (never refreshed), for one-off scripts |
+| `GRAFT_READONLY` | `1` refuses every request except GET (and login/logout): for reporting scripts and helper agents that must only look |
 | `GRAFT_NO_BROWSER` | Never try to open a browser |
 | `NO_COLOR` | Plain output |
 

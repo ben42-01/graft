@@ -110,3 +110,23 @@ describe("run", () => {
     expect(await run(["whoami"], io, { ...env(), GRAFT_URL: "http://127.0.0.1:9" })).toBe(3);
   });
 });
+
+describe("read-only mode", () => {
+  const env = () =>
+    ({
+      GRAFT_CONFIG_DIR: mkdtempSync(join(tmpdir(), "graft-cli-")),
+      GRAFT_READONLY: "1",
+      GRAFT_URL: "http://127.0.0.1:9",
+    }) as unknown as NodeJS.ProcessEnv;
+
+  it.each([["login"], ["logout"]])("refuses graft %s", async (cmd) => {
+    const { io, err } = capture();
+    expect(await run([cmd], io, env())).toBe(4);
+    expect(err.join("\n")).toContain("GRAFT_READONLY");
+  });
+
+  it("refuses a create before asking anything", async () => {
+    const { io } = capture();
+    expect(await run(["orders", "create", "-d", "{}"], io, env())).toBe(4);
+  });
+});
