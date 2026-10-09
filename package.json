@@ -19,6 +19,7 @@
     "ops": "bash devops/ops",
     "cli": "tsx cli/src/main.ts",
     "cli:build": "node cli/scripts/build.mjs",
+    "skill:sync-docs": "node plugins/graft/scripts/sync-docs.mjs",
     "dev:full": "npm run dev:db && npm run dev:seed && npm run dev",
     "qa:db": "docker compose --env-file .env.qa -f docker/docker-compose.qa.yml up -d --wait",
     "qa:db:down": "docker compose --env-file .env.qa -f docker/docker-compose.qa.yml down -v",

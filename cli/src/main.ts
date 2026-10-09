@@ -29,6 +29,8 @@ import {
   ApiError,
   AuthRequired,
   GraftClient,
+  ReadOnlyRefused,
+  readOnly,
   refreshFromSetCookie,
   type Envelope,
 } from "./client.js";
@@ -378,6 +380,11 @@ export async function run(
         if (rest.length) return run([...rest, "--help"], io, env);
         io.w.out(usage(commands, io.w));
         return 0;
+      case "login":
+      case "logout":
+        if (readOnly(env)) throw new ReadOnlyRefused(`graft ${first}`);
+    }
+    switch (first) {
       case "login": {
         const baseUrl = flags.url ?? env.GRAFT_URL ?? client.profile()?.baseUrl;
         if (!baseUrl)
@@ -510,6 +517,10 @@ export function report(error: unknown, w: Writer): number {
   if (error instanceof UsageError) {
     w.err(red(w, `error: ${error.message}`));
     return 2;
+  }
+  if (error instanceof ReadOnlyRefused) {
+    w.err(red(w, error.message));
+    return 4;
   }
   if (error instanceof AuthRequired) {
     w.err(red(w, error.message));
