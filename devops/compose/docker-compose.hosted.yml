@@ -1,0 +1,116 @@
+# Graft — data stack for a *hosted* environment (QA box, production box).
+#
+# Not the same file as docker/docker-compose.qa.yml, on purpose. That one is the
+# test stack: no volumes, wiped by `down -v`, and `qa:seed` refuses to run on a
+# database that already holds data. A box people sign up on needs the opposite:
+#
+#   - named volumes, so data survives restarts, reboots and redeploys
+#   - restart policies, so a reboot brings everything back without a human
+#   - every port bound to 127.0.0.1 — Docker writes its own iptables rules and
+#     skips ufw, so "0.0.0.0:27017" would publish Mongo to the whole LAN (or
+#     the internet, on a VPS) no matter what the firewall says
+#   - Redis with a password and append-only persistence (rate-limit counters
+#     and the refresh-token deny-list should survive a restart)
+#   - bounded container logs, so a chatty container cannot fill the disk
+#
+# devops/ops copies this file, docker/mongo-init/ and docker/mongo-entrypoint.sh
+# into $GRAFT_ROOT/<env>/shared/stack/ on every deploy and runs it from there,
+# so bind mounts never point into a release directory that will be pruned.
+# Everything is interpolated from shared/.env; run it through `ops stack`.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  mongo:
+    image: mongo:7
+    # Same single-node replica set as dev/QA — see docker/docker-compose.dev.yml
+    # for why it is a replica set and why the keyfile goes through the wrapper.
+    entrypoint: ["/graft/mongo-entrypoint.sh"]
+    command: ["--auth", "--replSet", "rs0", "--keyFile", "/tmp/graft-mongo-keyfile"]
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      - "127.0.0.1:${MONGO_PORT:?set in shared/.env}:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set in shared/.env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set in shared/.env}
+      MONGO_INITDB_DATABASE: ${MONGO_DB:?set in shared/.env}
+      GRAFT_APP_USER: ${MONGO_APP_USER:-graft_app}
+      GRAFT_APP_PASSWORD: ${MONGO_APP_PASSWORD:?set in shared/.env}
+    volumes:
+      - mongo_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d:ro
+      - ../keys/mongo:/etc/graft/keys:ro
+      - ./mongo-entrypoint.sh:/graft/mongo-entrypoint.sh:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          'mongosh --quiet -u "$$MONGO_INITDB_ROOT_USERNAME" -p "$$MONGO_INITDB_ROOT_PASSWORD" --eval "db.adminCommand(''ping'')"',
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    logging: *logging
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--requirepass",
+        "${REDIS_PASSWORD:?set in shared/.env}",
+      ]
+    environment:
+      # Read by redis-cli, so the healthcheck and `ops shell <env> redis`
+      # authenticate without the password appearing in a process list.
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    ports:
+      - "127.0.0.1:${REDIS_PORT:?set in shared/.env}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    # The same digest-pinned Chainguard image as docker/ (GRAFT-32) — keep the
+    # two in step. Runs as uid 65532; a named volume is created with the right
+    # owner, a bind mount would need a chown.
+    image: cgr.dev/chainguard/minio@sha256:6a1d0b45c8669726bba580ced0bfa4cb9fdeed1ed636dfabd81d1577beb6937b
+    command: ["server", "/data", "--console-address", ":9001"]
+    restart: unless-stopped
+    logging: *logging
+    ports:
+      # The S3 API. Browsers reach it through a tunnel, never directly: see
+      # S3_ENDPOINT in devops/README.md.
+      - "127.0.0.1:${S3_PORT:?set in shared/.env}:9000"
+      # The console. Reach it over `ssh -L` or the tailnet, never the funnel.
+      - "127.0.0.1:${S3_CONSOLE_PORT:?set in shared/.env}:9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?set in shared/.env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?set in shared/.env}
+      MINIO_API_CORS_ALLOW_ORIGIN: ${APP_URL:?set in shared/.env}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  mongo_data:
+  redis_data:
+  minio_data:

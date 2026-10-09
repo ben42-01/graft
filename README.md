@@ -64,6 +64,11 @@ recipients a day; replies go to the business through Reply-To.
 
 ## Hosted QA on the Raspberry Pi
 
+> **Now scripted:** [`devops/`](devops/README.md) turns the checklist below into
+> commands: `devops/ops host init qa`, `ops deploy qa` (with auto-rollback), nightly
+> backups, `ops status`, and read-only support lookups. It also moves the Pi off the
+> throwaway QA test stack onto a persistent one ([how](devops/README.md#moving-the-current-pi-off-the-test-stack)).
+
 A checklist of everything the Pi needs, in one place. Written from the repo, not yet
 walked through on the Pi itself — fix whatever turns out to differ.
 

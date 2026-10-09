@@ -1,0 +1,10 @@
+# Nightly backup of one hosted environment. Triggered by graft-backup@.timer.
+[Unit]
+Description=Graft backup (%i)
+
+[Service]
+Type=oneshot
+Environment=PATH=@NODE_DIR@:/usr/local/bin:/usr/bin:/bin
+Environment=GRAFT_ROOT=@ROOT@
+ExecStart=@ROOT@/%i/current/devops/ops backup %i
+SyslogIdentifier=graft-backup-%i

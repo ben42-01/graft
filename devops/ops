@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# ops — one entry point for running Graft outside a developer's editor.
+# See devops/README.md. Every subcommand lives in devops/cmd/<name>.sh.
+#
+#   devops/ops help
+#   devops/ops status qa
+#   devops/ops @pi status qa        # the same, over ssh, on the host "pi"
+set -euo pipefail
+
+# shellcheck source=devops/lib/common.sh
+source "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/lib/common.sh"
+
+usage() {
+  cat <<EOF
+$(bold "ops") — Graft operations toolkit            $(dim "devops/README.md")
+
+$(bold "Usage:") ops [@host] <command> <env> [args]      env = dev | qa | prod
+
+$(bold "Machine")
+  doctor [env]              What is installed, what is missing, what is wrong
+  install [tools...]        Install prerequisites (node docker tailscale stripe cloudflared ...)
+
+$(bold "Environment")
+  host init <env>           Create the hosted layout under \$GRAFT_ROOT/<env> (default /srv/graft)
+  env init <env>            Generate a hosted env file with fresh secrets
+  env check <env>           Validate an env file against the rules that have bitten us
+  env edit <env>            Open the env file in \$EDITOR, then re-check it
+
+$(bold "Run")
+  stack <env> up|down|ps|restart   The Mongo / Redis / MinIO containers
+  deploy <env> [ref]        Build a release, migrate, switch, health-check, auto-rollback
+  rollback <env>            Switch back to the previous release
+  releases <env>            List releases and deploy history
+  app <env> start|stop|restart|status   The app process (systemd user unit)
+  job <env> expire-trials   Run a scheduled job now (the timer runs it hourly)
+  units <env> install|remove        Install the systemd units (app, nightly backup, trial expiry)
+
+$(bold "Observe")
+  status <env>              One screen: app, containers, disk, backups, release, tunnel
+  logs <env> [app|mongo|redis|minio] [-f] [--request ID] [--tenant ID] [--errors] [--since 1h]
+
+$(bold "Data")
+  backup <env>              Mongo dump + bucket copy into shared/backups (keeps 14)
+  backups <env>             List backups
+  restore <env> <backup>    Restore a backup (takes a safety backup first)
+
+$(bold "Support")             $(dim "read-only by default, every call audited")
+  support <env> user <email>          Account, memberships, verification, admin flag
+  support <env> tenant <id|slug|email> Workspace, billing, members, counts, recent activity
+  support <env> find <collection> '<json filter>' [--limit N]
+  support <env> request <requestId>   Every log line for one request
+  support <env> grant-readonly        Create the read-only Mongo user support tools use
+  shell <env> mongo|redis|minio|app [--write]   Interactive shell (Mongo is read-only unless --write)
+
+$(bold "Integrations")
+  stripe <env> check|listen          Key mode, webhook endpoints vs APP_URL, price ids
+  tunnel <env> status|up|down        Tailscale Funnel in front of the app port
+
+$(bold "Remote")
+  ops @<ssh-host> <command> ...      Runs ops on that machine (\$GRAFT_ROOT/<env>/current/devops/ops)
+EOF
+}
+
+# @host → re-run the same command on another machine over ssh. Tailscale SSH
+# makes "pi" a valid host name with no keys to manage.
+if [[ "${1:-}" == @* ]]; then
+  host="${1#@}"
+  shift
+  [[ -n "$host" ]] || die "@ needs a host name"
+  remote_root="${GRAFT_REMOTE_ROOT:-/srv/graft}"
+  # Prefer the live release's copy of ops; fall back to the clone a fresh host
+  # was initialised from. printf %q keeps arguments intact across the hop.
+  exec ssh -t "$host" "ops=\$(ls -d $remote_root/*/current/devops/ops $remote_root/*/repo/devops/ops 2>/dev/null | head -1);
+    [ -n \"\$ops\" ] || { echo 'ops: not installed under $remote_root on $host' >&2; exit 1; };
+    GRAFT_ROOT=$remote_root exec \"\$ops\" $(printf '%q ' "$@")"
+fi
+
+cmd="${1:-help}"
+shift || true
+case "$cmd" in
+  help | -h | --help) usage ;;
+  rollback | releases) file=deploy ;;
+  job) file=app ;;
+  backups | restore) file=backup ;;
+  host | env | stack | deploy | app | units | status | logs | backup | support | shell | stripe | tunnel | doctor | install)
+    file="$cmd" ;;
+  *)
+    usage >&2
+    die "unknown command '$cmd'"
+    ;;
+esac
+if [[ -n "${file:-}" ]]; then
+  # shellcheck source=/dev/null
+  source "$OPS_DIR/cmd/$file.sh"
+  "cmd_${cmd}" "$@"
+fi
